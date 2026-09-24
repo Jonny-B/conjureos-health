@@ -12,10 +12,14 @@ name: Publish to ConjureOS App Store
 #   - workflow_dispatch  -> DEV  project (test against dev.conjureos.pages.dev)
 #   - release published  -> PROD project (ships to real users)
 #
-# Only secret you must add per repo is the bot password (dev + prod). URL is
-# derived from the existing SUPABASE_DEV/PROD_PROJECT_REF secrets; anon key + bot
-# email are public/non-secret and inlined below. See ANCHOR_APP_CI_SETUP.md in
-# the conjureos repo.
+# Secrets this repo needs (Settings -> Secrets and variables -> Actions). A
+# personal account has no shared secrets, so every app repo sets its own:
+#   SUPABASE_DEV_PROJECT_REF,  PUBLISH_BOT_DEV_PASSWORD   (dev publishes)
+#   SUPABASE_PROD_PROJECT_REF, PUBLISH_BOT_PROD_PASSWORD  (prod publishes)
+#   CONJUREOS_REPO_TOKEN  (read-only access to Jonny-B/ConjureOS, see below)
+# The URL is built from the project ref; the anon key + bot email are
+# public/non-secret and inlined below. See ANCHOR_APP_CI_SETUP.md in the
+# conjureos repo.
 
 on:
   release:
