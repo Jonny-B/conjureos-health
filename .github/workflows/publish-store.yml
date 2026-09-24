@@ -1,7 +1,12 @@
 name: Publish to ConjureOS App Store
 
-# Builds Conjure Fitness to a single self-contained HTML file and publishes a
+# Builds Conjure Health to a single self-contained HTML file and publishes a
 # new App Store version via the shared composite action in the conjureos repo.
+#
+# The store slug stays `fitness` (below): it names Conjure Health's existing
+# App Store listing, which is also where each user's installed copy and its
+# on-device data live. A different slug would publish a separate new app and
+# leave that data behind.
 #
 # Two Supabase projects (Phase 24 split), selected by trigger:
 #   - workflow_dispatch  -> DEV  project (test against dev.conjureos.pages.dev)

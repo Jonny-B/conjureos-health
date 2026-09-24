@@ -1,5 +1,5 @@
 {
-  "name": "conjureos-fitness",
+  "name": "conjureos-health",
   "version": "1.40.0",
   "description": "Conjure Health: calorie + nutrition logging, daily targets, weight tracking, and a simple weight-loss plan for ConjureOS.",
   "type": "module",
@@ -7,7 +7,7 @@
   "author": "Jonny-B",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Jonny-B/conjureos-fitness.git"
+    "url": "https://github.com/Jonny-B/conjureos-health.git"
   },
   "conjureos": {
     "displayName": "Conjure Health",

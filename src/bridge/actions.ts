@@ -1,5 +1,5 @@
 /**
- * Cross-app actions Conjure Fitness exposes via ConjureOS's Phase 13a bridge, so the
+ * Cross-app actions Conjure Health exposes via ConjureOS's Phase 13a bridge, so the
  * home orchestrator, an assistant, or the Recipes app can write to / read from
  * the diary:
  *

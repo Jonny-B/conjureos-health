@@ -13,7 +13,7 @@ import { SEARCH_TIMEOUT_MS, withTimeout } from "./http";
 
 const BASE = "https://world.openfoodfacts.org";
 // Identify ourselves per OFF etiquette so we're not rate-limited as anon.
-const UA = "ConjureOS-Fitness/0.1 (https://github.com/Jonny-B/conjureos-fitness)";
+const UA = "ConjureOS-Health/0.1 (https://github.com/Jonny-B/conjureos-health)";
 
 // OFF is a global database and returns products labeled in Arabic, CJK,
 // Cyrillic, Thai, etc. We want English-region results, so drop any product

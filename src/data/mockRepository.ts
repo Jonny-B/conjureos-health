@@ -57,7 +57,9 @@ import { newId } from "./id";
 
 const STORE_PATH = "store.json";
 /** Device-local authoritative key. App origins partition it per app already,
- *  but the name is explicit for clarity when inspecting devtools storage. */
+ *  but the name is explicit for clarity when inspecting devtools storage. It
+ *  keeps the app's old name on purpose: every user's saved data sits under
+ *  it, so renaming it would make that data vanish. */
 const LOCAL_KEY = "conjure-fitness:store:v2";
 
 /** v1: profile/goals/diary/weights only. Retained for the migration path. */

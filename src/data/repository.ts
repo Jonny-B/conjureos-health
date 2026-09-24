@@ -233,7 +233,7 @@ async function buildRepository(): Promise<Repository> {
       if (import.meta.env.DEV) {
         // eslint-disable-next-line no-console
         console.warn(
-          "[conjure-fitness] Supabase backend unreachable; falling back to local store",
+          "[conjure-health] Supabase backend unreachable; falling back to local store",
           err,
         );
       }
@@ -245,7 +245,7 @@ async function buildRepository(): Promise<Repository> {
   await mock.init();
   if (import.meta.env.DEV) {
     // eslint-disable-next-line no-console
-    console.info("[conjure-fitness] using mock data layer (no reachable shared-project backend)");
+    console.info("[conjure-health] using mock data layer (no reachable shared-project backend)");
   }
   return mock;
 }

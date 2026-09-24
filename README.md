@@ -4,7 +4,11 @@
 > App Stores. See [STATUS.md](STATUS.md) for what shipped, what is in flight, and
 > the current focus.
 
-> Renamed from "Conjure Fitness" on 2026-06-24 as v2 (plan wizard + daily check-off home + AI workout coach) was scoped. Slug `fitness` + repo `conjureos-fitness` unchanged for now to avoid a disruptive App Store re-publish; revisit when v2 publishes.
+> Renamed from "Conjure Fitness" on 2026-06-24, and moved here from
+> `Jonny-B/conjureos-fitness` on 2026-09-24 with its full history; that repo is
+> left for a separate fitness app. The store slug stays `fitness`: it names the
+> existing listing and where each user's data lives, so changing it would start
+> a new listing and leave that data behind.
 
 Calorie, nutrition, and weight tracking. A My Net Diary-style daily tracker:
 log food by search, barcode, or plain language; see calories + macros against

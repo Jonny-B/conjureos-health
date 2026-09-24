@@ -1,5 +1,5 @@
 /**
- * Domain model shared across Conjure Fitness.
+ * Domain model shared across Conjure Health.
  *
  * Kept narrow and additive — these shapes are persisted (to Supabase rows and
  * to the VFS mock store), so adding optional fields later is cheap but
@@ -9,7 +9,7 @@
 
 // ── Nutrition primitives ─────────────────────────────────────────────
 
-/** The four headline numbers Conjure Fitness tracks against goals. */
+/** The four headline numbers Conjure Health tracks against goals. */
 export interface Macros {
   /** Energy in kilocalories. */
   calories: number;
