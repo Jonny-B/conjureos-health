@@ -1,0 +1,881 @@
+{
+  "name": "conjureos-fitness",
+  "version": "1.38.2",
+  "description": "Conjure Health: calorie + nutrition logging, daily targets, weight tracking, and a simple weight-loss plan for ConjureOS.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Jonny-B",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Jonny-B/conjureos-fitness.git"
+  },
+  "conjureos": {
+    "displayName": "Conjure Health",
+    "icon": "fa:apple-whole",
+    "permissions": [
+      "ai.complete",
+      "vfs.read",
+      "vfs.write",
+      "actions.read",
+      "actions.write",
+      "native.location",
+      "native.health"
+    ],
+    "actions": {
+      "logFood": {
+        "permission": "actions.write",
+        "description": "Log a food to the user's diary for a given meal and date. Only the food name is required: if calories (and protein/carbs/fat, in grams) are omitted, the app estimates them from the name and a typical serving and records them as adjustable estimates. So an assistant can log a named food like \"a McCrispy sandwich\" without knowing the numbers. Also accepts meal (breakfast|lunch|dinner|snacks) and date (YYYY-MM-DD, defaults to today). Pass calories only when the user states an explicit number.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "calories": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5000
+            },
+            "protein": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 500,
+              "description": "Grams."
+            },
+            "carbs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 800,
+              "description": "Grams."
+            },
+            "fat": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 500,
+              "description": "Grams."
+            },
+            "meal": {
+              "type": "string",
+              "enum": [
+                "breakfast",
+                "lunch",
+                "dinner",
+                "snacks"
+              ],
+              "description": "Defaults by time of day when omitted."
+            },
+            "date": {
+              "type": "string",
+              "description": "YYYY-MM-DD; defaults to today."
+            }
+          },
+          "required": [
+            "name"
+          ]
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The new diary entry's id."
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "todayTotals": {
+        "permission": "actions.read",
+        "description": "Return today's nutrition totals (calories, protein, carbs, fat) and the user's daily goals plus remaining calories. Useful for dashboards, assistants, or apps that want to know how much budget is left.",
+        "params": {
+          "type": "object",
+          "properties": {}
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "description": "YYYY-MM-DD."
+            },
+            "total": {
+              "type": "object",
+              "properties": {
+                "calories": {
+                  "type": "number"
+                },
+                "protein": {
+                  "type": "number"
+                },
+                "carbs": {
+                  "type": "number"
+                },
+                "fat": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "calories",
+                "protein",
+                "carbs",
+                "fat"
+              ]
+            },
+            "goals": {
+              "type": "object",
+              "properties": {
+                "calories": {
+                  "type": "number"
+                },
+                "protein": {
+                  "type": "number"
+                },
+                "carbs": {
+                  "type": "number"
+                },
+                "fat": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "calories",
+                "protein",
+                "carbs",
+                "fat"
+              ]
+            },
+            "exerciseCalories": {
+              "type": "number",
+              "description": "Calories burned from exercise/wearable today, added back into the remaining budget."
+            },
+            "caloriesRemaining": {
+              "type": "number",
+              "description": "goal - eaten + exerciseCalories."
+            }
+          },
+          "required": [
+            "date",
+            "total",
+            "goals",
+            "exerciseCalories",
+            "caloriesRemaining"
+          ]
+        }
+      },
+      "logRecipeMeal": {
+        "permission": "actions.write",
+        "description": "Log a saved recipe from the Recipes app as a meal by slug, copying its per-serving nutrition into the diary and marking the recipe cooked. Takes slug, optional servings (default 1), meal, and date.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "slug": {
+              "type": "string",
+              "maxLength": 80,
+              "description": "The Recipes app slug of the saved recipe."
+            },
+            "servings": {
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 20,
+              "description": "Defaults to 1."
+            },
+            "meal": {
+              "type": "string",
+              "enum": [
+                "breakfast",
+                "lunch",
+                "dinner",
+                "snacks"
+              ],
+              "description": "Defaults by time of day when omitted."
+            },
+            "date": {
+              "type": "string",
+              "description": "YYYY-MM-DD; defaults to today."
+            }
+          },
+          "required": [
+            "slug"
+          ]
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The new diary entry's id."
+            },
+            "logged": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "logged"
+          ]
+        }
+      },
+      "logWorkout": {
+        "permission": "actions.write",
+        "description": "Log a completed workout so its burned calories add back into the day's calorie budget. Pass calories (kcal burned); optionally type (e.g. \"running\") and durationMin. date is YYYY-MM-DD, defaults to today. Use when the user says they did a workout or a wearable reports one.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "calories": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000,
+              "description": "Active energy burned, in kcal."
+            },
+            "type": {
+              "type": "string",
+              "maxLength": 40,
+              "description": "Workout type, e.g. running, cycling, strength."
+            },
+            "durationMin": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1440,
+              "description": "Duration in minutes."
+            },
+            "date": {
+              "type": "string",
+              "description": "YYYY-MM-DD; defaults to today."
+            }
+          },
+          "required": [
+            "calories"
+          ]
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The new workout session's id."
+            },
+            "caloriesBurned": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "caloriesBurned"
+          ]
+        }
+      },
+      "dayNutrition": {
+        "permission": "actions.read",
+        "description": "Return what the user has eaten on a date with what is left of their targets: targets, consumed, remaining (calories include exercise added back), exercise calories, and the foods logged with their meal and calories. Defaults to today. Nutrition only - sleep, symptoms and weight are not exposed.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "description": "YYYY-MM-DD. Defaults to today."
+            }
+          }
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string"
+            },
+            "targets": {
+              "type": "object",
+              "properties": {
+                "calories": {
+                  "type": "integer"
+                },
+                "protein": {
+                  "type": "integer",
+                  "description": "Grams."
+                },
+                "carbs": {
+                  "type": "integer",
+                  "description": "Grams."
+                },
+                "fat": {
+                  "type": "integer",
+                  "description": "Grams."
+                }
+              }
+            },
+            "consumed": {
+              "type": "object",
+              "properties": {
+                "calories": {
+                  "type": "integer"
+                },
+                "protein": {
+                  "type": "integer",
+                  "description": "Grams."
+                },
+                "carbs": {
+                  "type": "integer",
+                  "description": "Grams."
+                },
+                "fat": {
+                  "type": "integer",
+                  "description": "Grams."
+                }
+              }
+            },
+            "remaining": {
+              "type": "object",
+              "properties": {
+                "calories": {
+                  "type": "integer"
+                },
+                "protein": {
+                  "type": "integer",
+                  "description": "Grams."
+                },
+                "carbs": {
+                  "type": "integer",
+                  "description": "Grams."
+                },
+                "fat": {
+                  "type": "integer",
+                  "description": "Grams."
+                }
+              }
+            },
+            "exerciseCalories": {
+              "type": "integer"
+            },
+            "foods": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "meal": {
+                    "type": "string",
+                    "enum": [
+                      "breakfast",
+                      "lunch",
+                      "dinner",
+                      "snacks"
+                    ]
+                  },
+                  "quantity": {
+                    "type": "number"
+                  },
+                  "calories": {
+                    "type": "integer"
+                  }
+                }
+              }
+            },
+            "moreFoods": {
+              "type": "integer",
+              "description": "Foods beyond the listed cap."
+            }
+          }
+        }
+      },
+      "recentNutrition": {
+        "permission": "actions.read",
+        "description": "Return daily nutrition totals for the last N days, oldest first, for trends. N defaults to 7 and is capped at 14. Nutrition only.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "days": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 14
+            }
+          }
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "days": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "date": {
+                    "type": "string"
+                  },
+                  "consumed": {
+                    "type": "object",
+                    "properties": {
+                      "calories": {
+                        "type": "integer"
+                      },
+                      "protein": {
+                        "type": "integer",
+                        "description": "Grams."
+                      },
+                      "carbs": {
+                        "type": "integer",
+                        "description": "Grams."
+                      },
+                      "fat": {
+                        "type": "integer",
+                        "description": "Grams."
+                      }
+                    }
+                  },
+                  "exerciseCalories": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "logWater": {
+        "permission": "actions.write",
+        "description": "Log a drink. Pass ml OR oz (fluid ounces), not both — storage is always metric, so the app converts. date is YYYY-MM-DD and defaults to today. Use when the user says they drank something.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "ml": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 4000,
+              "description": "Millilitres. Pass this or oz."
+            },
+            "oz": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 135,
+              "description": "US fluid ounces. Pass this or ml."
+            },
+            "date": {
+              "type": "string",
+              "description": "YYYY-MM-DD; defaults to today."
+            }
+          }
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "ml": {
+              "type": "integer",
+              "description": "What was stored, in millilitres."
+            }
+          },
+          "required": [
+            "id",
+            "ml"
+          ]
+        }
+      },
+      "logSleep": {
+        "permission": "actions.write",
+        "description": "Log a night's sleep from the clock times the user gives. bedTime and wakeTime are HH:MM on a 24-hour clock; a bedTime after wakeTime is read as the night before, so 23:30 to 07:00 works. wakeDate is the date the user WOKE UP, not the date they went to bed, and defaults to today. Example: bed at 23:30 on the 4th, up at 07:00 on the 5th -> wakeDate is 2026-09-05, NOT 2026-09-04; a bedtime-side date files the whole night under the wrong day. Optional quality is 1 (awful) to 5 (great).",
+        "params": {
+          "type": "object",
+          "properties": {
+            "bedTime": {
+              "type": "string",
+              "description": "HH:MM, 24-hour."
+            },
+            "wakeTime": {
+              "type": "string",
+              "description": "HH:MM, 24-hour."
+            },
+            "quality": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            },
+            "wakeDate": {
+              "type": "string",
+              "description": "YYYY-MM-DD of the morning they woke up. NOT the date they went to bed. Defaults to today."
+            }
+          },
+          "required": [
+            "bedTime",
+            "wakeTime"
+          ]
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string"
+            },
+            "minutes": {
+              "type": "integer",
+              "description": "Length of the night in minutes."
+            }
+          },
+          "required": [
+            "id",
+            "date",
+            "minutes"
+          ]
+        }
+      },
+      "logSymptom": {
+        "permission": "actions.write",
+        "description": "Record something the user felt — a headache, heartburn, anything they describe. label is free text. Optional severity is 1 (barely) to 5 (severe), and note is a short free-text detail. Lands on the journal at the current time. Notes written this way are never readable back through the API.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "severity": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "date": {
+              "type": "string",
+              "description": "YYYY-MM-DD; defaults to today."
+            }
+          },
+          "required": [
+            "label"
+          ]
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "logWeight": {
+        "permission": "actions.write",
+        "description": "Record the user's weight for a day. Pass kg OR lb, not both. There is one weight per day, so logging again for the same date replaces it. date defaults to today.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "kg": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 500,
+              "description": "Kilograms. Pass this or lb."
+            },
+            "lb": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 1100,
+              "description": "Pounds. Pass this or kg."
+            },
+            "date": {
+              "type": "string",
+              "description": "YYYY-MM-DD; defaults to today."
+            }
+          }
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string"
+            },
+            "weightKg": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "date",
+            "weightKg"
+          ]
+        }
+      },
+      "setFoodQuantity": {
+        "permission": "actions.write",
+        "description": "Change how many servings of an already-logged food the user had — 'make that two'. Takes the diary entry id returned by logFood or listed by dayNutrition.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "quantity": {
+              "type": "number",
+              "minimum": 0.01,
+              "maximum": 50
+            }
+          },
+          "required": [
+            "id",
+            "quantity"
+          ]
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "quantity": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "quantity"
+          ]
+        }
+      },
+      "deleteEntry": {
+        "permission": "actions.write",
+        "description": "Remove ONE record the user logged by mistake — the undo for a double-log. kind says which log it is; id is that record's id, except for weight where id is the date (YYYY-MM-DD), since there is one weight per day. There is deliberately no bulk delete: clearing a whole history is done by the user in Settings.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "food",
+                "water",
+                "sleep",
+                "symptom",
+                "weight",
+                "workout"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "The record's id, or the date for kind=weight."
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ]
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "deleted": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "deleted",
+            "kind"
+          ]
+        }
+      },
+      "dayWellbeing": {
+        "permission": "actions.read",
+        "description": "Return the non-food side of a day: water drunk, sleep length, weight if recorded, and symptoms with their severity and time. Defaults to today. The free-text note on a symptom is never returned — only the label, severity and time. For food use dayNutrition.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "description": "YYYY-MM-DD. Defaults to today."
+            }
+          }
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string"
+            },
+            "waterMl": {
+              "type": "integer"
+            },
+            "sleepMinutes": {
+              "type": "integer"
+            },
+            "weightKg": {
+              "type": "number",
+              "description": "Absent on days with no weight recorded."
+            },
+            "symptoms": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "severity": {
+                    "type": "integer",
+                    "description": "1-5, when the user picked one."
+                  },
+                  "at": {
+                    "type": "string",
+                    "description": "HH:MM local."
+                  }
+                }
+              },
+              "description": "Free-text notes on a symptom are never included."
+            }
+          }
+        }
+      },
+      "recentWellbeing": {
+        "permission": "actions.read",
+        "description": "Return the same non-food day summary for the last N days, oldest first, for trends in sleep, water, weight and symptoms. N defaults to 7 and is capped at 14. Symptom notes are never included.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "days": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 14
+            }
+          }
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "days": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "date": {
+                    "type": "string"
+                  },
+                  "waterMl": {
+                    "type": "integer"
+                  },
+                  "sleepMinutes": {
+                    "type": "integer"
+                  },
+                  "weightKg": {
+                    "type": "number",
+                    "description": "Absent on days with no weight recorded."
+                  },
+                  "symptoms": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string"
+                        },
+                        "severity": {
+                          "type": "integer",
+                          "description": "1-5, when the user picked one."
+                        },
+                        "at": {
+                          "type": "string",
+                          "description": "HH:MM local."
+                        }
+                      }
+                    },
+                    "description": "Free-text notes on a symptom are never included."
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "days"
+          ]
+        }
+      }
+    },
+    "needs": [
+      {
+        "id": "recipeSource",
+        "description": "A source of saved recipes with per-serving nutrition (calories/protein/fat/carbs), so the user can log a cooked recipe as a meal.",
+        "shape": {
+          "type": "object",
+          "properties": {
+            "recipes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "slug": {
+                    "type": "string",
+                    "description": "Stable id used to reference the recipe in later calls."
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "servings": {
+                    "type": "number",
+                    "description": "How many servings the recipe yields."
+                  },
+                  "ingredients": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "savedAt": {
+                    "type": "string",
+                    "description": "ISO timestamp when the recipe was saved."
+                  },
+                  "madeCount": {
+                    "type": "number",
+                    "description": "How many times the user has cooked it."
+                  },
+                  "nutrition": {
+                    "description": "Per-serving estimate (calories + protein/fat/carbs in grams), or null when unknown. Left unconstrained: schemaSatisfies rejects nullable union types, and providers legitimately omit/`null` nutrition, so the consumer reads it defensively rather than gating the whole match on it."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "promptSuggestions": [
+      "Log a chicken sandwich and a beer for lunch",
+      "How many calories do I have left today?",
+      "I slept from 11:30 to 6:45, log that",
+      "Log a 16 oz water and that I have a headache"
+    ]
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "build:inline": "tsc -b && vite build --mode inline",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "barcode-detector": "^3.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@conjureos/ui": "^1.0.3",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^2.1.9"
+  }
+}
