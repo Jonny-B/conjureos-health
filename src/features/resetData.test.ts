@@ -65,16 +65,28 @@ describe("clearAllHistories", () => {
 });
 
 describe("visibleHistoryItems", () => {
-  it("still offers the wellbeing rows while the coach is paused", () => {
+  it("offers the food and wellbeing rows", () => {
     const kinds = visibleHistoryItems().map((i) => i.kind);
+    expect(kinds).toContain("diary");
+    expect(kinds).toContain("weights");
     expect(kinds).toContain("sleep");
     expect(kinds).toContain("water");
     expect(kinds).toContain("symptoms");
+    expect(kinds).toContain("coachChat");
   });
 
-  it("hides only the paused coach + workout slices", () => {
-    const kinds = visibleHistoryItems().map((i) => i.kind);
-    expect(kinds).not.toContain("coach");
-    expect(kinds).not.toContain("workouts");
+  it("offers the exercise on the ring, which the user can see and add to", () => {
+    expect(visibleHistoryItems().map((i) => i.kind)).toContain("workouts");
+  });
+
+  it("hides only the retired trainer's memory", () => {
+    const hidden = HISTORY_ITEMS.filter((i) => !visibleHistoryItems().includes(i)).map((i) => i.kind);
+    expect(hidden).toEqual(["coach"]);
+  });
+
+  it("hides rows without removing them — every slice is still clearable", () => {
+    // visibleHistoryItems only filters the UI; HISTORY_ITEMS (what clearAll
+    // walks) must keep every kind, or leftover data would become unwipeable.
+    expect(HISTORY_ITEMS.map((i) => i.kind)).toContain("coach");
   });
 });

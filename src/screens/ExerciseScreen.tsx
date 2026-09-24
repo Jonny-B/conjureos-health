@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Plan, Profile, Workout } from "../types";
-import { BUILT_IN_WORKOUTS } from "../features/workouts";
-import { todayISO } from "../features/diary";
+import { formatDay, todayISO } from "../features/diary";
 import { fmtDuration } from "../features/units";
 import {
   listCompletedWorkouts,
@@ -15,92 +13,36 @@ import {
   type CompletedWorkout,
 } from "../features/exercise";
 import { NumberField } from "../components/NumberField";
-import { PlayIcon, CloseIcon, TrashIcon } from "../components/icons";
-import { WorkoutRunner, metaLine } from "./WorkoutRunner";
+import { CloseIcon, TrashIcon } from "../components/icons";
 
 /**
- * Workouts tab — a library of ready-to-run workouts PLUS a "Completed today"
- * list that combines in-app sessions and wearable/Apple-Health workouts. From
- * there the user can adjust a workout's burned calories or remove it from the
- * day's total (wearable removals are local + reversible; see features/exercise).
+ * The exercise behind the calorie ring's Exercise row: one day's exercise from
+ * every source — added here by hand, synced from Apple Health or another
+ * wearable, or logged by another app (a fitness app, say) through the
+ * `logWorkout` action. Its calories are added back to the day's budget, so the
+ * user must be able to see them, correct them, and remove what's wrong
+ * (wearable removals are local + reversible; see features/exercise).
  *
- * In `exerciseOnly` mode (the coach/workout pause — see features/flags) the
- * library and the runner are gone and only the completed list renders. Apple
- * Health calories still feed the calorie ring while the coach is paused, so the
- * user must keep a way to see and correct the numbers moving their budget; this
- * screen is that surface, reached from the ring's Exercise row.
+ * Workouts themselves — a library, a player, a program — are not part of
+ * Conjure Health; they live in a separate fitness app.
  */
-export function WorkoutsScreen({
-  units,
-  plan,
-  onPlanChange,
+export function ExerciseScreen({
   date = todayISO(),
   nonce = 0,
   onMutated,
-  exerciseOnly = false,
 }: {
-  units: Profile["units"];
-  plan: Plan | null;
-  onPlanChange: (plan: Plan | null) => void;
   date?: string;
   nonce?: number;
   onMutated?: () => void;
-  /** Render only the completed-workouts list — no library, no runner. */
-  exerciseOnly?: boolean;
 }) {
-  const [running, setRunning] = useState<Workout | null>(null);
-
-  if (exerciseOnly) {
-    return (
-      <div className="workouts">
-        <h1 className="screen-title">Exercise</h1>
-        <p className="muted small">
-          Exercise you add here or sync from Apple Health and other wearables. Calories burned
-          are added back to your daily budget. Edit or remove anything that looks wrong.
-        </p>
-        <CompletedToday date={date} nonce={nonce} onMutated={onMutated} />
-      </div>
-    );
-  }
-
-  if (running) {
-    return (
-      <WorkoutRunner
-        workout={running}
-        plan={plan}
-        units={units}
-        onPlanChange={onPlanChange}
-        onExit={() => {
-          setRunning(null);
-          onMutated?.();
-        }}
-      />
-    );
-  }
-
   return (
-    <div className="workouts">
-      <h1 className="screen-title">Workouts</h1>
-
+    <div className="exercise-screen">
+      <h1 className="screen-title">Exercise</h1>
+      <p className="muted small">
+        Exercise you add here, sync from Apple Health or another wearable, or log from another app.
+        Calories burned are added back to your daily budget. Edit or remove anything that looks wrong.
+      </p>
       <CompletedToday date={date} nonce={nonce} onMutated={onMutated} />
-
-      <h2 className="screen-subtitle">Start a workout</h2>
-      <ul className="workout-list">
-        {BUILT_IN_WORKOUTS.map((w) => (
-          <li key={w.id}>
-            <button className="workout-card" onClick={() => setRunning(w)}>
-              <div className="workout-card-text">
-                <div className="workout-name">{w.name}</div>
-                <div className="workout-summary">{w.summary}</div>
-                <div className="workout-meta">{metaLine(w)}</div>
-              </div>
-              <span className="workout-play" aria-hidden>
-                <PlayIcon size={18} />
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
@@ -137,7 +79,9 @@ function CompletedToday({
   const active = (items ?? []).filter((i) => !i.excluded);
   const removed = (items ?? []).filter((i) => i.excluded);
   const total = active.reduce((n, i) => n + (i.kcal || 0), 0);
-  const heading = date === todayISO() ? "Completed today" : "Completed";
+  // Name the day when it isn't today: this screen adds to whichever day the
+  // diary is showing, and a walk filed under yesterday never moves today's ring.
+  const heading = date === todayISO() ? "Completed today" : `Completed on ${formatDay(date)}`;
 
   const addButton = (
     <button className="btn primary block add-exercise-btn" onClick={() => setAdding(true)}>
@@ -160,7 +104,7 @@ function CompletedToday({
     return (
       <section className="completed-today">
         <h2 className="screen-subtitle">{heading}</h2>
-        <p className="muted small">No workouts logged for this day yet.</p>
+        <p className="muted small">No exercise logged for this day yet.</p>
         {addButton}
         {addModal}
       </section>
@@ -183,7 +127,7 @@ function CompletedToday({
               <div className="completed-main">
                 <div className="completed-name">
                   {it.name}
-                  <span className={`source-pill ${it.source}`}>{it.sourceLabel}</span>
+                  <span className={`source-pill source-${it.source}`}>{it.sourceLabel}</span>
                 </div>
                 <div className="completed-meta muted small">
                   {[fmtDuration(it.durationSec), `${it.kcal} cal`].filter(Boolean).join(" · ")}
@@ -219,7 +163,7 @@ function CompletedToday({
                 <div className="completed-main">
                   <div className="completed-name">
                     {it.name}
-                    <span className={`source-pill ${it.source}`}>{it.sourceLabel}</span>
+                    <span className={`source-pill source-${it.source}`}>{it.sourceLabel}</span>
                   </div>
                   <div className="completed-meta muted small">{it.kcal} cal · not counted</div>
                 </div>

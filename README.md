@@ -6,9 +6,9 @@
 
 > Renamed from "Conjure Fitness" on 2026-06-24 as v2 (plan wizard + daily check-off home + AI workout coach) was scoped. Slug `fitness` + repo `conjureos-fitness` unchanged for now to avoid a disruptive App Store re-publish; revisit when v2 publishes.
 
-Calorie, nutrition, weight, and fitness tracking. A My Net Diary-style daily
-tracker: log food by search, barcode, or plain language; see calories + macros
-against your goals; weigh in; and run guided workouts with set/rest timers.
+Calorie, nutrition, and weight tracking. A My Net Diary-style daily tracker:
+log food by search, barcode, or plain language; see calories + macros against
+your goals, with exercise calories added back; and weigh in.
 
 A keystone (anchor) app for [ConjureOS](https://github.com/Jonny-B/ConjureOS),
 built as a standalone Vite + React + TypeScript project and imported via the
@@ -27,13 +27,16 @@ Phase 8 bundler. **Open source app, private backend** — see below.
   - **Recipes** — pull a saved recipe from the [Recipes app](https://github.com/Jonny-B/conjureos-app-recipes)
     (cross-app actions) and log its per-serving macros, marking it cooked.
 - **Trends** — weight tracking with a trend sparkline + BMI.
-- **Workouts** — built-in workout library with a guided player: timed sets,
-  rep sets, rest countdowns, and synthesized audio cues.
+- **Exercise on the calorie ring** — calories burned go back into the day's
+  budget: synced from Apple Health (or another wearable), logged by another app
+  through `logWorkout`, or added by hand. The ring's Exercise row opens the
+  day's list to review, correct, or add to it. Workouts themselves — a library,
+  guided sessions, programs — are not part of Conjure Health; they belong in a
+  separate fitness app, the way recipes live in the Recipes app.
 - **Profile & goals** — Mifflin-St Jeor recommendation with manual override.
 
-Nutrition logging is the fully-built core; weight and workouts are functional
-first slices that will deepen (custom workouts, exercise history, calories
-burned) in later passes.
+Nutrition logging is the core; weight tracking and exercise calories support
+it.
 
 ## Architecture
 
@@ -47,7 +50,7 @@ swap without touching the UI:
   (default) and a **Supabase** implementation sit behind it, picked at runtime.
   Nothing above this line knows which backend is live.
 - **`src/features/`** + **`src/screens/`** — pure logic (diary math, goals,
-  food search, workout sequencing) and the React UI.
+  food search) and the React UI.
 
 ## Appearance
 
@@ -84,7 +87,7 @@ npm run dev
 ```
 
 With no configuration the app runs entirely on the **mock data layer** (in
-memory + the app's VFS scope), so logging, the diary, weight, and workouts all
+memory + the app's VFS scope), so logging, the diary, weight, and exercise all
 work end-to-end offline. The AI, VFS, and cross-app bridges are mocked too.
 `npm run typecheck` and `npm run build` are the CI gates.
 
@@ -115,8 +118,9 @@ Conjure Health registers actions other apps / the home orchestrator can call:
 | `logFood({ name, calories, protein?, carbs?, fat?, meal?, date? })` | write | Log a food to the diary |
 | `todayTotals()` | read | Today's totals + goals + calories remaining |
 | `logRecipeMeal({ slug, servings?, meal?, date? })` | write | Log a Recipes-app recipe by slug and mark it cooked |
+| `logWorkout({ calories, type?, durationMin?, date? })` | write | Put a workout's burned calories on the day's ring — how a fitness app feeds Conjure Health |
 
-It also consumes the Recipes app's `listRecipes` / `getRecipe` / `markCooked`.
+That's a sample; `package.json` → `conjureos.actions` is the full list. It also consumes the Recipes app's `listRecipes` / `getRecipe` / `markCooked`.
 
 ## License
 

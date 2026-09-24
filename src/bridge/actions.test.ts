@@ -6,7 +6,7 @@
  * about what these handlers REFUSE as what they do.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { SleepEntry, SymptomEntry, WaterEntry, WeightEntry } from "../types";
+import type { SleepEntry, SymptomEntry, WaterEntry, WeightEntry, WorkoutSession } from "../types";
 
 type Handler = (params?: unknown) => Promise<unknown>;
 
@@ -15,6 +15,7 @@ const db = {
   sleep: [] as SleepEntry[],
   symptoms: [] as SymptomEntry[],
   weights: [] as WeightEntry[],
+  workouts: [] as WorkoutSession[],
   removed: [] as string[],
   quantities: {} as Record<string, number>,
 };
@@ -47,6 +48,7 @@ const repo = {
   removeSymptom: async (id: string) => void db.removed.push(`symptom:${id}`),
   removeWeight: async (d: string) => void db.removed.push(`weight:${d}`),
   removeWorkoutSession: async (id: string) => void db.removed.push(`workout:${id}`),
+  saveWorkoutSession: async (s: WorkoutSession) => void db.workouts.push(s),
 };
 
 vi.mock("../data/repository", () => ({ getRepository: async () => repo }));
@@ -59,6 +61,7 @@ beforeEach(async () => {
   db.sleep = [];
   db.symptoms = [];
   db.weights = [];
+  db.workouts = [];
   db.removed = [];
   db.quantities = {};
   (globalThis as { window?: unknown }).window = {
@@ -109,6 +112,38 @@ describe("what the orchestrator can reach", () => {
     ]) {
       expect(actions[forbidden]).toBeUndefined();
     }
+  });
+});
+
+describe("logWorkout", () => {
+  // How a fitness app puts its workouts on the calorie ring.
+  it("names the entry from its type and keeps its length", async () => {
+    const res = (await call("logWorkout", { calories: 300, type: "running", durationMin: 30 })) as {
+      caloriesBurned: number;
+    };
+    expect(res.caloriesBurned).toBe(300);
+    expect(db.workouts).toEqual([
+      expect.objectContaining({
+        date: today(),
+        workoutName: "Running",
+        durationSec: 1800,
+        caloriesBurned: 300,
+        source: "logWorkout",
+      }),
+    ]);
+  });
+
+  it("still logs a bare burn", async () => {
+    await call("logWorkout", { calories: 150 });
+    expect(db.workouts[0]?.caloriesBurned).toBe(150);
+    expect(db.workouts[0]?.workoutName).toBeUndefined();
+    expect(db.workouts[0]?.durationSec).toBeUndefined();
+  });
+
+  it("refuses a blank or overlong type rather than storing it", async () => {
+    await expect(call("logWorkout", { calories: 100, type: " " })).rejects.toThrow(/type/);
+    await expect(call("logWorkout", { calories: 100, type: "x".repeat(41) })).rejects.toThrow(/type/);
+    expect(db.workouts).toEqual([]);
   });
 });
 

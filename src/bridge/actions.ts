@@ -8,6 +8,7 @@
  *   dayNutrition({ date? })                                            → read
  *   recentNutrition({ days? })                                         → read
  *   logRecipeMeal({ slug, servings?, meal?, date? })                   → write
+ *   logWorkout({ calories, type?, durationMin?, date? })               → write
  *   logWater({ ml? | oz?, date? })                                     → write
  *   logSleep({ bedTime, wakeTime, wakeDate?, quality? })                → write
  *   logSymptom({ label, severity?, note?, date? })                     → write
@@ -327,28 +328,26 @@ async function recentNutrition(raw?: unknown): Promise<{
 }
 
 /**
- * Log a completed workout (from an assistant, the home orchestrator, or a
- * cross-app handoff). `calories` feeds the diary's exercise add-back. `type`
- * and `durationMin` are accepted + validated for forward-compat, but only the
- * burned calories + date are persisted structurally for now. Untrusted input,
- * so every field is checked + clamped.
+ * Log a completed workout (from a fitness app, an assistant, the home
+ * orchestrator, or a wearable handoff). This is how exercise done elsewhere
+ * reaches the calorie ring: `calories` feeds the diary's exercise add-back,
+ * and `type` / `durationMin` name the entry and give its length on the
+ * Exercise screen. Untrusted input, so every field is checked + clamped.
  */
 async function logWorkout(raw?: unknown): Promise<{ id: string; caloriesBurned: number }> {
   const p = asObject(raw);
   const calories = asNonNegInt(p.calories, "calories", 10000);
-  // Validated (range-clamped) so a bad caller is rejected, even though the
-  // structured session doesn't store them yet.
-  if (p.type !== undefined) asString(p.type, "type", 40);
-  asNonNegInt(p.durationMin, "durationMin", 1440);
+  const type = p.type === undefined ? undefined : asString(p.type, "type", 40);
+  const minutes = asNonNegInt(p.durationMin, "durationMin", 1440);
   const date = asDate(p.date);
 
   const repo = await getRepository();
   const session: WorkoutSession = {
     id: newId(),
     date,
-    planned: [],
-    actual: [],
-    reprompts: [],
+    // "running" reads as "Running" in the list.
+    ...(type ? { workoutName: type.charAt(0).toUpperCase() + type.slice(1) } : {}),
+    ...(minutes > 0 ? { durationSec: minutes * 60 } : {}),
     completedAt: new Date().toISOString(),
     caloriesBurned: calories,
     source: "logWorkout",

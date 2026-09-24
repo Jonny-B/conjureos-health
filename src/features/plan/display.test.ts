@@ -1,11 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { planModeLabel, visiblePlanGoals } from "./display";
-import { COACH_AND_WORKOUTS_ENABLED } from "../flags";
 import type { Plan, PlanGoal } from "../../types";
 
 const goal = (kind: PlanGoal["kind"], label: string): PlanGoal => ({ id: label, label, kind });
 
-// A plan from before the pause: mode "both", with workout goals on it.
+// A plan from before workouts moved out: mode "both", with workout goals on it.
 const legacy = {
   id: "p1",
   mode: "both",
@@ -23,11 +22,7 @@ const legacy = {
   createdAt: "2026-07-27T00:00:00Z",
 } as Plan;
 
-describe("plan display while workouts are paused", () => {
-  it("is only meaningful with the flag off (guards the rest of this suite)", () => {
-    expect(COACH_AND_WORKOUTS_ENABLED).toBe(false);
-  });
-
+describe("plan display for plans that predate the move", () => {
   it("reads a legacy 'both' plan as the half we can still deliver", () => {
     expect(planModeLabel(legacy)).toBe("Eat better");
   });
@@ -42,7 +37,7 @@ describe("plan display while workouts are paused", () => {
       "Hit a 300-500 cal daily deficit",
       "Weigh in every morning",
     ]);
-    // The plan itself is untouched — flipping the flag back restores them.
+    // The plan itself is untouched.
     expect(legacy.goals).toHaveLength(4);
   });
 

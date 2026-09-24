@@ -135,7 +135,7 @@ export interface Repository {
   /** Delete every recorded symptom. Destructive; no undo. */
   clearSymptoms(): Promise<void>;
 
-  // ── v2: plans + daily check-off + coached sessions ──────────────────
+  // ── v2: plans + daily check-off + exercise entries ──────────────────
   // No server tables: every backend keeps these in the on-device store.
 
   /** The active plan, or null when the user hasn't created one. */

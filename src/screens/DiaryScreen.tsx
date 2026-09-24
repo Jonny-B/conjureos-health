@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { DayView, Goals, MealType, Plan, Profile } from "../types";
 import { MEAL_LABELS } from "../types";
 import { getRepository } from "../data/repository";
-import { buildDayView, shiftDate, todayISO } from "../features/diary";
+import { buildDayView, formatDay, shiftDate, todayISO } from "../features/diary";
 import { CalorieRing, MacroBars } from "../components/rings";
 import { ChevronLeft, ChevronRight, WorkoutsIcon } from "../components/icons";
 import { WeightCard } from "../components/WeightCard";
@@ -23,7 +23,7 @@ interface Props {
   onChangeDate: (date: string) => void;
   onOpenMeal: (meal: MealType) => void;
   onOpenPlan: () => void;
-  onOpenWorkouts: () => void;
+  onOpenExercise: () => void;
   /** Fired when this screen writes something the shell also renders. */
   onMutated: () => void;
 }
@@ -40,7 +40,7 @@ export function DiaryScreen({
   onChangeDate,
   onOpenMeal,
   onOpenPlan,
-  onOpenWorkouts,
+  onOpenExercise,
   onMutated,
 }: Props) {
   const [view, setView] = useState<DayView | null>(null);
@@ -86,7 +86,7 @@ export function DiaryScreen({
             onClick={() => onChangeDate(todayISO())}
             title={isToday ? undefined : "Jump to today"}
           >
-            {isToday ? "Today" : formatDate(date)}
+            {isToday ? "Today" : formatDay(date)}
           </button>
           <button
             className="icon-btn"
@@ -116,9 +116,9 @@ export function DiaryScreen({
             </div>
           </div>
 
-          {/* Workout item — opens the Workouts view. Calories burned add back to
-              the day's budget (reflected in the ring + the summary below). */}
-          <button className="workout-stat" onClick={onOpenWorkouts} aria-label="Open workouts">
+          {/* Exercise item — opens the Exercise screen. Calories burned add back
+              to the day's budget (reflected in the ring + the summary below). */}
+          <button className="workout-stat" onClick={onOpenExercise} aria-label="Open exercise">
             <span className="workout-stat-icon" aria-hidden>
               <WorkoutsIcon size={18} />
             </span>
@@ -169,10 +169,4 @@ function MealStat({ label, cal, onClick }: { label: string; cal: number; onClick
       <span className="meal-stat-cal">{cal}</span>
     </button>
   );
-}
-
-function formatDate(iso: string): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  const dt = new Date(y!, (m ?? 1) - 1, d ?? 1);
-  return dt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }

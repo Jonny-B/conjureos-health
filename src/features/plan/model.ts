@@ -6,14 +6,7 @@
  * fallback can share these without importing each other.
  */
 
-import type {
-  ExperienceLevel,
-  PlanGoal,
-  PlanMode,
-  SafetyIntake,
-  Sex,
-  WorkoutProgram,
-} from "../../types";
+import type { PlanGoal, PlanMode, SafetyIntake, Sex } from "../../types";
 
 /** Everything the wizard gathers before generating a plan. */
 export interface PlanInput {
@@ -25,13 +18,7 @@ export interface PlanInput {
   /** Inclusive plan dates (YYYY-MM-DD); start defaults to today. */
   startDate?: string;
   endDate?: string;
-  /** Workout days per week (get_fit / both). */
-  daysPerWeek?: number;
-  /** Training background — tunes workout difficulty. */
-  experienceLevel?: ExperienceLevel;
-  /** Equipment on hand, free text or "none". */
-  equipment?: string;
-  /** Required when calorie tracking (eat_better / both). */
+  /** Required when calorie tracking (eat_better). */
   heightCm?: number;
   weightKg?: number;
   /** Target weight in kg (lose/gain goals); referenced in the plan. */
@@ -45,8 +32,8 @@ export interface PlanInput {
    *  the fallback template — see createPlan. */
   calorieTarget?: number | null;
   /** The user's display-unit preference. Storage stays metric; this only tells
-   *  the generator to write user-facing TEXT (summary, goal labels, workout
-   *  descriptions) in the units the user actually reads. */
+   *  the generator to write user-facing TEXT (summary, goal labels) in the
+   *  units the user actually reads. */
   units?: "metric" | "imperial";
   safety: SafetyIntake;
 }
@@ -55,7 +42,7 @@ export interface PlanInput {
 export interface GeneratedGoal {
   label: string;
   kind: PlanGoal["kind"];
-  /** Machine hint: kcal number for a nutrition goal, movement list for a workout. */
+  /** Machine hint, e.g. the kcal number for a nutrition goal. */
   detail?: string;
 }
 
@@ -66,9 +53,6 @@ export interface GeneratedPlan {
   /** Daily calorie target when the mode tracks food; null otherwise. */
   dailyCalorieTarget: number | null;
   goals: GeneratedGoal[];
-  /** Structured, adaptive workout program (W4). Parsed from the AI's `program`
-   *  block for workout-bearing modes; absent otherwise. Baselines start null. */
-  program?: WorkoutProgram;
 }
 
 /** Sex-specific daily calorie floor (kcal). Below this a plan is rejected. */
@@ -77,12 +61,8 @@ export function kcalFloor(sex: Sex | undefined): number {
   return 1500; // male + unspecified default
 }
 
-/** Whether this mode tracks food (and therefore needs a calorie target). */
+/** Whether this mode tracks food (and therefore needs a calorie target). A
+ *  stored legacy "both" plan still does; a legacy "get_fit" one never did. */
 export function modeTracksFood(mode: PlanMode): boolean {
   return mode === "eat_better" || mode === "both";
-}
-
-/** Whether this mode prescribes workouts. */
-export function modeHasWorkouts(mode: PlanMode): boolean {
-  return mode === "get_fit" || mode === "both";
 }

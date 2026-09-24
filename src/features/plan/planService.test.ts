@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { Plan, Profile, WorkoutProgram } from "../../types";
+import type { Plan, Profile } from "../../types";
 import { getRepository, __resetRepository } from "../../data/repository";
-import { applyCoachPlanChange, commitNewPlan, decidePlanEdit, modifyPlanInPlace } from "./planService";
-import { macrosForCalories, recommendGoals } from "../goals";
+import { commitNewPlan, decidePlanEdit, modifyPlanInPlace } from "./planService";
 
 // A user who filled in the cog (real body stats) BEFORE ever making a plan.
 const cogProfile: Profile = {
@@ -24,7 +23,7 @@ const plan: Plan = {
   endDate: "2026-08-04",
   goals: [],
   targets: { dailyCalories: 2100, protein: 150, carbs: 200, fat: 70 },
-  safety: { ageBand: "40_59", pregnant: false, cardiacFlag: false, injuries: [], activityLevel: "very_active" },
+  safety: { ageBand: "40_59", pregnant: false, cardiacFlag: false, activityLevel: "very_active" },
   liability: { acknowledged: true, acceptedAt: "2026-07-22T00:00:00Z" },
   createdAt: "2026-07-22T00:00:00Z",
 };
@@ -112,7 +111,8 @@ describe("decidePlanEdit", () => {
 describe("modifyPlanInPlace", () => {
   beforeEach(() => __resetRepository());
 
-  const workoutProgram: WorkoutProgram = {
+  // What a plan from before workouts moved out can still carry on disk.
+  const legacyProgram = {
     workouts: [
       {
         id: "pw1",
@@ -128,7 +128,7 @@ describe("modifyPlanInPlace", () => {
     currentGroup: 1,
     groupsPerCycle: 4,
   };
-  const both: Plan = { ...plan, program: workoutProgram };
+  const both: Plan = { ...plan, program: legacyProgram };
   const cur: Profile = { sex: "male", age: 45, heightCm: 180, weightKg: 85, activityLevel: "very_active", direction: "lose", goalWeightKg: 78, units: "imperial" };
 
   it("recomputes the calorie target from an updated goal weight and moves stored Goals", async () => {
@@ -146,7 +146,7 @@ describe("modifyPlanInPlace", () => {
     expect((await repo.getGoals()).calories).toBe(res.goals.calories);
   });
 
-  it("keeps the plan id and the whole program (benchmarks + completedAt)", async () => {
+  it("keeps the plan id, and a legacy plan's stored program exactly as it was", async () => {
     const res = await modifyPlanInPlace(
       both,
       cur,
@@ -155,12 +155,12 @@ describe("modifyPlanInPlace", () => {
     );
     expect(res.plan.id).toBe(both.id);
     expect(res.plan.endDate).toBe("2026-08-11");
-    expect(res.plan.program?.workouts[0]?.completedAt).toBe("2026-07-23T10:00:00Z");
-    expect(res.plan.program?.benchmarks[0]?.baseline).toBe(20);
-    expect(res.plan.program?.currentGroup).toBe(1);
+    expect(res.plan.program).toEqual(legacyProgram);
+    const repo = await getRepository();
+    expect((await repo.getPlan())?.program).toEqual(legacyProgram);
   });
 
-  it("leaves the calorie target null for a workouts-only plan", async () => {
+  it("leaves the calorie target null for a legacy get-fit plan", async () => {
     const getFit: Plan = { ...both, mode: "get_fit", targets: { dailyCalories: null } };
     const res = await modifyPlanInPlace(
       getFit,
@@ -169,48 +169,5 @@ describe("modifyPlanInPlace", () => {
       { currentProfile: cur, currentGoals: { calories: 0, protein: 0, carbs: 0, fat: 0 } },
     );
     expect(res.plan.targets?.dailyCalories ?? null).toBeNull();
-  });
-});
-
-// ── Coach-driven plan-level changes ────────────────────────────────────
-describe("applyCoachPlanChange", () => {
-  beforeEach(() => __resetRepository());
-  const goals = { calories: 2100, protein: 150, carbs: 200, fat: 70 };
-
-  it("changes goal weight → updates profile + direction and recomputes the calorie target", async () => {
-    const res = await applyCoachPlanChange(plan, cogProfile, goals, {
-      summary: "Lower goal weight to 74 kg",
-      goalWeightKg: 74,
-    });
-    expect(res).not.toBeNull();
-    expect(res!.profile?.goalWeightKg).toBe(74);
-    expect(res!.profile?.direction).toBe("lose"); // 74 < 85
-    const expected = recommendGoals({ ...cogProfile, goalWeightKg: 74, direction: "lose" }).calories;
-    expect(res!.plan.targets?.dailyCalories).toBe(expected);
-    const repo = await getRepository();
-    expect((await repo.getProfile())?.goalWeightKg).toBe(74); // persisted
-  });
-
-  it("sets an explicit daily calorie target with derived macros", async () => {
-    const res = await applyCoachPlanChange(plan, cogProfile, goals, {
-      summary: "Bump calories to 2400",
-      dailyCalories: 2400,
-    });
-    expect(res!.plan.targets?.dailyCalories).toBe(2400);
-    expect(res!.plan.targets).toMatchObject(macrosForCalories(2400, cogProfile.weightKg));
-  });
-
-  it("moves the plan end date", async () => {
-    const res = await applyCoachPlanChange(plan, cogProfile, goals, {
-      summary: "Extend to Aug 20",
-      endDate: "2026-08-20",
-    });
-    expect(res!.plan.endDate).toBe("2026-08-20");
-    expect(res!.plan.id).toBe(plan.id);
-  });
-
-  it("returns null when nothing valid is provided", async () => {
-    const res = await applyCoachPlanChange(plan, cogProfile, goals, { summary: "noop" });
-    expect(res).toBeNull();
   });
 });

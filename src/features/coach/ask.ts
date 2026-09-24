@@ -2,14 +2,12 @@
  * "Ask about food" — the small, always-available nutrition Q&A on the home
  * screen.
  *
- * Deliberately NOT the trainer in coach.ts. That one proposes and applies plan
- * changes, adjusts programs and writes long-term memory, and it is paused with
- * the rest of the workout features (see features/flags). This is the narrow
- * thing that stayed useful without it: a question about food gets an answer,
- * and nothing about the user's plan moves.
+ * A question about food gets an answer, and nothing about the user's plan
+ * moves: no plan changes, no long-term memory. (The AI trainer that did those
+ * things left with the workouts, which now belong to a separate fitness app.)
  *
- * History shares `coach-chat.json` with the full coach screen, so a
- * conversation started here is still there when the trainer comes back.
+ * History lives in `coach-chat.json`, which the trainer's chat also wrote, so
+ * older conversations still show up here.
  */
 
 import { aiErrorMessage, complete, isAiAvailable, type ChatMessage } from "../../bridge/ai";
@@ -18,9 +16,18 @@ import { getRepository } from "../../data/repository";
 import { daySnapshot, recentSnapshots, renderDayForPrompt, renderRecentForPrompt } from "../dataApi";
 import { hasAiJournalConsent } from "../aiConsent";
 import { fmtWeight } from "../units";
-import type { CoachChatItem } from "./model";
 
 const CHAT_PATH = "coach-chat.json";
+
+/**
+ * One stored turn of the conversation. The file predates this feature (the
+ * retired trainer chat wrote it too), so an old item can carry extra fields;
+ * only these two are read.
+ */
+export interface CoachChatItem {
+  role: "user" | "assistant";
+  content: string;
+}
 
 /** Turns kept on disk. Old turns fall off the top; the cap keeps the doc small
  *  enough to stay cheap to read on every home render. */

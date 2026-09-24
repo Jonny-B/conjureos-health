@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ActivityLevel, ExperienceLevel, GoalDirection, Profile, Sex } from "../types";
+import type { ActivityLevel, GoalDirection, Profile, Sex } from "../types";
 import { ACTIVITY_LABELS } from "../features/goals";
 import { NumberField } from "./NumberField";
 import { cmToIn, inToCm, weightToDisplay, weightToKg, weightUnit } from "../features/units";
@@ -14,12 +14,6 @@ export const SEX_LABELS: Record<Sex, string> = {
   male: "Male",
   female: "Female",
   not_shared: "Not Shared",
-};
-
-const EXPERIENCE_LABELS: Record<ExperienceLevel, string> = {
-  beginner: "Beginner",
-  intermediate: "Intermediate",
-  advanced: "Advanced",
 };
 
 const DIRECTION_LABELS: Record<GoalDirection, string> = {
@@ -267,28 +261,6 @@ export function SexField({ sex, onChange }: { sex: Sex; onChange: (s: Sex) => vo
         {(Object.keys(SEX_LABELS) as Sex[]).map((s) => (
           <option key={s} value={s}>
             {SEX_LABELS[s]}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-/** Training-experience picker — scales generated workout difficulty. */
-export function ExperienceField({
-  value,
-  onChange,
-}: {
-  value: ExperienceLevel;
-  onChange: (v: ExperienceLevel) => void;
-}) {
-  return (
-    <label className="field">
-      <span>Experience level</span>
-      <select className="select" value={value} onChange={(e) => onChange(e.target.value as ExperienceLevel)}>
-        {(Object.keys(EXPERIENCE_LABELS) as ExperienceLevel[]).map((k) => (
-          <option key={k} value={k}>
-            {EXPERIENCE_LABELS[k]}
           </option>
         ))}
       </select>
