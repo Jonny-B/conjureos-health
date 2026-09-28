@@ -225,8 +225,13 @@ export function buildPlan(gen: GeneratedPlan, input: PlanInput, liability: Liabi
   });
   // Structured targets: the calorie target plus a macro split, so the plan — not
   // a free-text goal string — is the source of truth the diary rings read from.
-  // Prefer the locally-computed target (Mifflin) over the AI's number.
-  const kcal = input.calorieTarget ?? gen.dailyCalorieTarget;
+  // Prefer the locally-computed target (Mifflin) over the AI's number. A plan
+  // that doesn't track food never gets one: the wizard supplies no target for
+  // a logging-only plan (the safety gate's mode), so falling through to
+  // `gen.dailyCalorieTarget` there would hand a gated user whatever number the
+  // model volunteered — the validator skips the floor for non-food modes, so
+  // nothing else would catch it.
+  const kcal = modeTracksFood(input.mode) ? (input.calorieTarget ?? gen.dailyCalorieTarget) : null;
   const targets: PlanTargets =
     kcal != null ? { dailyCalories: kcal, ...macrosForCalories(kcal, input.weightKg ?? 70) } : { dailyCalories: null };
   return {

@@ -85,6 +85,52 @@ describe("createPlan", () => {
     expect(res.plan.goals.every((g) => g.kind !== "workout")).toBe(true);
   });
 
+  // The safety gate (under-18 / pregnant / heart condition) forces
+  // logging_only, for which the wizard supplies no calorie target. The AI's
+  // own number used to fill that gap, so a gated user could end up with a
+  // budget after all.
+  it("never gives a logging-only plan a calorie target, even when the AI offers one", async () => {
+    complete.mockResolvedValueOnce(
+      JSON.stringify({
+        summary: "Log what you eat, no targets.",
+        dailyCalorieTarget: 1500,
+        goals: [
+          { label: "Log every meal", kind: "habit" },
+          { label: "Water before each meal", kind: "habit" },
+        ],
+      }),
+    );
+    const res = await createPlan(
+      {
+        mode: "logging_only",
+        goalText: "eat more regularly",
+        durationWeeks: 4,
+        calorieTarget: null,
+        safety: { ...input.safety, pregnant: true },
+      },
+      liability,
+    );
+    expect(res.usedFallback).toBe(false);
+    expect(res.plan.targets?.dailyCalories).toBeNull();
+    expect(res.plan.targets?.protein).toBeUndefined();
+  });
+
+  it("gives a logging-only fallback plan no calorie target either", async () => {
+    complete.mockResolvedValue("not json");
+    const res = await createPlan(
+      {
+        mode: "logging_only",
+        goalText: "",
+        durationWeeks: 2,
+        calorieTarget: null,
+        safety: { ...input.safety, ageBand: "under_18" },
+      },
+      liability,
+    );
+    expect(res.usedFallback).toBe(true);
+    expect(res.plan.targets?.dailyCalories).toBeNull();
+  });
+
   it("falls back with a 'too long' reason when the JSON is truncated on both attempts", async () => {
     const TRUNCATED_CORE = '{"summary":"A plan","goals":[{"label":"Stay around 1800 kcal","kind":"nutri';
     complete.mockResolvedValue(TRUNCATED_CORE);

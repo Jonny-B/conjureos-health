@@ -68,6 +68,10 @@ interface Props {
   onModeChange?: (mode: AddMode) => void;
   /** Display preference; orders the amount-unit picker. */
   units?: Profile["units"];
+  /** From a deep link (bridge/intents): a search to start with. */
+  initialQuery?: string;
+  /** From a deep link: a barcode to look up and open, as if scanned. */
+  initialBarcode?: string;
 }
 
 /** Order matters and is shared with the meal screen's buttons: Scan, then AI,
@@ -89,6 +93,8 @@ export function AddFoodScreen({
   onLogged,
   onModeChange,
   units = "metric",
+  initialQuery,
+  initialBarcode,
 }: Props) {
   const [selected, setSelected] = useState<{
     food: FoodItem;
@@ -104,6 +110,30 @@ export function AddFoodScreen({
   const [fixing, setFixing] = useState<{ food: FoodItem } | null>(null);
   // The "Add your own food" form, prefilled with whatever was searched.
   const [creating, setCreating] = useState<{ name: string } | null>(null);
+  // Said when a linked barcode found nothing, so the search below isn't a
+  // silent dead end.
+  const [linkNotice, setLinkNotice] = useState<string | null>(null);
+
+  // A deep link's barcode opens that food's details, exactly as a scan would.
+  // Nothing is logged until the user taps Log. No scan-attempt record: the
+  // user didn't scan anything.
+  useEffect(() => {
+    if (!initialBarcode) return;
+    let alive = true;
+    const missed = `Nothing found for barcode ${initialBarcode}. Search for it, or add it yourself.`;
+    lookupBarcode(initialBarcode, undefined, { log: false })
+      .then((food) => {
+        if (!alive) return;
+        if (food) setSelected({ food });
+        else setLinkNotice(missed);
+      })
+      .catch(() => {
+        if (alive) setLinkNotice(missed);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [initialBarcode]);
 
   const changeMode = (m: AddMode) => {
     setMode(m);
@@ -184,7 +214,15 @@ export function AddFoodScreen({
         </label>
       </div>
 
-      {mode === "search" && <SearchMode meal={meal} onPick={pick} onAddOwn={(name) => setCreating({ name })} />}
+      {linkNotice && mode === "search" && <p className="muted small">{linkNotice}</p>}
+      {mode === "search" && (
+        <SearchMode
+          meal={meal}
+          initialQuery={initialQuery}
+          onPick={pick}
+          onAddOwn={(name) => setCreating({ name })}
+        />
+      )}
       {mode === "scan" && <ScanMode onPick={(food) => pick(food)} />}
       {/* `meal` is passed straight through (not as a "default") — the toolbar
           picker above is the single source of truth for all three modes, AI
@@ -203,14 +241,17 @@ const SEARCH_DEBOUNCE_MS = 250;
 
 function SearchMode({
   meal,
+  initialQuery,
   onPick,
   onAddOwn,
 }: {
   meal: MealType;
+  /** Where the search starts, e.g. from a deep link. */
+  initialQuery?: string;
   onPick: (food: FoodItem, opts?: PickOpts) => void;
   onAddOwn: (name: string) => void;
 }) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery ?? "");
   const [results, setResults] = useState<FoodItem[]>([]);
   const [searching, setSearching] = useState(false);
   const [recents, setRecents] = useState<RecentFood[]>([]);

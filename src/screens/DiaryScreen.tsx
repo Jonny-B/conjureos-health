@@ -11,6 +11,7 @@ import { AskCoachCard } from "../components/AskCoachCard";
 import { WellbeingCard } from "../components/WellbeingCard";
 import { CoachChatModal } from "../components/CoachChatModal";
 import { exerciseCaloriesForDate } from "../features/exercise";
+import { planTracksCalories } from "../features/plan/model";
 
 interface Props {
   date: string;
@@ -68,6 +69,9 @@ export function DiaryScreen({
   const isToday = date === todayISO();
   const total = view?.total ?? { calories: 0, protein: 0, carbs: 0, fat: 0 };
   const mealCal = (m: MealType) => view?.perMeal[m].calories ?? 0;
+  // A logging-only plan (the safety gate's mode) has no calorie target, so the
+  // card shows what was eaten and nothing to be under or over.
+  const tracksCalories = planTracksCalories(plan);
 
   return (
     <div className="diary">
@@ -100,8 +104,10 @@ export function DiaryScreen({
 
         <section className="budget-card">
           <div className="budget-head">
-            <span className="budget-label">Calorie Budget</span>
-            <span className="budget-value">{goals.calories.toLocaleString()}</span>
+            <span className="budget-label">{tracksCalories ? "Calorie Budget" : "Calories Today"}</span>
+            <span className="budget-value">
+              {(tracksCalories ? goals.calories : total.calories).toLocaleString()}
+            </span>
           </div>
 
           <div className="budget-grid">
@@ -109,7 +115,11 @@ export function DiaryScreen({
               <MealStat label={MEAL_LABELS.breakfast} cal={mealCal("breakfast")} onClick={() => onOpenMeal("breakfast")} />
               <MealStat label={MEAL_LABELS.lunch} cal={mealCal("lunch")} onClick={() => onOpenMeal("lunch")} />
             </div>
-            <CalorieRing consumed={total.calories} goal={goals.calories} exercise={exercise} />
+            <CalorieRing
+              consumed={total.calories}
+              goal={tracksCalories ? goals.calories : null}
+              exercise={exercise}
+            />
             <div className="budget-col">
               <MealStat label={MEAL_LABELS.dinner} cal={mealCal("dinner")} onClick={() => onOpenMeal("dinner")} />
               <MealStat label={MEAL_LABELS.snacks} cal={mealCal("snacks")} onClick={() => onOpenMeal("snacks")} />
@@ -125,7 +135,11 @@ export function DiaryScreen({
             <span className="workout-stat-body">
               <span className="workout-stat-label">Exercise</span>
               <span className="workout-stat-sub">
-                {exercise > 0 ? `+${exercise} cal back in your budget` : "Log or sync a workout"}
+                {exercise <= 0
+                  ? "Log or sync a workout"
+                  : tracksCalories
+                    ? `+${exercise} cal back in your budget`
+                    : `${exercise} cal burned`}
               </span>
             </span>
             <span className="workout-stat-cal">{exercise > 0 ? `+${exercise}` : ""}</span>
@@ -135,12 +149,12 @@ export function DiaryScreen({
           <div className="budget-foot">
             <span className="summary-eaten">
               <strong>{total.calories}</strong> eaten
-              {exercise > 0 ? <> · <strong>{exercise}</strong> burned</> : null} · goal{" "}
-              {goals.calories.toLocaleString()}
+              {exercise > 0 ? <> · <strong>{exercise}</strong> burned</> : null}
+              {tracksCalories ? <> · goal {goals.calories.toLocaleString()}</> : null}
             </span>
           </div>
 
-          <MacroBars total={total} goals={goals} />
+          <MacroBars total={total} goals={tracksCalories ? goals : null} />
         </section>
 
       </div>

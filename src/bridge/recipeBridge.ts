@@ -19,10 +19,12 @@
  *   3. **No bridge at all** (plain `npm run dev` outside ConjureOS): bundled
  *      mock recipes.
  *
- * Reads are side-effect-free (`actions.read`, no grant prompt); `markCooked`
- * is `actions.write`, triggers ConjureOS's one-time per-caller grant, and is
- * an optional nicety — in discovered mode it only fires when the matched
- * provider actually exposes a `markCooked` action.
+ * Reads are side-effect-free (`actions.read`). ConjureOS asks the user before
+ * each of this app's calls into another app — reads included, since Phase 30b
+ * — unless they chose "Always allow"; "Allow once" lasts until this app
+ * closes. `markCooked` is `actions.write` and an optional nicety — in
+ * discovered mode it only fires when the matched provider actually exposes a
+ * `markCooked` action.
  */
 
 /** One provider matched to a declared need by the platform. */

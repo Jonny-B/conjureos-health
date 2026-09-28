@@ -2,21 +2,24 @@
  * One place that answers "what does something outside the UI need to know
  * about this user's day".
  *
- * Three consumers with the same underlying need and very different trust
+ * Several consumers with the same underlying need and very different trust
  * levels: the in-app coach (sees everything, it's the user's own assistant),
- * the bridge actions other ConjureOS apps call (nutrition only — see
- * bridge/actions), and anything later. Assembling this once means the coach
- * and an external caller can't drift into disagreeing about the same day.
+ * the bridge actions other ConjureOS apps call (each read names the slice it
+ * returns — see bridge/actions), the summary file ConjureOS may read
+ * (features/sharedSummary), and anything later. Assembling this once means
+ * they can't drift into disagreeing about the same day.
  *
  * Read-only. Nothing here writes, and nothing here decides who may call it —
  * that's the caller's job.
  */
 
-import type { MealType } from "../types";
+import type { Goals, MealType, Plan } from "../types";
 import { MEAL_LABELS, MEAL_TYPES } from "../types";
-import { getRepository } from "../data/repository";
-import { buildDayView, shiftDate, todayISO } from "./diary";
+import { getRepository, type Repository } from "../data/repository";
+import { buildDayView, isAiEstimate, shiftDate, todayISO } from "./diary";
 import { exerciseCaloriesForDate } from "./exercise";
+import { planTracksCalories } from "./plan/model";
+import { targetsToGoals } from "./plan/planService";
 import { formatSleep, sleepMinutes } from "./sleep";
 import { fmtWater, totalMl } from "./water";
 import type { Profile } from "../types";
@@ -27,24 +30,65 @@ type Units = Profile["units"];
  *  A prompt that lists forty items crowds out the question being asked. */
 const MAX_NAMED_FOODS = 25;
 
+/** The active plan, or null when there is none or it can't be read. */
+async function readPlan(repo: Repository): Promise<Plan | null> {
+  try {
+    return await repo.getPlan();
+  } catch {
+    return null;
+  }
+}
+
+/** What the user is aiming at today, exactly as the diary's ring shows it. */
+export interface EffectiveTargets {
+  /** False when the user logs food with no calorie target at all — see
+   *  `planTracksCalories`. Anything shown to them, or handed to another app,
+   *  must then carry no target, no "remaining" and no "over". */
+  tracksCalories: boolean;
+  /** The plan's targets when it has them, else the stored goals. Null exactly
+   *  when `tracksCalories` is false. */
+  targets: Goals | null;
+}
+
+/**
+ * The daily targets in effect: the same `targetsToGoals(plan, goals)` the diary
+ * ring uses, so an answer given outside the app never disagrees with the ring.
+ */
+export async function effectiveTargets(): Promise<EffectiveTargets> {
+  const repo = await getRepository();
+  const [goals, plan] = await Promise.all([repo.getGoals(), readPlan(repo)]);
+  if (!planTracksCalories(plan)) return { tracksCalories: false, targets: null };
+  return { tracksCalories: true, targets: targetsToGoals(plan, goals) };
+}
+
 /** One food as an assistant needs to see it. */
 export interface SnapshotFood {
+  /** The diary entry's id, for a caller that wants to correct or remove it. */
+  id: string;
   name: string;
   meal: MealType;
   quantity: number;
+  /** One serving, as labelled when it was logged ("1 cup (240 g)"). */
+  servingSize: string;
   calories: number;
   protein: number;
   carbs: number;
   fat: number;
+  /** An unreviewed AI estimate, which the diary badges as a guess. */
+  estimated: boolean;
 }
 
 /** Everything about one day, assembled from every store. */
 export interface DaySnapshot {
   date: string;
-  targets: { calories: number; protein: number; carbs: number; fat: number };
+  /** See `EffectiveTargets.tracksCalories`. */
+  tracksCalories: boolean;
+  /** Null when the user tracks no calorie target. */
+  targets: Goals | null;
   consumed: { calories: number; protein: number; carbs: number; fat: number };
-  /** Targets minus consumed, plus exercise back. Negative means over. */
-  remaining: { calories: number; protein: number; carbs: number; fat: number };
+  /** Targets minus consumed, plus exercise back. Negative means over. Null
+   *  when there's no target to be under or over. */
+  remaining: { calories: number; protein: number; carbs: number; fat: number } | null;
   exerciseCalories: number;
   foods: SnapshotFood[];
   /** Foods beyond MAX_NAMED_FOODS, counted rather than listed. */
@@ -62,9 +106,9 @@ export interface DaySnapshot {
  */
 export async function daySnapshot(date = todayISO()): Promise<DaySnapshot> {
   const repo = await getRepository();
-  const [entries, goals, exercise, water, sleep, symptoms, weights] = await Promise.all([
+  const [entries, target, exercise, water, sleep, symptoms, weights] = await Promise.all([
     repo.listDiary(date).catch(() => []),
-    repo.getGoals(),
+    effectiveTargets(),
     exerciseCaloriesForDate(date).catch(() => 0),
     repo.listWater(date).catch(() => []),
     repo.listSleep(date).catch(() => []),
@@ -74,27 +118,34 @@ export async function daySnapshot(date = todayISO()): Promise<DaySnapshot> {
 
   const { total } = buildDayView(date, entries);
   const foods: SnapshotFood[] = entries.slice(0, MAX_NAMED_FOODS).map((e) => ({
+    id: e.id,
     name: e.food.name,
     meal: e.meal,
     quantity: e.quantity,
+    servingSize: e.food.servingSize,
     calories: Math.round(e.food.perServing.calories * e.quantity),
     protein: Math.round(e.food.perServing.protein * e.quantity),
     carbs: Math.round(e.food.perServing.carbs * e.quantity),
     fat: Math.round(e.food.perServing.fat * e.quantity),
+    estimated: isAiEstimate(e),
   }));
 
+  const goals = target.targets;
   const snap: DaySnapshot = {
     date,
+    tracksCalories: target.tracksCalories,
     targets: goals,
     consumed: total,
-    remaining: {
-      // Exercise adds back to the calorie allowance only — it doesn't create
-      // more protein to eat, and pretending otherwise would skew advice.
-      calories: goals.calories - total.calories + exercise,
-      protein: goals.protein - total.protein,
-      carbs: goals.carbs - total.carbs,
-      fat: goals.fat - total.fat,
-    },
+    remaining: goals
+      ? {
+          // Exercise adds back to the calorie allowance only — it doesn't create
+          // more protein to eat, and pretending otherwise would skew advice.
+          calories: goals.calories - total.calories + exercise,
+          protein: goals.protein - total.protein,
+          carbs: goals.carbs - total.carbs,
+          fat: goals.fat - total.fat,
+        }
+      : null,
     exerciseCalories: exercise,
     foods,
     moreFoods: Math.max(0, entries.length - foods.length),
@@ -129,22 +180,35 @@ export async function recentSnapshots(days = 3, from = todayISO()): Promise<DayS
  */
 export function renderDayForPrompt(s: DaySnapshot, units: Units = "metric"): string {
   const lines: string[] = [`Date: ${s.date}`];
-  lines.push(
-    `Targets: ${s.targets.calories} cal, ${s.targets.protein}g protein, ` +
-      `${s.targets.carbs}g carbs, ${s.targets.fat}g fat.`,
-  );
+  if (s.targets) {
+    lines.push(
+      `Targets: ${s.targets.calories} cal, ${s.targets.protein}g protein, ` +
+        `${s.targets.carbs}g carbs, ${s.targets.fat}g fat.`,
+    );
+  } else {
+    // Said outright rather than left as a missing line: a model given totals
+    // and no target will happily invent one ("about 2,000 is typical").
+    lines.push(
+      "No calorie target: this user logs food without a calorie budget. Do not suggest one, " +
+        "and do not describe what they ate as over or under anything.",
+    );
+  }
   lines.push(
     `Eaten so far: ${s.consumed.calories} cal, ${s.consumed.protein}g protein, ` +
       `${s.consumed.carbs}g carbs, ${s.consumed.fat}g fat.`,
   );
-  if (s.exerciseCalories > 0) lines.push(`Exercise: ${s.exerciseCalories} cal burned, added back.`);
+  if (s.exerciseCalories > 0) {
+    lines.push(`Exercise: ${s.exerciseCalories} cal burned${s.targets ? ", added back" : ""}.`);
+  }
   // Signed rather than worded ("121 left" / "121 over"): a bare negative is
   // unambiguous to read, and gluing a unit onto a phrase produced "121 leftg
   // protein" the first time round.
-  lines.push(
-    `Remaining, negative means over (${s.remaining.calories} cal, ` +
-      `${s.remaining.protein}g protein, ${s.remaining.carbs}g carbs, ${s.remaining.fat}g fat).`,
-  );
+  if (s.remaining) {
+    lines.push(
+      `Remaining, negative means over (${s.remaining.calories} cal, ` +
+        `${s.remaining.protein}g protein, ${s.remaining.carbs}g carbs, ${s.remaining.fat}g fat).`,
+    );
+  }
 
   if (s.foods.length === 0) {
     lines.push("Nothing logged yet today.");
