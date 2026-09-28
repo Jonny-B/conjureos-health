@@ -385,6 +385,10 @@ export class MockRepository implements Repository {
       .sort((a, b) => a.loggedAt.localeCompare(b.loggedAt));
   }
 
+  async getDiaryEntry(id: string): Promise<DiaryEntry | null> {
+    return this.store.diary.find((e) => e.id === id) ?? null;
+  }
+
   async addDiaryEntry(entry: NewDiaryEntry): Promise<DiaryEntry> {
     const full: DiaryEntry = { ...entry, id: newId(), loggedAt: new Date().toISOString() };
     return this.mutate((s) => {

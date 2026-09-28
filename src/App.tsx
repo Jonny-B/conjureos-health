@@ -3,7 +3,10 @@ import type { Goals, MealType, Plan, Profile } from "./types";
 import { DEFAULT_GOALS } from "./types";
 import { getRepository } from "./data/repository";
 import { registerActions } from "./bridge/actions";
+import { readLaunchIntent } from "./bridge/intents";
 import { todayISO } from "./features/diary";
+import { onDataChanged } from "./features/dataEvents";
+import { writeNutritionSummary } from "./features/sharedSummary";
 import {
   archivePlan,
   commitNewPlan,
@@ -75,6 +78,11 @@ export function App() {
   const [activeMeal, setActiveMeal] = useState<MealType>("breakfast");
   // Bumped after any write so the Diary reloads from the repository.
   const [nonce, setNonce] = useState(0);
+  // What a deep link asked the Add screen to start with. `key` remounts the
+  // screen so a second link isn't ignored by state the first one set.
+  const [addPrefill, setAddPrefill] = useState<{ query?: string; barcode?: string; key: number } | null>(
+    null,
+  );
 
   /**
    * Re-read everything a reset can have changed. Bumping `nonce` alone only
@@ -109,12 +117,26 @@ export function App() {
     };
   }, []);
 
+  // A cross-app action wrote something (another app logged a food, the
+  // assistant fixed a quantity): refresh whatever is on screen.
+  useEffect(() => onDataChanged(() => setNonce((n) => n + 1)), []);
+
+  // Keep the summary ConjureOS may read (see features/sharedSummary) current:
+  // once after startup, then after each change, settling for a moment so a
+  // burst of writes rewrites it once.
+  useEffect(() => {
+    if (!ready) return;
+    const t = setTimeout(() => void writeNutritionSummary(), 1500);
+    return () => clearTimeout(t);
+  }, [ready, nonce]);
+
   // The diary's rings read from the plan's targets when it tracks food, falling
   // back to the separately-stored goals otherwise.
   const effectiveGoals = useMemo(() => targetsToGoals(plan, goals), [plan, goals]);
 
   const openAdd = useCallback(
     (meal: MealType, mode: AddMode = "search", returnTo: Tab = "diary") => {
+      setAddPrefill(null);
       setAddMeal(meal);
       setAddMode(mode);
       setAddReturn(returnTo);
@@ -122,6 +144,28 @@ export function App() {
     },
     [],
   );
+
+  // A deep link (bridge/intents) only navigates: it never logs anything.
+  // `get()` can stay pending while the user reads ConjureOS's prompt, which is
+  // why this runs after the first paint rather than holding it up.
+  useEffect(() => {
+    if (!ready) return;
+    let alive = true;
+    void readLaunchIntent().then((intent) => {
+      if (!alive || !intent) return;
+      if (intent.date) setDate(intent.date);
+      if (intent.kind === "addFood") {
+        openAdd(intent.meal ?? mealForNow());
+        // After openAdd, which clears any earlier prefill.
+        setAddPrefill({ query: intent.query, barcode: intent.barcode, key: Date.now() });
+      } else {
+        setTab(intent.kind === "exercise" ? "exercise" : "diary");
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [ready, openAdd]);
 
   const openMeal = useCallback((meal: MealType) => {
     setActiveMeal(meal);
@@ -279,11 +323,20 @@ export function App() {
           />
         ) : tab === "add" ? (
           <AddFoodScreen
+            key={addPrefill?.key ?? 0}
             date={date}
             defaultMeal={addMeal}
             defaultMode={addMode}
-            onLogged={onLogged}
-            onCancel={() => setTab(addReturn)}
+            initialQuery={addPrefill?.query}
+            initialBarcode={addPrefill?.barcode}
+            onLogged={() => {
+              setAddPrefill(null);
+              onLogged();
+            }}
+            onCancel={() => {
+              setAddPrefill(null);
+              setTab(addReturn);
+            }}
             onModeChange={setAddMode}
             units={profile?.units ?? "metric"}
           />

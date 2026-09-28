@@ -9,9 +9,15 @@
  * Two rules for editing this file. It must describe what the code actually
  * does — the "what we send" list renders from the same `DISCLOSURE_SENDS`
  * constant the consent sheet uses, so the two cannot drift into saying
- * different things. And a material change here means bumping
- * `DISCLOSURE_VERSION`, which re-asks everyone rather than assuming old
- * agreement covers new wording.
+ * different things. And a material change to what the AI receives means
+ * bumping `DISCLOSURE_VERSION`, which re-asks everyone rather than assuming
+ * old agreement covers new wording.
+ *
+ * The "other apps" section (2026-09-28) did not bump it: that route isn't
+ * authorized by the AI agreement at all but by ConjureOS's own prompt, per
+ * app, before another app's request runs — so re-asking the AI question
+ * would authorize nothing. Its lists must match bridge/actions.ts and
+ * features/sharedSummary.ts.
  *
  * This is a plain-language policy written against how the app behaves. It is
  * not legal advice and has not been through counsel.
@@ -20,7 +26,7 @@
 import { DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features/aiConsent";
 
 /** Last material revision. Shown so a reader can tell what they agreed to. */
-export const POLICY_UPDATED = "2026-09-04";
+export const POLICY_UPDATED = "2026-09-28";
 
 export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
   return (
@@ -36,7 +42,7 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
           <h3>What this covers</h3>
           <p>
             Conjure Health records things about your body: what you ate, what you weigh, how
-            you slept, how much you drank, symptoms you noticed, and workouts you did. Some
+            you slept, how much you drank, symptoms you noticed, and exercise you did. Some
             privacy laws call this <strong>consumer health data</strong>. This page explains
             what happens to it.
           </p>
@@ -57,12 +63,17 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
 
           <h3>When it leaves</h3>
           <p>
-            One feature sends part of your journal outside the app: <strong>Find patterns</strong>{" "}
-            on the Journal tab, which asks an AI to look for things that go together. It runs
-            only when you press the button. Nothing is sent on a schedule, in the background,
-            or while the app is closed.
+            In two ways, each only with your say-so. Nothing is sent on a schedule.
           </p>
-          <p>The AI receives, for the range you asked about:</p>
+
+          <h4>To an AI, when you ask it something</h4>
+          <p>
+            Two features send part of your journal to an AI: <strong>Find patterns</strong> on
+            the Journal tab, which looks for things that go together, and asking the coach from{" "}
+            <strong>Ask about food</strong>. They run only when you press the button, and only
+            after you have agreed to what they send.
+          </p>
+          <p>The AI receives:</p>
           <ul className="consent-list">
             {DISCLOSURE_SENDS.map((line) => (
               <li key={line}>{line}</li>
@@ -75,19 +86,57 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
             ))}
           </ul>
 
+          <h4>To other apps on ConjureOS, when you allow them</h4>
+          <p>
+            Other apps you install on ConjureOS, and ConjureOS's own assistant, can ask Conjure
+            Health for your data or add to it: a recipe app checking how many calories you
+            have left, say, or a fitness app adding a run. ConjureOS asks you before another
+            app's request goes through, and you choose to allow it once, always, or not at
+            all. ConjureOS's assistant acts when you ask it to. To answer, ConjureOS may start
+            Conjure Health in the background.
+          </p>
+          <p>What they can read:</p>
+          <ul className="consent-list">
+            <li>What you ate: foods, calories, protein, carbs and fat, and your daily targets</li>
+            <li>Your exercise, water and sleep totals, and your weigh-ins</li>
+            <li>Symptoms you logged, with the severity and time</li>
+            <li>
+              A short summary of your food, water and exercise for the last 14 days, which
+              ConjureOS reads to answer a question when nothing else fits
+            </li>
+          </ul>
+          <p>What they never get:</p>
+          <ul className="consent-list withheld">
+            <li>The free-text notes on your symptoms and sleep</li>
+            <li>Your profile, your plan's details, or your AI agreement</li>
+            <li>Why you have no calorie target, if you don't have one</li>
+          </ul>
+          <p>
+            They can add entries (a food, a drink, a workout), correct them, and remove one entry
+            at a time. They cannot change your targets or plan, and cannot clear a history.
+            Once another app has your data, what it does with it is up to that app and its
+            own policy.
+          </p>
+
           <h3>Who processes it</h3>
           <p>
-            The request goes through ConjureOS, which routes it to{" "}
+            An AI request goes through ConjureOS, which routes it to{" "}
             <strong>Anthropic</strong> as the AI provider. Anthropic processes it to produce
-            the answer and does not use commercial API data to train its models. They are the
-            only third party your journal is disclosed to.
+            the answer and does not use commercial API data to train its models. Apart from the
+            other apps you allow, above, they are the only third party your journal is
+            disclosed to.
           </p>
 
           <h3>Your choices</h3>
           <ul className="consent-list">
             <li>
-              Nothing is sent until you agree to it. The first time you press Find patterns,
-              you are shown exactly what would be sent and can decline.
+              Nothing from your journal goes to the AI until you agree to it. The first time
+              you press Find patterns or ask the coach, you are shown exactly what would be
+              sent and can decline.
+            </li>
+            <li>
+              Other apps get nothing until you allow them. You can turn app-to-app connections
+              off entirely in ConjureOS Settings → Apps.
             </li>
             <li>
               The free-text note on a symptom is a separate choice, off unless you turn it on.

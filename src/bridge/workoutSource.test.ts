@@ -49,6 +49,7 @@ describe("linkedWorkoutsForDate", () => {
     expect(out).toEqual([
       {
         key: "linked:/apps/conjure-fitness:w1",
+        id: "w1",
         appName: "Conjure Fitness",
         date: WED,
         name: "Morning Run",

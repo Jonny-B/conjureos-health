@@ -160,4 +160,17 @@ describe("exercise combine (linked fitness app)", () => {
     await setWearableKcal(DATE, linkedKey, 180);
     expect(await exerciseCaloriesForDate(DATE)).toBe(before - 20);
   });
+
+  it("counts a workout once when the same app also sent it through logWorkout", async () => {
+    const repo = await getRepository();
+    await repo.saveWorkoutSession(
+      session({ id: "sent-fw1", source: "logWorkout", externalId: "fw1", sourceApp: "conjure fitness", caloriesBurned: 210 }),
+    );
+    // Same app (names compared case-insensitively), same id: the stored entry wins.
+    const items = await listCompletedWorkouts(DATE);
+    expect(items.some((i) => i.source === "linked")).toBe(false);
+    expect(items.some((i) => i.key === "sent-fw1")).toBe(true);
+    await removeSession("sent-fw1");
+    expect((await listCompletedWorkouts(DATE)).some((i) => i.source === "linked")).toBe(true);
+  });
 });

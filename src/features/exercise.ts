@@ -29,6 +29,15 @@ import { newId } from "../data/id";
 export type CompletedSource = "app" | "wearable" | "linked";
 
 /**
+ * Who put a workout on the ring, finer than `CompletedSource`: the user by
+ * hand, another app through `logWorkout`, a wearable read live from the
+ * device, or an entry an earlier version of this app stored (the workout
+ * player, or the old wearable import) — which may be the only copy of that
+ * data left, so nothing outside the app deletes it.
+ */
+export type WorkoutOrigin = "manual" | "app" | "wearable" | "legacy";
+
+/**
  * One completed workout for a given day, normalized across both sources so
  * the UI can list in-app and wearable workouts together. `kcal` is already
  * the effective value — any user override has been applied.
@@ -38,8 +47,11 @@ export interface CompletedWorkout {
    *  or `linked:<appPath>:<id>` (linked). */
   key: string;
   source: CompletedSource;
+  origin: WorkoutOrigin;
   /** Short provenance label, e.g. "Added by you" or the wearable's name. */
   sourceLabel: string;
+  /** The sending app's own id, for an entry another app logged with one. */
+  externalId?: string;
   name: string;
   /** Effective calories (wearable override applied). */
   kcal: number;
@@ -93,6 +105,19 @@ function nameForSession(s: WorkoutSession): string {
   return "Workout";
 }
 
+/** "From Conjure Fitness" when the sending app named itself. */
+function labelForSession(s: WorkoutSession): string {
+  if (s.source === "logWorkout" && s.sourceApp) return `From ${s.sourceApp}`;
+  return SOURCE_LABELS[s.source ?? "app"] ?? "In-app";
+}
+
+/** A stored entry's origin; see `WorkoutOrigin`. */
+export function originOfSession(s: Pick<WorkoutSession, "source">): WorkoutOrigin {
+  if (s.source === "manual") return "manual";
+  if (s.source === "logWorkout") return "app";
+  return "legacy";
+}
+
 async function readWorkoutsForDate(date: string): Promise<WorkoutBurn[]> {
   const start = new Date(`${date}T00:00:00`).getTime();
   const end = new Date(`${date}T23:59:59.999`).getTime();
@@ -122,7 +147,9 @@ export async function listCompletedWorkouts(date: string): Promise<CompletedWork
       item: {
         key: s.id,
         source: "app" as const,
-        sourceLabel: SOURCE_LABELS[s.source ?? "app"] ?? "In-app",
+        origin: originOfSession(s),
+        sourceLabel: labelForSession(s),
+        ...(s.externalId ? { externalId: s.externalId } : {}),
         name: nameForSession(s),
         kcal: s.caloriesBurned ?? 0,
         durationSec: s.durationSec ?? s.cardio?.durationSec ?? undefined,
@@ -137,6 +164,7 @@ export async function listCompletedWorkouts(date: string): Promise<CompletedWork
       item: {
         key,
         source: "wearable" as const,
+        origin: "wearable" as const,
         sourceLabel: w.source || "Apple Health",
         name: labelForWorkoutType(w.workoutType),
         kcal: overrides[key] ?? w.caloriesBurned,
@@ -147,18 +175,31 @@ export async function listCompletedWorkouts(date: string): Promise<CompletedWork
     };
   });
 
-  const link = linked.map((w) => ({
-    item: {
-      key: w.key,
-      source: "linked" as const,
-      sourceLabel: w.appName,
-      name: w.name,
-      kcal: overrides[w.key] ?? w.caloriesBurned,
-      durationSec: w.durationSec,
-      excluded: excluded.has(w.key),
-    },
-    ts: w.completedAtMs,
-  }));
+  // An app that both sends a workout through logWorkout and lists it for the
+  // workoutSource need would be counted twice; the stored entry wins.
+  const sent = new Set(
+    sessions
+      .filter((s) => s.source === "logWorkout" && s.externalId && s.sourceApp)
+      .map((s) => `${s.sourceApp!.trim().toLowerCase()}\n${s.externalId}`),
+  );
+  const link = linked
+    .filter((w) => !sent.has(`${w.appName.trim().toLowerCase()}\n${w.id}`))
+    .map((w) => ({
+      item: {
+        key: w.key,
+        source: "linked" as const,
+        // From another app, like a logWorkout entry, but not stored here, so
+        // not deletable here (see dayExercise); `source` tells them apart.
+        origin: "app" as const,
+        sourceLabel: w.appName,
+        externalId: w.id,
+        name: w.name,
+        kcal: overrides[w.key] ?? w.caloriesBurned,
+        durationSec: w.durationSec,
+        excluded: excluded.has(w.key),
+      },
+      ts: w.completedAtMs,
+    }));
 
   return [...app, ...wear, ...link].sort((a, b) => b.ts - a.ts).map((x) => x.item);
 }

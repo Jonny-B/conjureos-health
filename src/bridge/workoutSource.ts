@@ -35,6 +35,8 @@ const INVOKE_TIMEOUT_MS = 8_000;
 export interface LinkedWorkout {
   /** Unique across providers: `linked:<appPath>:<id>`. Used for exclusions. */
   key: string;
+  /** The provider's own id for the workout. */
+  id: string;
   /** The provider's display name, e.g. "Conjure Fitness". */
   appName: string;
   /** YYYY-MM-DD. */
@@ -107,6 +109,7 @@ function toLinked(raw: unknown, match: ProviderMatch): LinkedWorkout | null {
   const at = typeof r.completedAt === "string" ? Date.parse(r.completedAt) : Number.NaN;
   return {
     key: `linked:${match.appPath}:${id}`,
+    id,
     appName: match.displayName || "Another app",
     date,
     name: name || "Workout",
