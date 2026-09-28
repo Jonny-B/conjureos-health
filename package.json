@@ -1,6 +1,6 @@
 {
   "name": "conjureos-health",
-  "version": "1.40.0",
+  "version": "1.41.0",
   "description": "Conjure Health: calorie + nutrition logging, daily targets, weight tracking, and a simple weight-loss plan for ConjureOS.",
   "type": "module",
   "license": "MIT",
@@ -23,36 +23,38 @@
     "actions": {
       "logFood": {
         "permission": "actions.write",
-        "description": "Log a food to the user's diary for a given meal and date. Only the food name is required: if calories (and protein/carbs/fat, in grams) are omitted, the app estimates them from the name and a typical serving and records them as adjustable estimates. So an assistant can log a named food like \"a McCrispy sandwich\" without knowing the numbers. Also accepts meal (breakfast|lunch|dinner|snacks) and date (YYYY-MM-DD, defaults to today). Pass calories only when the user states an explicit number.",
+        "description": "Log food to the user's diary. Only name is required: without calories, the app estimates the food from its name and records it as an adjustable AI estimate, splitting a combo like \"a chicken sandwich and a beer\" into one entry per food. Pass calories (and protein/carbs/fat in grams, per serving) only when the user states the numbers. meal is breakfast|lunch|dinner|snacks and defaults by time of day; date is YYYY-MM-DD and defaults to today. If the estimate can't be made it fails with the reason instead of logging 0.",
         "params": {
           "type": "object",
           "properties": {
             "name": {
               "type": "string",
-              "maxLength": 80
+              "maxLength": 80,
+              "description": "What the user ate, in their words."
             },
             "calories": {
               "type": "integer",
               "minimum": 0,
-              "maximum": 5000
+              "maximum": 5000,
+              "description": "Per serving, in kcal. Omit to have the app estimate."
             },
             "protein": {
               "type": "integer",
               "minimum": 0,
               "maximum": 500,
-              "description": "Grams."
+              "description": "Grams per serving; used only with calories."
             },
             "carbs": {
               "type": "integer",
               "minimum": 0,
               "maximum": 800,
-              "description": "Grams."
+              "description": "Grams per serving; used only with calories."
             },
             "fat": {
               "type": "integer",
               "minimum": 0,
               "maximum": 500,
-              "description": "Grams."
+              "description": "Grams per serving; used only with calories."
             },
             "meal": {
               "type": "string",
@@ -78,89 +80,245 @@
           "properties": {
             "id": {
               "type": "string",
-              "description": "The new diary entry's id."
+              "description": "The first new diary entry's id."
+            },
+            "ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Every new diary entry's id, one per food."
+            },
+            "foods": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "calories": {
+                    "type": "integer"
+                  },
+                  "protein": {
+                    "type": "integer",
+                    "description": "Grams."
+                  },
+                  "carbs": {
+                    "type": "integer",
+                    "description": "Grams."
+                  },
+                  "fat": {
+                    "type": "integer",
+                    "description": "Grams."
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "calories",
+                  "protein",
+                  "carbs",
+                  "fat"
+                ]
+              }
+            },
+            "calories": {
+              "type": "integer",
+              "description": "Total calories logged."
+            },
+            "estimated": {
+              "type": "boolean",
+              "description": "True when the numbers are an AI estimate."
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
             }
           },
           "required": [
-            "id"
+            "id",
+            "ids",
+            "foods",
+            "calories",
+            "estimated",
+            "value"
           ]
         }
       },
-      "todayTotals": {
-        "permission": "actions.read",
-        "description": "Return today's nutrition totals (calories, protein, carbs, fat) and the user's daily goals plus remaining calories. Useful for dashboards, assistants, or apps that want to know how much budget is left.",
+      "logMeal": {
+        "permission": "actions.write",
+        "description": "Log several foods to one meal in one call, each with its own numbers - for an app that already knows the meal (a planned dinner, a composed plate). items is 1-20 foods, each {name, calories, protein?, carbs?, fat?, servings?, servingSize?} with calories and grams per serving and servings defaulting to 1. meal defaults by time of day; date is YYYY-MM-DD and defaults to today. Nothing is estimated: to log a described meal use logFood.",
         "params": {
           "type": "object",
-          "properties": {}
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  "calories": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5000,
+                    "description": "Per serving, kcal."
+                  },
+                  "protein": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 500,
+                    "description": "Grams per serving."
+                  },
+                  "carbs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 800,
+                    "description": "Grams per serving."
+                  },
+                  "fat": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 500,
+                    "description": "Grams per serving."
+                  },
+                  "servings": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 20,
+                    "description": "How many servings; defaults to 1."
+                  },
+                  "servingSize": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "description": "One serving, e.g. \"1 cup\"; defaults to \"1 serving\"."
+                  }
+                },
+                "required": [
+                  "name",
+                  "calories"
+                ]
+              },
+              "description": "1-20 foods."
+            },
+            "meal": {
+              "type": "string",
+              "enum": [
+                "breakfast",
+                "lunch",
+                "dinner",
+                "snacks"
+              ],
+              "description": "Defaults by time of day when omitted."
+            },
+            "date": {
+              "type": "string",
+              "description": "YYYY-MM-DD; defaults to today."
+            }
+          },
+          "required": [
+            "items"
+          ]
         },
         "returns": {
           "type": "object",
           "properties": {
-            "date": {
+            "ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The new diary entries' ids."
+            },
+            "calories": {
+              "type": "integer",
+              "description": "Total calories logged."
+            },
+            "value": {
               "type": "string",
-              "description": "YYYY-MM-DD."
-            },
-            "total": {
-              "type": "object",
-              "properties": {
-                "calories": {
-                  "type": "number"
-                },
-                "protein": {
-                  "type": "number"
-                },
-                "carbs": {
-                  "type": "number"
-                },
-                "fat": {
-                  "type": "number"
-                }
-              },
-              "required": [
-                "calories",
-                "protein",
-                "carbs",
-                "fat"
-              ]
-            },
-            "goals": {
-              "type": "object",
-              "properties": {
-                "calories": {
-                  "type": "number"
-                },
-                "protein": {
-                  "type": "number"
-                },
-                "carbs": {
-                  "type": "number"
-                },
-                "fat": {
-                  "type": "number"
-                }
-              },
-              "required": [
-                "calories",
-                "protein",
-                "carbs",
-                "fat"
-              ]
-            },
-            "exerciseCalories": {
-              "type": "number",
-              "description": "Calories burned from exercise/wearable today, added back into the remaining budget."
-            },
-            "caloriesRemaining": {
-              "type": "number",
-              "description": "goal - eaten + exerciseCalories."
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
             }
           },
           "required": [
-            "date",
-            "total",
-            "goals",
-            "exerciseCalories",
-            "caloriesRemaining"
+            "ids",
+            "calories",
+            "value"
+          ]
+        }
+      },
+      "copyMeal": {
+        "permission": "actions.write",
+        "description": "Copy every food from one meal on one day to another day - \"log the same breakfast as yesterday\". meal is breakfast|lunch|dinner|snacks and is required. fromDate defaults to yesterday and toDate to today (YYYY-MM-DD); toMeal defaults to the same meal. Fails if nothing was logged for that meal.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "meal": {
+              "type": "string",
+              "enum": [
+                "breakfast",
+                "lunch",
+                "dinner",
+                "snacks"
+              ],
+              "description": "The meal to copy."
+            },
+            "fromDate": {
+              "type": "string",
+              "description": "YYYY-MM-DD to copy from; defaults to yesterday."
+            },
+            "toDate": {
+              "type": "string",
+              "description": "YYYY-MM-DD to copy to; defaults to today."
+            },
+            "toMeal": {
+              "type": "string",
+              "enum": [
+                "breakfast",
+                "lunch",
+                "dinner",
+                "snacks"
+              ],
+              "description": "Defaults to the same meal."
+            }
+          },
+          "required": [
+            "meal"
+          ]
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The new diary entries' ids."
+            },
+            "count": {
+              "type": "integer",
+              "description": "How many foods were copied."
+            },
+            "calories": {
+              "type": "integer",
+              "description": "Total calories copied."
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            }
+          },
+          "required": [
+            "ids",
+            "count",
+            "calories",
+            "value"
           ]
         }
       },
@@ -217,58 +375,240 @@
           ]
         }
       },
-      "logWorkout": {
+      "updateFoodEntry": {
         "permission": "actions.write",
-        "description": "Log a completed workout so its burned calories add back into the day's calorie budget. Pass calories (kcal burned); optionally type (e.g. \"running\") and durationMin. date is YYYY-MM-DD, defaults to today. Use when the user says they did a workout or a wearable reports one.",
+        "description": "Correct a logged food: move it to another meal, change how many servings, rename it, or fix its per-serving calories/protein/carbs/fat (grams). Takes the entry id from dayEntries, dayNutrition or logFood; pass only the fields to change. Numbers given here replace an AI estimate. Fails if no food has that id.",
         "params": {
           "type": "object",
           "properties": {
+            "id": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "The diary entry's id."
+            },
+            "meal": {
+              "type": "string",
+              "enum": [
+                "breakfast",
+                "lunch",
+                "dinner",
+                "snacks"
+              ]
+            },
+            "quantity": {
+              "type": "number",
+              "minimum": 0.01,
+              "maximum": 50,
+              "description": "Servings."
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 80
+            },
             "calories": {
               "type": "integer",
               "minimum": 0,
-              "maximum": 10000,
-              "description": "Active energy burned, in kcal."
+              "maximum": 5000,
+              "description": "Per serving, kcal."
             },
-            "type": {
-              "type": "string",
-              "maxLength": 40,
-              "description": "Workout type, e.g. running, cycling, strength."
-            },
-            "durationMin": {
+            "protein": {
               "type": "integer",
               "minimum": 0,
-              "maximum": 1440,
-              "description": "Duration in minutes."
+              "maximum": 500,
+              "description": "Grams per serving."
             },
-            "date": {
-              "type": "string",
-              "description": "YYYY-MM-DD; defaults to today."
+            "carbs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 800,
+              "description": "Grams per serving."
+            },
+            "fat": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 500,
+              "description": "Grams per serving."
             }
           },
           "required": [
-            "calories"
+            "id"
           ]
         },
         "returns": {
           "type": "object",
           "properties": {
             "id": {
-              "type": "string",
-              "description": "The new workout session's id."
+              "type": "string"
             },
-            "caloriesBurned": {
-              "type": "integer"
+            "meal": {
+              "type": "string",
+              "enum": [
+                "breakfast",
+                "lunch",
+                "dinner",
+                "snacks"
+              ]
+            },
+            "quantity": {
+              "type": "number",
+              "description": "Servings."
+            },
+            "calories": {
+              "type": "integer",
+              "description": "The entry's calories after the change."
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
             }
           },
           "required": [
             "id",
-            "caloriesBurned"
+            "meal",
+            "quantity",
+            "calories",
+            "value"
+          ]
+        }
+      },
+      "setFoodQuantity": {
+        "permission": "actions.write",
+        "description": "Change how many servings of an already-logged food the user had - 'make that two'. Takes the diary entry id from dayEntries, dayNutrition or logFood. Fails if no food has that id.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "quantity": {
+              "type": "number",
+              "minimum": 0.01,
+              "maximum": 50
+            }
+          },
+          "required": [
+            "id",
+            "quantity"
+          ]
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "quantity": {
+              "type": "number"
+            },
+            "calories": {
+              "type": "integer",
+              "description": "The entry's calories at the new quantity."
+            }
+          },
+          "required": [
+            "id",
+            "quantity",
+            "calories"
+          ]
+        }
+      },
+      "todayTotals": {
+        "permission": "actions.read",
+        "description": "Return today's nutrition: calories and protein/carbs/fat (grams) eaten, exercise calories, and - when the user tracks a calorie target - their targets and the calories left (target - eaten + exercise). tracksCalories false means no calorie target: don't suggest one or call anything over or under. value answers \"how many calories do I have left?\" in one line.",
+        "params": {
+          "type": "object",
+          "properties": {}
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "description": "YYYY-MM-DD."
+            },
+            "tracksCalories": {
+              "type": "boolean",
+              "description": "False when the user logs food with no calorie target: don't suggest one, and don't call anything over or under."
+            },
+            "total": {
+              "type": "object",
+              "properties": {
+                "calories": {
+                  "type": "integer"
+                },
+                "protein": {
+                  "type": "integer",
+                  "description": "Grams."
+                },
+                "carbs": {
+                  "type": "integer",
+                  "description": "Grams."
+                },
+                "fat": {
+                  "type": "integer",
+                  "description": "Grams."
+                }
+              },
+              "required": [
+                "calories",
+                "protein",
+                "carbs",
+                "fat"
+              ]
+            },
+            "goals": {
+              "type": "object",
+              "properties": {
+                "calories": {
+                  "type": "integer"
+                },
+                "protein": {
+                  "type": "integer",
+                  "description": "Grams."
+                },
+                "carbs": {
+                  "type": "integer",
+                  "description": "Grams."
+                },
+                "fat": {
+                  "type": "integer",
+                  "description": "Grams."
+                }
+              },
+              "required": [
+                "calories",
+                "protein",
+                "carbs",
+                "fat"
+              ],
+              "description": "Daily targets. Absent when tracksCalories is false."
+            },
+            "exerciseCalories": {
+              "type": "integer",
+              "description": "Calories burned from exercise today, added back into the budget."
+            },
+            "caloriesRemaining": {
+              "type": "integer",
+              "description": "Target - eaten + exerciseCalories; negative means over. Absent when tracksCalories is false."
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            }
+          },
+          "required": [
+            "date",
+            "tracksCalories",
+            "total",
+            "exerciseCalories",
+            "value"
           ]
         }
       },
       "dayNutrition": {
         "permission": "actions.read",
-        "description": "Return what the user has eaten on a date with what is left of their targets: targets, consumed, remaining (calories include exercise added back), exercise calories, and the foods logged with their meal and calories. Defaults to today. Nutrition only - sleep, symptoms and weight are not exposed.",
+        "description": "Return what the user ate on a date: each food with its id, meal, servings, calories, protein/carbs/fat (grams) and whether it's an AI estimate, the day's totals, exercise calories, and - when they track a calorie target - targets and what's left. Defaults to today. Nutrition only: sleep, symptoms and weight are in dayWellbeing and weightTrend.",
         "params": {
           "type": "object",
           "properties": {
@@ -283,6 +623,10 @@
           "properties": {
             "date": {
               "type": "string"
+            },
+            "tracksCalories": {
+              "type": "boolean",
+              "description": "False when the user logs food with no calorie target: don't suggest one, and don't call anything over or under."
             },
             "targets": {
               "type": "object",
@@ -302,7 +646,14 @@
                   "type": "integer",
                   "description": "Grams."
                 }
-              }
+              },
+              "required": [
+                "calories",
+                "protein",
+                "carbs",
+                "fat"
+              ],
+              "description": "Absent when tracksCalories is false."
             },
             "consumed": {
               "type": "object",
@@ -322,7 +673,13 @@
                   "type": "integer",
                   "description": "Grams."
                 }
-              }
+              },
+              "required": [
+                "calories",
+                "protein",
+                "carbs",
+                "fat"
+              ]
             },
             "remaining": {
               "type": "object",
@@ -342,7 +699,14 @@
                   "type": "integer",
                   "description": "Grams."
                 }
-              }
+              },
+              "required": [
+                "calories",
+                "protein",
+                "carbs",
+                "fat"
+              ],
+              "description": "Targets - consumed; calories also add exercise back. Absent when tracksCalories is false."
             },
             "exerciseCalories": {
               "type": "integer"
@@ -352,6 +716,10 @@
               "items": {
                 "type": "object",
                 "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "The diary entry's id."
+                  },
                   "name": {
                     "type": "string"
                   },
@@ -365,24 +733,70 @@
                     ]
                   },
                   "quantity": {
-                    "type": "number"
+                    "type": "number",
+                    "description": "Servings."
+                  },
+                  "servingSize": {
+                    "type": "string"
                   },
                   "calories": {
                     "type": "integer"
+                  },
+                  "protein": {
+                    "type": "integer",
+                    "description": "Grams."
+                  },
+                  "carbs": {
+                    "type": "integer",
+                    "description": "Grams."
+                  },
+                  "fat": {
+                    "type": "integer",
+                    "description": "Grams."
+                  },
+                  "estimated": {
+                    "type": "boolean",
+                    "description": "An unreviewed AI estimate."
                   }
-                }
-              }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "meal",
+                  "quantity",
+                  "servingSize",
+                  "calories",
+                  "protein",
+                  "carbs",
+                  "fat",
+                  "estimated"
+                ]
+              },
+              "description": "Up to 25 foods; see moreFoods."
             },
             "moreFoods": {
               "type": "integer",
               "description": "Foods beyond the listed cap."
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
             }
-          }
+          },
+          "required": [
+            "date",
+            "tracksCalories",
+            "consumed",
+            "exerciseCalories",
+            "foods",
+            "moreFoods",
+            "value"
+          ]
         }
       },
       "recentNutrition": {
         "permission": "actions.read",
-        "description": "Return daily nutrition totals for the last N days, oldest first, for trends. N defaults to 7 and is capped at 14. Nutrition only.",
+        "description": "Return daily nutrition totals - calories, protein/carbs/fat (grams) and exercise calories - for the last N days, oldest first, for trends. N defaults to 7 and is capped at 14. Nutrition only.",
         "params": {
           "type": "object",
           "properties": {
@@ -422,15 +836,660 @@
                         "type": "integer",
                         "description": "Grams."
                       }
-                    }
+                    },
+                    "required": [
+                      "calories",
+                      "protein",
+                      "carbs",
+                      "fat"
+                    ]
                   },
                   "exerciseCalories": {
                     "type": "integer"
                   }
-                }
+                },
+                "required": [
+                  "date",
+                  "consumed",
+                  "exerciseCalories"
+                ]
               }
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            }
+          },
+          "required": [
+            "days",
+            "value"
+          ]
+        }
+      },
+      "nutritionTargets": {
+        "permission": "actions.read",
+        "description": "Return the targets the user works to and how they read amounts: daily calories and protein/carbs/fat (grams) when they track a calorie target, units (metric or imperial), the daily water goal in ml, and their weekly movement goal with this week's progress. Read this before suggesting a meal or showing a weight. tracksCalories false means no calorie target: suggest nothing against one.",
+        "params": {
+          "type": "object",
+          "properties": {}
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "tracksCalories": {
+              "type": "boolean",
+              "description": "False when the user logs food with no calorie target: don't suggest one, and don't call anything over or under."
+            },
+            "targets": {
+              "type": "object",
+              "properties": {
+                "calories": {
+                  "type": "integer"
+                },
+                "protein": {
+                  "type": "integer",
+                  "description": "Grams."
+                },
+                "carbs": {
+                  "type": "integer",
+                  "description": "Grams."
+                },
+                "fat": {
+                  "type": "integer",
+                  "description": "Grams."
+                }
+              },
+              "required": [
+                "calories",
+                "protein",
+                "carbs",
+                "fat"
+              ],
+              "description": "Daily targets. Absent when tracksCalories is false."
+            },
+            "units": {
+              "type": "string",
+              "enum": [
+                "metric",
+                "imperial"
+              ],
+              "description": "How the user reads weight and volume."
+            },
+            "waterGoalMl": {
+              "type": "integer",
+              "description": "Daily water goal, millilitres."
+            },
+            "weeklyMovement": {
+              "type": "object",
+              "properties": {
+                "targetDays": {
+                  "type": "integer",
+                  "description": "Days a week the user wants to exercise."
+                },
+                "daysThisWeek": {
+                  "type": "integer",
+                  "description": "Days with exercise so far this week (Monday first)."
+                }
+              },
+              "required": [
+                "targetDays",
+                "daysThisWeek"
+              ],
+              "description": "Absent when the user set no movement goal."
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            }
+          },
+          "required": [
+            "tracksCalories",
+            "units",
+            "waterGoalMl",
+            "value"
+          ]
+        }
+      },
+      "dayEntries": {
+        "permission": "actions.read",
+        "description": "Return every record logged on a date, each with the kind and id that deleteEntry, setFoodQuantity and updateFoodEntry take: foods (meal, servings, calories, macros), drinks (ml), sleep (minutes), symptoms (label, severity, time), the weigh-in (id is the date) and workouts stored in this app. Defaults to today. Symptom and sleep notes are never included; wearable workouts are in dayExercise.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "description": "YYYY-MM-DD. Defaults to today."
             }
           }
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string"
+            },
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "food",
+                      "water",
+                      "sleep",
+                      "symptom",
+                      "weight",
+                      "workout"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "description": "What deleteEntry takes; for kind weight, the date."
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "time": {
+                    "type": "string",
+                    "description": "HH:MM local, when the record has a time."
+                  },
+                  "meal": {
+                    "type": "string",
+                    "enum": [
+                      "breakfast",
+                      "lunch",
+                      "dinner",
+                      "snacks"
+                    ]
+                  },
+                  "quantity": {
+                    "type": "number",
+                    "description": "Food: servings."
+                  },
+                  "servingSize": {
+                    "type": "string"
+                  },
+                  "calories": {
+                    "type": "integer",
+                    "description": "Food: eaten. Workout: burned."
+                  },
+                  "protein": {
+                    "type": "integer",
+                    "description": "Grams."
+                  },
+                  "carbs": {
+                    "type": "integer",
+                    "description": "Grams."
+                  },
+                  "fat": {
+                    "type": "integer",
+                    "description": "Grams."
+                  },
+                  "estimated": {
+                    "type": "boolean",
+                    "description": "Food: an unreviewed AI estimate."
+                  },
+                  "ml": {
+                    "type": "integer",
+                    "description": "Water."
+                  },
+                  "minutes": {
+                    "type": "integer",
+                    "description": "Sleep."
+                  },
+                  "quality": {
+                    "type": "integer",
+                    "description": "Sleep, 1-5."
+                  },
+                  "severity": {
+                    "type": "integer",
+                    "description": "Symptom, 1-5."
+                  },
+                  "weightKg": {
+                    "type": "number"
+                  },
+                  "durationMin": {
+                    "type": "integer",
+                    "description": "Workout."
+                  },
+                  "origin": {
+                    "type": "string",
+                    "enum": [
+                      "manual",
+                      "app",
+                      "wearable",
+                      "legacy"
+                    ],
+                    "description": "Workout: manual, app, or legacy (an earlier version of this app)."
+                  },
+                  "deletable": {
+                    "type": "boolean",
+                    "description": "Workout: whether deleteEntry can remove it."
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id",
+                  "label"
+                ]
+              }
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            }
+          },
+          "required": [
+            "date",
+            "entries",
+            "value"
+          ]
+        }
+      },
+      "estimateNutrition": {
+        "permission": "actions.read",
+        "description": "Estimate the calories and macros of a described meal or a recipe's ingredients WITHOUT logging anything - for a recipe or meal-planning app that wants a number. Pass text (\"a bowl of chili with cheese\") OR ingredients (lines like \"2 cups flour\"), plus servings for a per-serving figure. Returns each item, the total and value like \"About 620 cal per serving\". Always an AI estimate, spending an AI call; Conjure Health must be open on screen, since ConjureOS pauses AI for apps in the background.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "maxLength": 300,
+              "description": "A described meal. Pass this or ingredients."
+            },
+            "ingredients": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "description": "A recipe's ingredient lines with amounts, up to 40. Pass this or text."
+            },
+            "servings": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 100,
+              "description": "How many servings the food makes, for perServing."
+            }
+          }
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "integer",
+              "description": "Contract version of this result; 1."
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "description": "The amount the estimate assumed."
+                  },
+                  "calories": {
+                    "type": "integer"
+                  },
+                  "protein": {
+                    "type": "integer",
+                    "description": "Grams."
+                  },
+                  "carbs": {
+                    "type": "integer",
+                    "description": "Grams."
+                  },
+                  "fat": {
+                    "type": "integer",
+                    "description": "Grams."
+                  }
+                },
+                "required": [
+                  "name",
+                  "amount",
+                  "calories",
+                  "protein",
+                  "carbs",
+                  "fat"
+                ]
+              }
+            },
+            "total": {
+              "type": "object",
+              "properties": {
+                "calories": {
+                  "type": "integer"
+                },
+                "protein": {
+                  "type": "integer",
+                  "description": "Grams."
+                },
+                "carbs": {
+                  "type": "integer",
+                  "description": "Grams."
+                },
+                "fat": {
+                  "type": "integer",
+                  "description": "Grams."
+                }
+              },
+              "required": [
+                "calories",
+                "protein",
+                "carbs",
+                "fat"
+              ]
+            },
+            "servings": {
+              "type": "number",
+              "description": "Echoed when given."
+            },
+            "perServing": {
+              "type": "object",
+              "properties": {
+                "calories": {
+                  "type": "integer"
+                },
+                "protein": {
+                  "type": "integer",
+                  "description": "Grams."
+                },
+                "carbs": {
+                  "type": "integer",
+                  "description": "Grams."
+                },
+                "fat": {
+                  "type": "integer",
+                  "description": "Grams."
+                }
+              },
+              "required": [
+                "calories",
+                "protein",
+                "carbs",
+                "fat"
+              ],
+              "description": "total / servings, when servings was given."
+            },
+            "estimated": {
+              "type": "boolean",
+              "description": "Always true."
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            }
+          },
+          "required": [
+            "version",
+            "items",
+            "total",
+            "estimated",
+            "value"
+          ]
+        }
+      },
+      "findFood": {
+        "permission": "actions.read",
+        "description": "Look up a food's nutrition by barcode, or search by name, across the user's own foods, USDA, Open Food Facts and Conjure Health's shared food database. Pass barcode (6-14 digits) OR query (3+ characters); limit is 1-10 results, default 5. Each result gives calories and protein/carbs/fat (grams) per servingSize. Nothing is logged - pass a result to logFood or logMeal. Needs the network.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "barcode": {
+              "type": "string",
+              "maxLength": 20,
+              "description": "EAN/UPC digits. Pass this or query."
+            },
+            "query": {
+              "type": "string",
+              "maxLength": 80,
+              "description": "A food name. Pass this or barcode."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "description": "Search results to return; 1-10, default 5."
+            }
+          }
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "foods": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "brand": {
+                    "type": "string"
+                  },
+                  "servingSize": {
+                    "type": "string",
+                    "description": "One serving, which the numbers are per."
+                  },
+                  "servingGrams": {
+                    "type": "number"
+                  },
+                  "calories": {
+                    "type": "integer"
+                  },
+                  "protein": {
+                    "type": "integer",
+                    "description": "Grams."
+                  },
+                  "carbs": {
+                    "type": "integer",
+                    "description": "Grams."
+                  },
+                  "fat": {
+                    "type": "integer",
+                    "description": "Grams."
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "openfoodfacts",
+                      "usda",
+                      "custom",
+                      "recipe",
+                      "conjure_health"
+                    ]
+                  },
+                  "barcode": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "servingSize",
+                  "calories",
+                  "protein",
+                  "carbs",
+                  "fat",
+                  "source"
+                ]
+              },
+              "description": "Best match first; empty when nothing matched."
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            }
+          },
+          "required": [
+            "foods",
+            "value"
+          ]
+        }
+      },
+      "logWorkout": {
+        "permission": "actions.write",
+        "description": "Log a completed workout so its burned calories add back into the day's calorie budget. Pass calories (kcal burned); optionally type (e.g. \"running\"), durationMin, and date (YYYY-MM-DD, defaults to today). An app syncing workouts should also pass externalId (its own id for the workout) and sourceApp (its name): the same externalId from the same sourceApp replaces the earlier entry instead of counting it twice. Check dayExercise first when the workout may also sync from Apple Health or Health Connect.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "calories": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000,
+              "description": "Active energy burned, in kcal."
+            },
+            "type": {
+              "type": "string",
+              "maxLength": 40,
+              "description": "Workout type, e.g. running, cycling, strength."
+            },
+            "durationMin": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1440,
+              "description": "Duration in minutes."
+            },
+            "date": {
+              "type": "string",
+              "description": "YYYY-MM-DD; defaults to today."
+            },
+            "externalId": {
+              "type": "string",
+              "maxLength": 100,
+              "description": "The sending app's own id for this workout."
+            },
+            "sourceApp": {
+              "type": "string",
+              "maxLength": 60,
+              "description": "The sending app's name, shown as \"From <name>\"."
+            }
+          },
+          "required": [
+            "calories"
+          ]
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The workout entry's id."
+            },
+            "caloriesBurned": {
+              "type": "integer"
+            },
+            "replaced": {
+              "type": "boolean",
+              "description": "True when an earlier entry with the same externalId was updated."
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            }
+          },
+          "required": [
+            "id",
+            "caloriesBurned",
+            "replaced",
+            "value"
+          ]
+        }
+      },
+      "dayExercise": {
+        "permission": "actions.read",
+        "description": "Return the exercise on a day's calorie ring from every source - added by hand, logged by an app (with its externalId), or read from Apple Health / Health Connect - with calories, minutes, whether it counts toward the day, and whether deleteEntry can remove it. Defaults to today. Read it before logWorkout so a workout that also synced from a watch isn't counted twice.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "description": "YYYY-MM-DD. Defaults to today."
+            }
+          }
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string"
+            },
+            "totalCalories": {
+              "type": "integer",
+              "description": "Calories from the workouts that count."
+            },
+            "workouts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "For a stored entry, what deleteEntry takes."
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "calories": {
+                    "type": "integer"
+                  },
+                  "durationMin": {
+                    "type": "integer"
+                  },
+                  "origin": {
+                    "type": "string",
+                    "enum": [
+                      "manual",
+                      "app",
+                      "wearable",
+                      "legacy"
+                    ],
+                    "description": "manual, app, wearable, or legacy (an earlier version of this app)."
+                  },
+                  "sourceLabel": {
+                    "type": "string",
+                    "description": "Where it came from, as the app shows it."
+                  },
+                  "counted": {
+                    "type": "boolean",
+                    "description": "False for a wearable workout the user took off the day's total."
+                  },
+                  "deletable": {
+                    "type": "boolean",
+                    "description": "Whether deleteEntry (kind workout) can remove it."
+                  },
+                  "externalId": {
+                    "type": "string",
+                    "description": "The sending app's id, for one logged with it."
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "calories",
+                  "origin",
+                  "sourceLabel",
+                  "counted",
+                  "deletable"
+                ]
+              }
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            }
+          },
+          "required": [
+            "date",
+            "totalCalories",
+            "workouts",
+            "value"
+          ]
         }
       },
       "logWater": {
@@ -604,90 +1663,9 @@
           ]
         }
       },
-      "setFoodQuantity": {
-        "permission": "actions.write",
-        "description": "Change how many servings of an already-logged food the user had — 'make that two'. Takes the diary entry id returned by logFood or listed by dayNutrition.",
-        "params": {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "string",
-              "maxLength": 64
-            },
-            "quantity": {
-              "type": "number",
-              "minimum": 0.01,
-              "maximum": 50
-            }
-          },
-          "required": [
-            "id",
-            "quantity"
-          ]
-        },
-        "returns": {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "quantity": {
-              "type": "number"
-            }
-          },
-          "required": [
-            "id",
-            "quantity"
-          ]
-        }
-      },
-      "deleteEntry": {
-        "permission": "actions.write",
-        "description": "Remove ONE record the user logged by mistake — the undo for a double-log. kind says which log it is; id is that record's id, except for weight where id is the date (YYYY-MM-DD), since there is one weight per day. There is deliberately no bulk delete: clearing a whole history is done by the user in Settings.",
-        "params": {
-          "type": "object",
-          "properties": {
-            "kind": {
-              "type": "string",
-              "enum": [
-                "food",
-                "water",
-                "sleep",
-                "symptom",
-                "weight",
-                "workout"
-              ]
-            },
-            "id": {
-              "type": "string",
-              "maxLength": 64,
-              "description": "The record's id, or the date for kind=weight."
-            }
-          },
-          "required": [
-            "kind",
-            "id"
-          ]
-        },
-        "returns": {
-          "type": "object",
-          "properties": {
-            "deleted": {
-              "type": "boolean"
-            },
-            "kind": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "deleted",
-            "kind"
-          ]
-        }
-      },
       "dayWellbeing": {
         "permission": "actions.read",
-        "description": "Return the non-food side of a day: water drunk, sleep length, weight if recorded, and symptoms with their severity and time. Defaults to today. The free-text note on a symptom is never returned — only the label, severity and time. For food use dayNutrition.",
+        "description": "Return the non-food side of a day: water drunk (ml), sleep length (minutes), weight in kg if recorded, and symptoms with their severity and time. Defaults to today. The free-text note on a symptom is never returned - only the label, severity and time. For food use dayNutrition.",
         "params": {
           "type": "object",
           "properties": {
@@ -729,11 +1707,26 @@
                     "type": "string",
                     "description": "HH:MM local."
                   }
-                }
+                },
+                "required": [
+                  "label",
+                  "at"
+                ]
               },
               "description": "Free-text notes on a symptom are never included."
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
             }
-          }
+          },
+          "required": [
+            "date",
+            "waterMl",
+            "sleepMinutes",
+            "symptoms",
+            "value"
+          ]
         }
       },
       "recentWellbeing": {
@@ -786,18 +1779,182 @@
                           "type": "string",
                           "description": "HH:MM local."
                         }
-                      }
+                      },
+                      "required": [
+                        "label",
+                        "at"
+                      ]
                     },
                     "description": "Free-text notes on a symptom are never included."
                   }
-                }
+                },
+                "required": [
+                  "date",
+                  "waterMl",
+                  "sleepMinutes",
+                  "symptoms"
+                ]
               }
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
             }
           },
           "required": [
-            "days"
+            "days",
+            "value"
           ]
         }
+      },
+      "weightTrend": {
+        "permission": "actions.read",
+        "description": "Return the user's weight over the last N days (default 30, max 365): the latest weigh-in, every weigh-in in the window oldest first, and the change across it, all in kg, plus the user's units for display. value reads like \"180.2 lb today, down 3.1 lb since 2026-08-30\".",
+        "params": {
+          "type": "object",
+          "properties": {
+            "days": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365
+            }
+          }
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "days": {
+              "type": "integer",
+              "description": "The window, in days."
+            },
+            "units": {
+              "type": "string",
+              "enum": [
+                "metric",
+                "imperial"
+              ]
+            },
+            "latest": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string"
+                },
+                "weightKg": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "date",
+                "weightKg"
+              ],
+              "description": "The most recent weigh-in, even if before the window. Absent when none was ever recorded."
+            },
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "date": {
+                    "type": "string"
+                  },
+                  "weightKg": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "date",
+                  "weightKg"
+                ]
+              },
+              "description": "Weigh-ins in the window, oldest first."
+            },
+            "changeKg": {
+              "type": "number",
+              "description": "Newest minus oldest weigh-in in the window; absent with fewer than two."
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            }
+          },
+          "required": [
+            "days",
+            "units",
+            "entries",
+            "value"
+          ]
+        }
+      },
+      "deleteEntry": {
+        "permission": "actions.write",
+        "description": "Remove ONE record the user logged by mistake - the undo for a double-log. kind says which log it is; id is that record's id (dayEntries lists them), except for weight where id is the date (YYYY-MM-DD), since there is one weight per day. Fails if nothing has that id. There is deliberately no bulk delete: clearing a whole history is done by the user in Settings.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "food",
+                "water",
+                "sleep",
+                "symptom",
+                "weight",
+                "workout"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "The record's id, or the date for kind=weight."
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ]
+        },
+        "returns": {
+          "type": "object",
+          "properties": {
+            "deleted": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "deleted",
+            "kind"
+          ]
+        }
+      }
+    },
+    "dataReadable": [
+      "nutrition-summary.json"
+    ],
+    "intents": {
+      "addFood": {
+        "title": "Find a food to add to your diary",
+        "params": [
+          "query",
+          "barcode",
+          "meal",
+          "date"
+        ]
+      },
+      "openDay": {
+        "title": "Open a day in your diary",
+        "params": [
+          "date"
+        ]
+      },
+      "exercise": {
+        "title": "Open a day's exercise",
+        "params": [
+          "date"
+        ]
       }
     },
     "needs": [
@@ -850,6 +2007,7 @@
     "promptSuggestions": [
       "Log a chicken sandwich and a beer for lunch",
       "How many calories do I have left today?",
+      "Log the same breakfast as yesterday",
       "I slept from 11:30 to 6:45, log that",
       "Log a 16 oz water and that I have a headache"
     ]
@@ -860,7 +2018,8 @@
     "build:inline": "tsc -b && vite build --mode inline",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "docs:actions": "node scripts/actions-doc.mjs"
   },
   "dependencies": {
     "barcode-detector": "^3.2.0",

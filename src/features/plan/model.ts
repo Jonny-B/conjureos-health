@@ -6,7 +6,7 @@
  * fallback can share these without importing each other.
  */
 
-import type { PlanGoal, PlanMode, SafetyIntake, Sex } from "../../types";
+import type { Plan, PlanGoal, PlanMode, SafetyIntake, Sex } from "../../types";
 
 /** Everything the wizard gathers before generating a plan. */
 export interface PlanInput {
@@ -65,4 +65,21 @@ export function kcalFloor(sex: Sex | undefined): number {
  *  stored legacy "both" plan still does; a legacy "get_fit" one never did. */
 export function modeTracksFood(mode: PlanMode): boolean {
   return mode === "eat_better" || mode === "both";
+}
+
+/**
+ * Whether the user logs food against a calorie target at all.
+ *
+ * False only for a `logging_only` plan: the mode the safety gate forces for
+ * someone under 18, pregnant or postpartum, or with a heart condition. Those
+ * users log food with no budget, so nothing — the diary, the coach, or another
+ * app reading through an action — may show them a target, a "remaining", or an
+ * "over". Callers outside the app get this boolean and never the reason:
+ * handing out the mode would tell them which of those applies.
+ *
+ * Everyone else tracks against a target, including someone with no plan yet
+ * (the default goals) and a legacy get-fit plan (the stored goals).
+ */
+export function planTracksCalories(plan: Pick<Plan, "mode"> | null | undefined): boolean {
+  return plan?.mode !== "logging_only";
 }

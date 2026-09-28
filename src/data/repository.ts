@@ -67,6 +67,8 @@ export interface Repository {
 
   /** Diary entries for one calendar date (YYYY-MM-DD). */
   listDiary(date: string): Promise<DiaryEntry[]>;
+  /** One logged entry by id, or null when there is none. */
+  getDiaryEntry(id: string): Promise<DiaryEntry | null>;
   /** Log a food; returns the stored entry with its assigned id + loggedAt. */
   addDiaryEntry(entry: NewDiaryEntry): Promise<DiaryEntry>;
   /** Patch a logged entry in place. No-op for an unknown id. */

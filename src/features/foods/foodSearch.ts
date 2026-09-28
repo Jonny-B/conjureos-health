@@ -57,13 +57,21 @@ async function loadCache(): Promise<BarcodeCache> {
  * Order: the VFS cache (including remembered misses, so a repeat scan of an
  * unknown item doesn't re-roundtrip), then the Conjure Health DB, then Open
  * Food Facts directly. Returns null when nobody knows it; never throws.
+ *
+ * `opts.log: false` skips the scan-attempt record (the barcode, platform and
+ * time zone sent to tune provider hit rates). The app's own scanner logs; a
+ * lookup another app asked for through `findFood` does not, since the user
+ * didn't scan anything.
  */
 export async function lookupBarcode(
   barcode: string,
   signal?: AbortSignal,
+  opts: { log?: boolean } = {},
 ): Promise<FoodItem | null> {
   const code = barcode.replace(/\D/g, "");
   if (!code) return null;
+  const logScanAttempt: typeof conjure.logScanAttempt =
+    opts.log === false ? async () => {} : conjure.logScanAttempt;
 
   const c = await loadCache();
   const fixed = c.corrections?.[code];
@@ -77,7 +85,7 @@ export async function lookupBarcode(
   // Step 1: Conjure Health DB (the Edge Function itself checks OFF + backfills on hit).
   const ours = await conjure.lookupBarcode(code, signal);
   if (ours) {
-    void conjure.logScanAttempt({
+    void logScanAttempt({
       barcode: code,
       resolvedFrom: "our_db",
       durationMs: performance.now() - t0,
@@ -91,7 +99,7 @@ export async function lookupBarcode(
   // (DEMO mode, network outage); the server side already tried OFF in step 1 when live.
   const offItem = await off.lookupBarcode(code, signal);
   if (offItem) {
-    void conjure.logScanAttempt({
+    void logScanAttempt({
       barcode: code,
       resolvedFrom: "off",
       durationMs: performance.now() - t0,
@@ -101,7 +109,7 @@ export async function lookupBarcode(
     return offItem;
   }
 
-  void conjure.logScanAttempt({
+  void logScanAttempt({
     barcode: code,
     resolvedFrom: "miss",
     durationMs: performance.now() - t0,

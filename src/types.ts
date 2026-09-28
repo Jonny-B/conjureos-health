@@ -486,6 +486,12 @@ export interface WorkoutSession {
   caloriesBurned?: number;
   /** Where the entry came from. Absent = the old in-app workout player. */
   source?: "manual" | "healthkit" | "health_connect" | "logWorkout";
+  /** The sending app's own id for a `logWorkout` entry, so a retry or a
+   *  re-sync replaces the entry instead of counting the workout twice. */
+  externalId?: string;
+  /** The sending app's name for a `logWorkout` entry, as it asked to be
+   *  credited ("Conjure Fitness"). Shown as "From <name>". */
+  sourceApp?: string;
   /** Legacy: an old in-app run or ride. Only its duration is read, as a
    *  fallback when `durationSec` is absent. */
   cardio?: { durationSec?: number };
