@@ -1,6 +1,6 @@
 {
   "name": "conjureos-health",
-  "version": "1.40.0",
+  "version": "1.41.0",
   "description": "Conjure Health: calorie + nutrition logging, daily targets, weight tracking, and a simple weight-loss plan for ConjureOS.",
   "type": "module",
   "license": "MIT",
@@ -219,7 +219,7 @@
       },
       "logWorkout": {
         "permission": "actions.write",
-        "description": "Log a completed workout so its burned calories add back into the day's calorie budget. Pass calories (kcal burned); optionally type (e.g. \"running\") and durationMin. date is YYYY-MM-DD, defaults to today. Use when the user says they did a workout or a wearable reports one.",
+        "description": "Log a completed workout so its burned calories add back into the day's calorie budget. Pass calories (kcal burned); optionally type (e.g. \"running\") and durationMin. date is YYYY-MM-DD, defaults to today. Use when the user says they did a workout or a wearable reports one. If the user has a fitness app that offers its own logWorkout, prefer that one: its workouts reach this ring automatically, and logging in both would count the workout twice.",
         "params": {
           "type": "object",
           "properties": {
@@ -844,6 +844,43 @@
               }
             }
           }
+        }
+      },
+      {
+        "id": "workoutSource",
+        "description": "Workouts the user recorded in a fitness app, with the calories each burned, so they count on the calorie ring alongside Apple Health workouts. Only id, date and caloriesBurned are required; name, durationMin and completedAt are read when present.",
+        "shape": {
+          "type": "object",
+          "properties": {
+            "workouts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Stable id, used to tell workouts apart and to let the user remove one from the ring."
+                  },
+                  "date": {
+                    "type": "string",
+                    "description": "YYYY-MM-DD the workout was done."
+                  },
+                  "caloriesBurned": {
+                    "type": "number",
+                    "description": "Active energy burned, kcal."
+                  }
+                },
+                "required": [
+                  "id",
+                  "date",
+                  "caloriesBurned"
+                ]
+              }
+            }
+          },
+          "required": [
+            "workouts"
+          ]
         }
       }
     ],
