@@ -41,37 +41,6 @@ export function deriveDirection(
   return goalWeightKg < weightKg ? "lose" : "gain";
 }
 
-/**
- * Activity level DERIVED from planned workout days per week — the wizard no
- * longer asks both ("how active are you" duplicated "how often will you
- * train"). Coarse on purpose; the calorie model is only ±10% honest anyway.
- */
-export function activityForDaysPerWeek(days: number): ActivityLevel {
-  if (days <= 2) return "light";
-  if (days <= 4) return "moderate";
-  if (days === 5) return "active";
-  return "very_active";
-}
-
-/**
- * Inverse of `activityForDaysPerWeek`: a representative days/week that maps back
- * to the given activity level. Used to seed the plan editor's days chip from a
- * stored profile so editing the plan doesn't silently re-derive a DIFFERENT
- * activity (and thus a different calorie target) than the plan was built with.
- */
-export function daysPerWeekForActivity(activity: ActivityLevel): number {
-  switch (activity) {
-    case "very_active":
-      return 6;
-    case "active":
-      return 5;
-    case "moderate":
-      return 3;
-    default:
-      return 2; // light / sedentary
-  }
-}
-
 /** Calorie delta per day for each direction (~0.5 kg/week ≈ 500 kcal). */
 const DIRECTION_DELTA: Record<GoalDirection, number> = {
   lose: -500,

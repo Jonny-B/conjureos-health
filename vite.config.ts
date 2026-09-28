@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { viteSingleFile } from "vite-plugin-singlefile";
 import { readFileSync } from "node:fs";
+import { conjureFileMarkers } from "./build/fileMarkers";
 
 // Inject package.json's version at build time so the app can show it in the
 // footer. Bump `version` in package.json before building to see the new value.
@@ -19,7 +20,9 @@ export default defineConfig(({ mode }) => {
     define: {
       __APP_VERSION__: JSON.stringify(APP_VERSION),
     },
-    plugins: [react(), ...(inline ? [viteSingleFile()] : [])],
+    // conjureFileMarkers: one @conjureos:file marker per source module, so the
+    // ConjureOS Sandbox can fold and open this app per file (ConjureOS #998).
+    plugins: [react(), conjureFileMarkers(), ...(inline ? [viteSingleFile()] : [])],
     server: {
       port: 5181,
       strictPort: false,

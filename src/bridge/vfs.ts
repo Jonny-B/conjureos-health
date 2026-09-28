@@ -3,7 +3,7 @@
  * the app runs outside the OS via `npm run dev`. Gated on the `vfs.read` /
  * `vfs.write` permissions declared in package.json.
  *
- * Conjure Fitness uses the VFS for two things: (1) the mock data layer persists its
+ * Conjure Health uses the VFS for two things: (1) the mock data layer persists its
  * store here so dev reloads keep your test data; (2) the food-lookup cache
  * lives here so repeat barcode/text lookups don't re-hit the network.
  */

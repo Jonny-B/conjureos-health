@@ -13,6 +13,7 @@ import {
   setSessionKcal,
   removeSession,
   wearableKey,
+  addManualExercise,
 } from "./exercise";
 import type { WorkoutSession } from "../types";
 
@@ -30,9 +31,6 @@ const wear = (over: Partial<WorkoutBurn> = {}): WorkoutBurn => ({
 const session = (over: Partial<WorkoutSession> = {}): WorkoutSession => ({
   id: "s1",
   date: DATE,
-  planned: [],
-  actual: [],
-  reprompts: [],
   completedAt: `${DATE}T09:00:00Z`,
   caloriesBurned: 150,
   workoutName: "Full body",
@@ -97,5 +95,23 @@ describe("manualExerciseProblem", () => {
     expect(manualExerciseProblem({ name: " ", calories: 100 })).toMatch(/name/i);
     expect(manualExerciseProblem({ name: "Walk" })).toMatch(/calories/i);
     expect(manualExerciseProblem({ name: "Walk", calories: 9000 })).toMatch(/5,000/);
+  });
+});
+
+describe("where an entry came from", () => {
+  it("adds a hand-entered exercise to the day's calories, labelled as the user's", async () => {
+    await addManualExercise(DATE, { name: "Evening walk", durationMin: 30, calories: 120 });
+    expect(await exerciseCaloriesForDate(DATE)).toBe(120);
+    expect(await listCompletedWorkouts(DATE)).toMatchObject([
+      { name: "Evening walk", kcal: 120, durationSec: 1800, sourceLabel: "Added by you" },
+    ]);
+  });
+
+  it("labels an entry another app logged, and one from the old workout player", async () => {
+    const repo = await getRepository();
+    await repo.saveWorkoutSession(session({ id: "a", source: "logWorkout", workoutName: "Running" }));
+    await repo.saveWorkoutSession(session({ id: "b", completedAt: `${DATE}T07:00:00Z` }));
+    const labels = Object.fromEntries((await listCompletedWorkouts(DATE)).map((i) => [i.key, i.sourceLabel]));
+    expect(labels).toEqual({ a: "From an app", b: "In-app" });
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Safety layer 5 (surface 1 of 3) — the first-run liability card.
+ * Safety layer 5 (surface 1 of 2) — the first-run liability card.
  *
  * Shown before the plan wizard can proceed. It is presentational: it renders
  * the "not medical advice" language and an explicit "I understand" action, then
@@ -7,13 +7,13 @@
  * version) that lands on `plan.json.liability` — keeping the audit record where
  * the plan is persisted, not in the component.
  *
- * The other two disclaimer surfaces (plan-review inline, persistent coach
- * footer) reuse the same copy constants below so all three stay in sync.
+ * The other disclaimer surface (inline on the plan review) reuses the same copy
+ * constants below so both stay in sync.
  */
 
 import { AlertTriangle } from "./icons";
 
-/** Single source of truth for disclaimer copy across all three surfaces. */
+/** Single source of truth for disclaimer copy across both surfaces. */
 export const DISCLAIMER_HEADLINE = "Read this before we build your plan";
 
 /** The full disclaimer, one paragraph per entry. Legal copy — change it in
@@ -24,7 +24,7 @@ export const DISCLAIMER_BODY = [
   "Stop and seek help if you feel chest pain, shortness of breath, dizziness, or any symptom that worries you. You are always in control; skip anything that doesn't feel right.",
 ];
 
-/** Short one-liner reused on the plan-review surface and the coach footer. */
+/** Short one-liner reused on the plan-review surface. */
 export const DISCLAIMER_SHORT =
   "General guidance, not medical advice. Check with a professional and stop if anything hurts.";
 

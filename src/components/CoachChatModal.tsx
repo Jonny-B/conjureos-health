@@ -11,8 +11,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { askCoach, loadAskHistory, saveAskHistory } from "../features/coach/ask";
-import type { CoachChatItem } from "../features/coach/model";
+import { askCoach, loadAskHistory, saveAskHistory, type CoachChatItem } from "../features/coach/ask";
 import { useScrollLock } from "../hooks/useScrollLock";
 import { CloseIcon } from "./icons";
 

@@ -1,22 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import type {
-  ActivityLevel,
-  AgeBand,
-  ExperienceLevel,
-  GoalDirection,
-  Plan,
-  PlanMode,
-  Profile,
-  SafetyIntake,
-  Sex,
-} from "../types";
-import { INJURY_REGIONS } from "../features/safety/injuryExclusions";
+import type { ActivityLevel, AgeBand, GoalDirection, Plan, PlanMode, Profile, SafetyIntake, Sex } from "../types";
 import { requiresLoggingOnly, resolveSafeMode } from "../features/safety/intakeGate";
-import { activityForDaysPerWeek, daysPerWeekForActivity, deriveDirection, recommendGoals } from "../features/goals";
-import { fmtSeconds } from "../features/units";
+import { deriveDirection, recommendGoals } from "../features/goals";
 import { shiftDate, todayISO } from "../features/diary";
 import { DisclaimerCard, DISCLAIMER_SHORT } from "../components/DisclaimerCard";
-import { ProgramEditor } from "../components/ProgramEditor";
 import {
   AgeField,
   BodyStatsFields,
@@ -26,14 +13,12 @@ import {
   weeksBetween,
 } from "../components/PlanFields";
 import { AlertTriangle, CheckIcon, CloseIcon } from "../components/icons";
-import { createPlan, regenerateProgram, type CreatePlanResult, type PlanStage } from "../features/plan/generate";
+import { createPlan, type CreatePlanResult, type PlanStage } from "../features/plan/generate";
 import { getRepository } from "../data/repository";
 import type { PlanInput } from "../features/plan/model";
-import { modeHasWorkouts, modeTracksFood } from "../features/plan/model";
+import { modeTracksFood } from "../features/plan/model";
 import type { WizardBody } from "../features/plan/planService";
 import { decidePlanEdit } from "../features/plan/planService";
-import type { ExerciseSet, ProgramWorkout } from "../types";
-import { COACH_AND_WORKOUTS_ENABLED } from "../features/flags";
 
 type Step = "disclaimer" | "mode" | "safety" | "inputs" | "review";
 
@@ -56,7 +41,7 @@ interface Props {
    * prefills every answer from this plan and, on commit, decides via
    * `decidePlanEdit` whether the change forks a brand-new plan (`onComplete`,
    * archive + regenerate) or modifies this one in place (`onModify`, keep id +
-   * workout progress, recompute calories). Absent → create mode as before.
+   * goals, recompute calories). Absent → create mode as before.
    */
   editPlan?: Plan | null;
   /** Commit an in-place modification (edit mode, non-forking change). */
@@ -66,15 +51,9 @@ interface Props {
   ) => void;
 }
 
-const MODE_CARDS: { mode: PlanMode; title: string; blurb: string; recommended?: boolean }[] = [
-  { mode: "eat_better", title: "Eat better", blurb: "Nutrition only — calories, protein, habits." },
-  { mode: "both", title: "Both", blurb: "Food and movement together.", recommended: true },
-  { mode: "get_fit", title: "Get fit", blurb: "Movement only — short, guided sessions." },
-];
-
 const STAGE_LABELS: Record<PlanStage, string> = {
   calories: "Calculating your calories…",
-  workouts: "Building your workouts…",
+  goals: "Building your plan…",
   checking: "Checking it's safe for you…",
 };
 
@@ -85,20 +64,6 @@ function ageToBand(age: number): AgeBand {
   return "60_plus";
 }
 
-/** Terse "3 × 10" / "4 × 30s" / "1 × 8:00" summary of an exercise's sets. */
-function setSummary(sets: ExerciseSet[]): string {
-  if (!sets.length) return "";
-  const s = sets[0]!;
-  const per = s.durationSec != null ? fmtSeconds(s.durationSec) : s.reps != null ? `${s.reps}` : "";
-  return per ? `${sets.length} × ${per}` : `${sets.length} sets`;
-}
-
-const DAYS_OPTIONS = [2, 3, 4, 5, 6] as const;
-const EXPERIENCE_OPTIONS: { value: ExperienceLevel; label: string }[] = [
-  { value: "beginner", label: "Beginner" },
-  { value: "intermediate", label: "Intermediate" },
-  { value: "advanced", label: "Advanced" },
-];
 const EXERCISE_DAY_OPTIONS = [0, 2, 3, 4, 5, 6] as const;
 const EATER_ACTIVITY_OPTIONS: { value: ActivityLevel; label: string }[] = [
   { value: "sedentary", label: "Mostly sitting" },
@@ -122,21 +87,12 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
   // the disclaimer gate and open on the first real question.
   const [step, setStep] = useState<Step>(editMode ? "mode" : "disclaimer");
 
-  // Step 1 — mode + free-text goal prefill from the plan being edited.
+  // Step 1 — free-text goal prefill from the plan being edited.
   const [weeklyExerciseDays, setWeeklyExerciseDays] = useState<number>(editPlan?.weeklyExerciseDays ?? 0);
-  // Seeding straight from editPlan.mode stranded legacy plans: with the mode
-  // picker hidden, a "both" plan could never stop being one, so decidePlanEdit
-  // saw an unchanged mode, chose "modify", and carried every workout goal
-  // forward through each edit. While workouts are paused, editing any plan
-  // lands on the food-only mode — which also makes the edit fork a fresh plan
-  // instead of patching the old one.
-  const [mode, setMode] = useState<PlanMode>(() => {
-    const existing = editPlan?.mode;
-    if (!COACH_AND_WORKOUTS_ENABLED) {
-      return existing === "logging_only" ? existing : "eat_better";
-    }
-    return existing ?? "both";
-  });
+  // Every plan is food-only now. A legacy "both" or "get_fit" plan lands on
+  // "eat_better", which decidePlanEdit reads as a mode change, so editing it
+  // forks a fresh plan instead of carrying its workout goals forward.
+  const mode: PlanMode = editPlan?.mode === "logging_only" ? "logging_only" : "eat_better";
   // Step 2 (safety intake) — age is a number now; the band is derived.
   // Prefill every body-stat field from the existing profile so nothing entered
   // in the cog is lost or re-typed; fall back to the same defaults as before
@@ -144,19 +100,10 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
   const [age, setAge] = useState<number | undefined>(profile?.age ?? 30);
   const [pregnant, setPregnant] = useState(false);
   const [cardiacFlag, setCardiacFlag] = useState(false);
-  const [injuries, setInjuries] = useState<Set<string>>(new Set());
   // Step 3 (inputs)
   const [goalText, setGoalText] = useState(editPlan?.goalText ?? "");
   const [startDate, setStartDate] = useState(editPlan?.startDate ?? todayISO());
   const [endDate, setEndDate] = useState(editPlan?.endDate ?? shiftDate(todayISO(), 13)); // ~2 weeks
-  // Seed days/week so the editor re-derives the SAME activity the plan was built
-  // with — otherwise a trivial edit would silently downgrade a 6-day trainer's
-  // activity (and calorie target) back to the 3-day default.
-  const [daysPerWeek, setDaysPerWeek] = useState(
-    editMode && profile ? daysPerWeekForActivity(profile.activityLevel) : 3,
-  );
-  const [experienceLevel, setExperienceLevel] = useState<ExperienceLevel>(profile?.experienceLevel ?? "beginner");
-  const [equipment, setEquipment] = useState("");
   const [unitPref, setUnitPref] = useState<Profile["units"]>(profile?.units ?? units);
   const [heightCm, setHeightCm] = useState<number | undefined>(profile?.heightCm);
   const [weightKg, setWeightKg] = useState<number | undefined>(profile?.weightKg);
@@ -187,53 +134,12 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
   const [stage, setStage] = useState<PlanStage | null>(null);
   const [tweakOpen, setTweakOpen] = useState(false);
   const [tweakText, setTweakText] = useState("");
-  const [editOpen, setEditOpen] = useState(false);
-  // "Rebuild workouts" (program-only retry when the goals are AI but the
-  // workouts fell back to the starter template).
-  const [rebuilding, setRebuilding] = useState(false);
-
-  const rebuildWorkouts = async () => {
-    if (!preview || rebuilding) return;
-    setRebuilding(true);
-    try {
-      const res = await regenerateProgram(buildInput(), preview.gen.goals, [...injuries]);
-      if (res.program) {
-        setPreview((prev) =>
-          prev
-            ? {
-                ...prev,
-                programFallback: false,
-                programFallbackReason: undefined,
-                gen: { ...prev.gen, program: res.program! },
-                plan: { ...prev.plan, program: res.program! },
-              }
-            : prev,
-        );
-      } else {
-        setPreview((prev) => (prev ? { ...prev, programFallbackReason: res.reason } : prev));
-      }
-    } finally {
-      setRebuilding(false);
-    }
-  };
 
   const ageBand = ageToBand(age ?? 30);
-  // Activity is DERIVED from training days for workout modes — asking "how
-  // active are you" next to "how many days will you train" was a duplicate.
-  // The explicit chips remain only for food-only plans (no days/week there).
-  const effectiveActivity: ActivityLevel =
-    mode === "eat_better" ? activityLevel : activityForDaysPerWeek(daysPerWeek);
-  const intake: SafetyIntake = {
-    ageBand,
-    pregnant,
-    cardiacFlag,
-    injuries: [...injuries],
-    activityLevel: effectiveActivity,
-  };
+  const intake: SafetyIntake = { ageBand, pregnant, cardiacFlag, activityLevel };
   const gated = requiresLoggingOnly(intake);
   const effectiveMode = resolveSafeMode(mode, intake);
   const tracksFood = modeTracksFood(effectiveMode);
-  const hasWorkouts = modeHasWorkouts(effectiveMode);
 
   /** Calorie target computed from the profile (Mifflin) — the app owns this, so
    *  a plan is never rejected just because the AI omitted the number. */
@@ -244,7 +150,7 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
       age: age ?? 30,
       heightCm,
       weightKg,
-      activityLevel: effectiveActivity,
+      activityLevel,
       direction,
       units: unitPref,
     };
@@ -257,9 +163,6 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
     durationWeeks: weeksBetween(startDate, endDate),
     startDate,
     endDate,
-    daysPerWeek: hasWorkouts ? daysPerWeek : undefined,
-    experienceLevel: hasWorkouts ? experienceLevel : undefined,
-    equipment: hasWorkouts ? equipment : undefined,
     heightCm: tracksFood ? heightCm : undefined,
     weightKg: tracksFood ? weightKg : undefined,
     goalWeightKg: tracksFood && direction !== "maintain" ? goalWeightKg : undefined,
@@ -269,15 +172,6 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
     units: unitPref,
     safety: intake,
   });
-
-  const toggleInjury = (id: string) => {
-    setInjuries((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
 
   const PLACEHOLDER_ACK = { acknowledged: false, acceptedAt: "" };
 
@@ -304,9 +198,8 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
 
   const goReview = () => {
     setStep("review");
-    // A modify keeps the existing workouts + goals, so there's nothing to
-    // generate — we only recompute the calorie target locally. Regenerating
-    // here would throw away the program/progress we intend to preserve.
+    // A modify keeps the existing goals, so there's nothing to generate — we
+    // only recompute the calorie target locally.
     if (!isModify) void runPreview();
   };
 
@@ -321,8 +214,7 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
     goalWeightKg: tracksFood && direction !== "maintain" ? goalWeightKg : undefined,
     age,
     ageBand,
-    activityLevel: effectiveActivity,
-    experienceLevel: hasWorkouts ? experienceLevel : undefined,
+    activityLevel,
     direction: tracksFood ? direction : undefined,
     units: unitPref,
   });
@@ -360,46 +252,18 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
 
       {step === "mode" && (
         <div className="mode-body wizard-step">
-          <WizardHead
-            n={1}
-            title={COACH_AND_WORKOUTS_ENABLED ? "What do you want to focus on?" : "What's your goal?"}
-          />
-          {COACH_AND_WORKOUTS_ENABLED && (
-            <div className="mode-cards">
-              {MODE_CARDS.map((c) => (
-                <button
-                  key={c.mode}
-                  className={`mode-card${mode === c.mode ? " active" : ""}`}
-                  onClick={() => setMode(c.mode)}
-                >
-                  <span className="mode-card-title">
-                    {c.title}
-                    {c.recommended && <span className="mode-card-badge">Recommended</span>}
-                  </span>
-                  <span className="mode-card-blurb">{c.blurb}</span>
-                </button>
-              ))}
-            </div>
-          )}
+          <WizardHead n={1} title="What's your goal?" />
 
           <label className="field goal-describe">
             <span className="field-label">Describe it in your own words (optional)</span>
             <textarea
               className="text-area"
               rows={2}
-              placeholder={
-                COACH_AND_WORKOUTS_ENABLED
-                  ? "e.g. lose a few pounds and get better at the Murph"
-                  : "e.g. lose a couple of pounds"
-              }
+              placeholder="e.g. lose a couple of pounds"
               value={goalText}
               onChange={(e) => setGoalText(e.target.value)}
             />
-            <span className="muted small field-hint">
-              {COACH_AND_WORKOUTS_ENABLED
-                ? "The more specific you are, the better your plan and benchmark fit."
-                : "The more specific you are, the better your plan fits."}
-            </span>
+            <span className="muted small field-hint">The more specific you are, the better your plan fits.</span>
           </label>
 
           <div className="wizard-nav">
@@ -454,28 +318,12 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
             <span>A heart condition, or a doctor has told me to be careful with exercise</span>
           </label>
 
-          <div className="field">
-            <span className="field-label">Any injuries to work around?</span>
-            <div className="chip-row">
-              {INJURY_REGIONS.map((r) => (
-                <button
-                  key={r.id}
-                  className={`chip${injuries.has(r.id) ? " active" : ""}`}
-                  onClick={() => toggleInjury(r.id)}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
           {gated && (
             <div className="notice notice-soft">
               <AlertTriangle />
               <span>
-                {COACH_AND_WORKOUTS_ENABLED
-                  ? "Based on your answers we'll keep this to food & habit tracking, with no workout prescriptions. You can always talk to your doctor about adding exercise."
-                  : "Based on your answers we'll keep this to food & habit tracking. Talk to your doctor before adding exercise."}
+                Based on your answers we'll keep this to food & habit tracking. Talk to your doctor before
+                adding exercise.
               </span>
             </div>
           )}
@@ -491,7 +339,7 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
 
       {step === "inputs" && (
         <div className="mode-body wizard-step">
-          <WizardHead n={3} title={hasWorkouts ? "Your training" : "Your plan"} />
+          <WizardHead n={3} title="Your plan" />
 
           {/* Start date is only editable when editing a plan — moving it forks a
               new plan. On first creation it's simply "today". */}
@@ -503,89 +351,41 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
             hideStart={!editMode}
           />
 
-          {hasWorkouts && (
-            <>
-              <div className="field">
-                <span className="field-label">Workout days per week</span>
-                <div className="chip-row">
-                  {DAYS_OPTIONS.map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      className={`chip${daysPerWeek === d ? " active" : ""}`}
-                      onClick={() => setDaysPerWeek(d)}
-                    >
-                      {d}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="field">
-                <span className="field-label">Experience level</span>
-                <div className="chip-row">
-                  {EXPERIENCE_OPTIONS.map((o) => (
-                    <button
-                      key={o.value}
-                      type="button"
-                      className={`chip${experienceLevel === o.value ? " active" : ""}`}
-                      onClick={() => setExperienceLevel(o.value)}
-                    >
-                      {o.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <label className="field">
-                <span className="field-label">Equipment (optional)</span>
-                <input
-                  className="text-input"
-                  placeholder="none / dumbbells / pull-up bar…"
-                  value={equipment}
-                  onChange={(e) => setEquipment(e.target.value)}
-                />
-              </label>
-            </>
-          )}
-
-          {!hasWorkouts && (
-            <div className="field">
-              <span className="field-label">How active is a typical day?</span>
-              <div className="chip-row">
-                {EATER_ACTIVITY_OPTIONS.map((o) => (
-                  <button
-                    key={o.value}
-                    type="button"
-                    className={`chip${activityLevel === o.value ? " active" : ""}`}
-                    onClick={() => setActivityLevel(o.value)}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-              <span className="muted small field-hint">Used only to estimate your daily calories.</span>
+          <div className="field">
+            <span className="field-label">How active is a typical day?</span>
+            <div className="chip-row">
+              {EATER_ACTIVITY_OPTIONS.map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  className={`chip${activityLevel === o.value ? " active" : ""}`}
+                  onClick={() => setActivityLevel(o.value)}
+                >
+                  {o.label}
+                </button>
+              ))}
             </div>
-          )}
+            <span className="muted small field-hint">Used only to estimate your daily calories.</span>
+          </div>
 
-          {!hasWorkouts && (
-            <div className="field">
-              <span className="field-label">Want to move most days?</span>
-              <div className="chip-row">
-                {EXERCISE_DAY_OPTIONS.map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    className={`chip${weeklyExerciseDays === d ? " active" : ""}`}
-                    onClick={() => setWeeklyExerciseDays(d)}
-                  >
-                    {d === 0 ? "Not tracking" : `${d}× a week`}
-                  </button>
-                ))}
-              </div>
-              <span className="muted small field-hint">
-                We just count the days you record any exercise — nothing is prescribed.
-              </span>
+          <div className="field">
+            <span className="field-label">Want to move most days?</span>
+            <div className="chip-row">
+              {EXERCISE_DAY_OPTIONS.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  className={`chip${weeklyExerciseDays === d ? " active" : ""}`}
+                  onClick={() => setWeeklyExerciseDays(d)}
+                >
+                  {d === 0 ? "Not tracking" : `${d}× a week`}
+                </button>
+              ))}
             </div>
-          )}
+            <span className="muted small field-hint">
+              We just count the days you record any exercise — nothing is prescribed.
+            </span>
+          </div>
 
           <div className="wizard-nav">
             <button className="btn" onClick={() => setStep("safety")}>Back</button>
@@ -600,9 +400,7 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
         <div className="mode-body wizard-step">
           <WizardHead n={4} title="Review your changes" />
 
-          <p className="plan-summary">
-            We'll update your plan and keep your workouts, groups, and progress exactly where they are.
-          </p>
+          <p className="plan-summary">We'll update this plan in place and keep its goals as they are.</p>
 
           {tracksFood && localCalorieTarget() != null ? (
             <div className="calorie-callout">
@@ -647,20 +445,6 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
                   )}
                 </div>
               )}
-              {!preview.usedFallback && preview.programFallback && (
-                <div className="notice notice-soft">
-                  <span>
-                    Your goals are custom, but the workout builder hit a snag — these are STARTER
-                    workouts, not tuned to your goal yet.
-                  </span>
-                  {preview.programFallbackReason && (
-                    <div className="muted small">Why: {preview.programFallbackReason}</div>
-                  )}
-                  <button className="btn block" disabled={rebuilding} onClick={() => void rebuildWorkouts()}>
-                    {rebuilding ? "Rebuilding workouts…" : "Rebuild workouts"}
-                  </button>
-                </div>
-              )}
               <p className="plan-summary">{preview.gen.summary}</p>
 
               {tracksFood && preview.plan.targets?.dailyCalories != null && (
@@ -676,62 +460,12 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
                 </div>
               )}
 
-              {preview.plan.program && preview.plan.program.workouts.length > 0 && (
-                <div className="plan-workouts">
-                  {(() => {
-                    const all = preview.plan.program!.workouts as ProgramWorkout[];
-                    const evals = all.filter((pw) => pw.isBenchmark);
-                    const training = all.filter((pw) => !pw.isBenchmark);
-                    const card = (pw: ProgramWorkout) => (
-                      <div className="plan-workout" key={pw.id}>
-                        <div className="plan-workout-name">
-                          {pw.workout.name}
-                          {pw.isBenchmark && <span className="benchmark-badge">Evaluation</span>}
-                        </div>
-                        <ul className="plan-exercise-list">
-                          {pw.workout.exercises.map((e) => (
-                            <li key={e.id}>
-                              <span className="pe-name">{e.name}</span>
-                              <span className="pe-sets">{setSummary(e.sets)}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    );
-                    return (
-                      <>
-                        {evals.length > 0 && (
-                          <>
-                            <div className="section-label">Evaluation — do this first</div>
-                            <p className="muted small plan-section-hint">
-                              Measures your benchmarks so your training calibrates to your real
-                              numbers. Already know them? Enter them on the Plan tab instead.
-                            </p>
-                            {evals.map(card)}
-                          </>
-                        )}
-                        {training.length > 0 && (
-                          <>
-                            <div className="section-label">Training workouts</div>
-                            <p className="muted small plan-section-hint">
-                              You'll work through these in groups, at your own pace — finish a
-                              group to unlock the next.
-                            </p>
-                            {training.map(card)}
-                          </>
-                        )}
-                      </>
-                    );
-                  })()}
-                </div>
-              )}
-
               {tweakOpen && (
                 <label className="field">
                   <span className="field-label">What should change?</span>
                   <input
                     className="text-input"
-                    placeholder="e.g. more running, add a rest day"
+                    placeholder="e.g. more protein, easier breakfasts"
                     value={tweakText}
                     onChange={(e) => setTweakText(e.target.value)}
                   />
@@ -755,27 +489,11 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
 
               <div className="wizard-nav">
                 {!tweakOpen && <button className="btn" onClick={() => setTweakOpen(true)}>Tweak it</button>}
-                {preview.plan.program && (
-                  <button className="btn" onClick={() => setEditOpen(true)}>Edit workouts</button>
-                )}
                 <button className="btn primary" onClick={start}>
                   <CheckIcon size={16} /> Start plan
                 </button>
               </div>
 
-              {editOpen && preview.plan.program && (
-                <ProgramEditor
-                  program={preview.plan.program}
-                  mode={preview.plan.mode}
-                  injuries={intake.injuries}
-                  units={unitPref}
-                  onCancel={() => setEditOpen(false)}
-                  onSave={(updated) => {
-                    setPreview((prev) => (prev ? { ...prev, plan: { ...prev.plan, program: updated } } : prev));
-                    setEditOpen(false);
-                  }}
-                />
-              )}
             </>
           )}
         </div>

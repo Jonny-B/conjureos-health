@@ -1,12 +1,13 @@
 /**
- * The day's completed workouts + exercise-calorie total, COMBINING in-app
- * sessions with wearable/Apple-Health workouts.
+ * The day's completed workouts + exercise-calorie total, COMBINING exercise
+ * entries (added by hand, or logged by another app through `logWorkout`) with
+ * wearable/Apple-Health workouts.
  *
  * Calories from both sources ADD together (a manual workout and an Apple Health
  * workout are distinct efforts). Because we can't delete from Apple Health, the
  * user "removes" a wearable workout by excluding it locally and "edits" it by
- * storing a kcal override — both per-day on `DailyCheckoff` (reversible). In-app
- * sessions are edited/deleted for real.
+ * storing a kcal override — both per-day on `DailyCheckoff` (reversible).
+ * Entries are edited/deleted for real.
  *
  * Single source of truth for exercise calories: the diary ring and the cross-app
  * `todayTotals` action both call `exerciseCaloriesForDate`.
@@ -19,8 +20,8 @@ import { readWorkouts, type WorkoutBurn } from "../bridge/health";
 import { shiftDate, todayISO } from "./diary";
 import { newId } from "../data/id";
 
-/** Where a completed workout came from: run inside this app, or synced from
- *  Apple Health / another wearable. */
+/** Where a completed workout came from: an entry stored by this app (added
+ *  here or by another app), or synced from Apple Health / another wearable. */
 export type CompletedSource = "app" | "wearable";
 
 /**
@@ -32,7 +33,7 @@ export interface CompletedWorkout {
   /** Stable key: the session id (app) or `${start}-${workoutType}` (wearable). */
   key: string;
   source: CompletedSource;
-  /** Short provenance label, e.g. "In-app" or the wearable/app source name. */
+  /** Short provenance label, e.g. "Added by you" or the wearable's name. */
   sourceLabel: string;
   name: string;
   /** Effective calories (wearable override applied). */
@@ -71,6 +72,16 @@ function labelForWorkoutType(t: string): string {
   return /^[a-zA-Z ]+$/.test(cleaned) ? cleaned : "Workout";
 }
 
+/** Provenance for a stored entry. "app" stands for a missing `source`: a
+ *  session from the workout player this app used to have. */
+const SOURCE_LABELS: Record<string, string> = {
+  manual: "Added by you",
+  logWorkout: "From an app",
+  healthkit: "Apple Health",
+  health_connect: "Health Connect",
+  app: "In-app",
+};
+
 function nameForSession(s: WorkoutSession): string {
   if (s.workoutName) return s.workoutName;
   if (s.cardio) return "Cardio";
@@ -105,7 +116,7 @@ export async function listCompletedWorkouts(date: string): Promise<CompletedWork
       item: {
         key: s.id,
         source: "app" as const,
-        sourceLabel: s.source === "manual" ? "Added by you" : "In-app",
+        sourceLabel: SOURCE_LABELS[s.source ?? "app"] ?? "In-app",
         name: nameForSession(s),
         kcal: s.caloriesBurned ?? 0,
         durationSec: s.durationSec ?? s.cardio?.durationSec ?? undefined,
@@ -188,9 +199,6 @@ export async function addManualExercise(date: string, input: ManualExerciseInput
     id: newId(),
     date,
     workoutName: input.name.trim().slice(0, 60),
-    planned: [],
-    actual: [],
-    reprompts: [],
     completedAt: new Date().toISOString(),
     caloriesBurned: Math.round(input.calories),
     ...(input.durationMin ? { durationSec: Math.round(input.durationMin * 60) } : {}),
@@ -201,13 +209,13 @@ export async function addManualExercise(date: string, input: ManualExerciseInput
   return session;
 }
 
-/** Delete an in-app session. */
+/** Delete an exercise entry (anything but a wearable workout). */
 export async function removeSession(id: string): Promise<void> {
   const repo = await getRepository();
   await persist("that change to your workouts", repo.removeWorkoutSession(id));
 }
 
-/** Edit an in-app session's burned calories. */
+/** Edit an exercise entry's burned calories (anything but a wearable workout). */
 export async function setSessionKcal(id: string, kcal: number): Promise<void> {
   const repo = await getRepository();
   const s = (await repo.listWorkoutSessions().catch(() => [])).find((x) => x.id === id);

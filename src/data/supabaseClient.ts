@@ -1,6 +1,7 @@
 /**
  * Minimal PostgREST client for the shared ConjureOS Supabase project,
- * scoped to the `fitness` schema.
+ * scoped to the `fitness` schema. (The schema predates the app's rename and
+ * belongs to the private backend; its name can't change from here.)
  *
  * Identity is single-sign-on: the bearer token is the *host* user's session
  * token (provided by ConjureOS via the auth bridge), so the same person who's

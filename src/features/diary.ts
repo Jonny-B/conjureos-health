@@ -22,6 +22,13 @@ export function shiftDate(dateISO: string, deltaDays: number): string {
   return todayISO(dt);
 }
 
+/** A YYYY-MM-DD date as a short local day label, e.g. "Tue, Sep 22". */
+export function formatDay(dateISO: string): string {
+  const [y, m, d] = dateISO.split("-").map(Number);
+  const dt = new Date(y!, (m ?? 1) - 1, d ?? 1);
+  return dt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
 /** Sum two macro totals field by field. Pure; neither input is mutated. */
 export function addMacros(a: Macros, b: Macros): Macros {
   return {

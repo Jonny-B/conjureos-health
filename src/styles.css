@@ -523,7 +523,7 @@ body {
 .budget-grid .ring-number {
   font-size: 32px;
 }
-/* Workout item under the calorie ring — opens Workouts; exercise calories
+/* Exercise item under the calorie ring — opens the Exercise screen; exercise calories
    add back into the day's budget. Full-width row, tap-friendly. */
 .workout-stat {
   display: flex;
@@ -1376,7 +1376,7 @@ body {
   text-align: center;
 }
 
-/* Plan tab — Trends graph + Coach session launcher. */
+/* Plan tab — Trends graph. */
 .plan-screen {
   display: flex;
   flex-direction: column;
@@ -1399,22 +1399,7 @@ body {
   padding: 8px 0;
   text-align: center;
 }
-.coach-launch-hint {
-  margin: 0 0 12px;
-}
-.coach-launch-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.coach-launch-compose {
-  align-items: flex-end;
-}
-.coach-launch-compose .text-input {
-  flex: 1;
-  resize: none;
-}
+
 .weigh-in {
   margin: 14px 0;
 }
@@ -1435,146 +1420,6 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Workouts ─────────────────────────────────────────────────────────── */
-
-.workout-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-/* Grouped program: check-toggle beside each workout card. */
-.workout-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-.workout-row-main {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.workout-check {
-  flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  margin-top: 16px;
-  border-radius: 50%;
-  border: 2px solid var(--line);
-  background: var(--bg-2);
-  color: var(--bg-2);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
-  transition: border-color var(--cui-duration) var(--cui-ease),
-              background var(--cui-duration) var(--cui-ease);
-}
-.workout-check.done {
-  background: var(--cui-accent, #7c6cff);
-  border-color: var(--cui-accent, #7c6cff);
-  color: var(--cui-on-accent);
-}
-.workout-card.done {
-  opacity: 0.55;
-}
-.workout-card.done .workout-name {
-  text-decoration: line-through;
-}
-.workout-manual-entry {
-  align-self: flex-start;
-  font-size: 12px;
-}
-.group-chip {
-  margin-left: 8px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  background: var(--bg-3);
-  border: 1px solid var(--line);
-  color: var(--muted);
-}
-.group-chip.eval {
-  color: var(--cui-accent, #7c6cff);
-  border-color: var(--cui-accent-tint, rgba(124, 108, 255, 0.4));
-}
-.group-progress {
-  margin: 10px 0;
-}
-/* Benchmark-first gate: the single accent card shown until the benchmark is
-   done. Deliberately styled apart from workout cards — it's a measurement,
-   not another workout in the list. */
-.benchmark-hero {
-  border: 1px solid var(--cui-accent);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--cui-accent) 12%, transparent), color-mix(in srgb, var(--cui-accent) 3%, transparent));
-  border-radius: var(--radius);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-.benchmark-hero-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.benchmark-hero-title {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 700;
-}
-.benchmark-hero-blurb {
-  margin: 0;
-}
-.benchmark-hero-rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-}
-.benchmark-hero-rows li {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--line);
-}
-.benchmark-hero-rows li:last-child {
-  border-bottom: none;
-}
-.bh-name {
-  font-weight: 600;
-}
-.benchmark-hero-manual {
-  align-self: center;
-  font-size: 13px;
-}
-.program-locked {
-  text-align: center;
-  padding: 10px 14px;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
-  margin-bottom: 12px;
-}
-.eval-entry-duration .text-input,
-.eval-entry-value .text-input {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.eval-entry-unit {
-  align-self: center;
-  flex: 0 0 auto;
-}
 /* Imperial height: feet + inches side by side inside one field cell. */
 .height-imperial {
   display: flex;
@@ -1607,221 +1452,6 @@ body {
   align-items: baseline;
   gap: 8px;
 }
-/* Small in-section separators (Benchmarks / this group's workouts). */
-.mini-label {
-  margin: 10px 0 6px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 11px;
-}
-.plan-section-hint {
-  margin: -2px 0 8px;
-}
-.workout-card {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  text-align: left;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 16px;
-  cursor: pointer;
-  color: var(--text);
-  transition: border-color var(--cui-duration) var(--cui-ease),
-              background var(--cui-duration) var(--cui-ease),
-              transform var(--cui-duration) var(--cui-ease),
-              box-shadow var(--cui-duration) var(--cui-ease);
-}
-.workout-card:hover {
-  border-color: var(--cui-accent-tint);
-  background: var(--bg-3);
-  transform: translateY(-1px);
-  box-shadow: var(--cui-shadow-accent);
-}
-.workout-card-text {
-  flex: 1;
-  min-width: 0;
-}
-.workout-name {
-  font-size: 17px;
-  font-weight: 700;
-}
-.workout-summary {
-  color: var(--accent-2);
-  font-size: 13px;
-  margin-top: 2px;
-}
-.workout-meta {
-  color: var(--muted);
-  font-size: 12px;
-  margin-top: 6px;
-}
-.workout-play {
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  color: var(--cui-on-accent);
-  background: var(--cui-accent);
-  box-shadow: var(--cui-shadow-accent);
-  transition: transform var(--cui-duration) var(--cui-ease);
-}
-.workout-card:hover .workout-play {
-  transform: scale(1.08);
-}
-
-/* Adaptive program + benchmark (W4) */
-.program-section {
-  margin-bottom: 20px;
-}
-.program-assess-hint {
-  margin: -2px 0 10px;
-}
-.provisional-tag {
-  color: var(--cui-accent);
-  font-weight: 600;
-}
-.benchmark-badge {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  vertical-align: middle;
-  color: var(--cui-on-accent);
-  background: var(--cui-accent);
-}
-/* Compact, read-only "Your progress" strip: one bordered panel, benchmark rows
-   separated by hairlines. Deliberately NOT workout-card-like (no play FAB, no
-   hover lift) — benchmarks are measurements, not tasks. */
-.progress-strip {
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 4px 14px;
-  margin-top: 14px;
-}
-.progress-strip .mini-label {
-  margin: 8px 0 2px;
-}
-.progress-row {
-  padding: 10px 0;
-  border-top: 1px solid var(--line);
-}
-.progress-strip .mini-label + .progress-row {
-  border-top: none;
-}
-.progress-row-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-.progress-name {
-  font-size: 14px;
-  font-weight: 600;
-}
-.progress-target {
-  white-space: nowrap;
-}
-.benchmark-track {
-  height: 8px;
-  border-radius: 999px;
-  background: var(--bg-3);
-  overflow: hidden;
-  margin: 10px 0 6px;
-}
-.benchmark-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: var(--good, var(--cui-accent));
-  transition: width var(--cui-duration) var(--cui-ease);
-}
-.benchmark-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-}
-.benchmark-now {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--good);
-}
-
-/* Press-and-hold button: label bar fills over --hold-ms while held. */
-.hold-btn {
-  position: relative;
-  overflow: hidden;
-  touch-action: none;
-  user-select: none;
-}
-.hold-btn .hold-fill {
-  position: absolute;
-  inset: 0;
-  width: 0;
-  background: color-mix(in srgb, var(--cui-fg) 22%, transparent);
-  transition: width 120ms ease-out;
-  pointer-events: none;
-}
-.hold-btn.holding .hold-fill {
-  width: 100%;
-  transition: width var(--hold-ms, 800ms) linear;
-}
-.hold-btn .hold-label {
-  position: relative;
-  z-index: 1;
-}
-
-/* Global workout pause overlay */
-.pause-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(2px);
-}
-.pause-card {
-  width: 100%;
-  max-width: 340px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 22px;
-  border-radius: var(--cui-radius);
-  background: var(--bg-1, var(--bg-2));
-  border: 1px solid var(--line);
-  text-align: center;
-}
-.pause-card h2 {
-  margin: 0 0 4px;
-}
-.pause-card .link-btn {
-  margin-top: 2px;
-}
-
-/* Post-workout calorie-burn estimate */
-.burn-estimate .burn-figure {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  margin: 18px 0 8px;
-}
-.burn-adjust {
-  margin: 12px 0;
-}
-.burn-actions {
-  margin-top: 8px;
-}
 
 /* Plan tab — daily-targets summary/override */
 .targets-summary {
@@ -1832,7 +1462,7 @@ body {
 }
 .targets-cal strong { font-size: 18px; }
 
-/* Workouts tab — "Completed today" (in-app + wearable) */
+/* Exercise screen — the day's exercise (entries + wearable) */
 .completed-today {
   margin-bottom: 20px;
 }
@@ -1893,195 +1523,22 @@ body {
   background: var(--bg-3);
   color: var(--muted);
 }
-.source-pill.wearable {
+/* Prefixed: a bare `.app` modifier picked up the app shell's layout rules. */
+.source-pill.source-wearable {
   background: var(--cui-accent-mute);
   color: var(--cui-accent-soft);
 }
 .removed-block { margin: 4px 0 8px; }
 .removed-block summary { cursor: pointer; padding: 4px 0; }
 
-/* Program editor (W6) */
-.program-editor {
-  max-width: 640px;
-}
-.editor-block {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-  margin-bottom: 14px;
-  background: var(--bg-2);
-}
-.editor-workout-head {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 8px;
-}
-.editor-title {
-  flex: 1;
-  font-weight: 700;
-}
-.field.inline {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-}
-.editor-exercise {
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
-  margin-top: 10px;
-}
-.editor-exercise-head {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 6px;
-}
-.editor-exercise-head .text-input {
-  flex: 1;
-}
-.editor-set {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr auto;
-  gap: 6px;
-  align-items: end;
-  margin-bottom: 6px;
-}
-.editor-set .set-field span {
-  font-size: 11px;
-  color: var(--muted);
-}
+/* Button variants */
+
 .link-btn.danger {
   color: var(--bad, #e5484d);
 }
-.editor-errors {
-  border: 1px solid var(--bad, #e5484d);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-  margin-bottom: 12px;
-  background: color-mix(in srgb, var(--bad, #e5484d) 8%, transparent);
-  font-size: 13px;
-}
-.editor-errors ul {
-  margin: 6px 0 0;
-  padding-left: 18px;
-}
+
 .btn.block {
   width: 100%;
-}
-
-/* Player */
-.player {
-  display: flex;
-  flex-direction: column;
-  min-height: 72vh;
-  text-align: center;
-}
-.player.rest {
-  background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--good) 12%, transparent), transparent 60%);
-}
-.player-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.player-progress {
-  font-size: 13px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.player-body {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-}
-.player-phase {
-  font-size: 12px;
-  letter-spacing: 2px;
-  color: var(--accent);
-  font-weight: 700;
-}
-.player.rest .player-phase {
-  color: var(--good);
-}
-.player-exercise {
-  font-size: 26px;
-  margin: 0;
-}
-.player-setline {
-  color: var(--muted);
-  font-size: 14px;
-}
-
-/* Circular countdown ring around the big timer. */
-.progress-ring-wrap {
-  position: relative;
-  width: 220px;
-  height: 220px;
-  margin: 4px 0;
-}
-.progress-ring {
-  width: 220px;
-  height: 220px;
-}
-.progress-ring-value {
-  fill: none;
-  stroke-width: 9;
-  stroke-linecap: round;
-  transition: stroke-dasharray 0.95s linear;
-}
-.progress-ring-value.accent {
-  stroke: var(--accent);
-}
-.progress-ring-value.rest {
-  stroke: var(--good);
-}
-.progress-ring-value.reps {
-  stroke: var(--accent-2);
-}
-.timer.big {
-  font-size: 60px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-.timer.big.rest {
-  color: var(--good);
-}
-.timer.big.reps {
-  color: var(--accent-2);
-}
-.timer-unit {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--muted);
-  letter-spacing: 1px;
-  text-transform: uppercase;
-}
-.player-notes {
-  color: var(--muted);
-  font-size: 14px;
-  max-width: 280px;
-}
-.player-next {
-  color: var(--muted);
-  font-size: 14px;
-}
-.player-controls {
-  display: flex;
-  gap: 10px;
-}
-.player-controls .btn {
-  flex: 1;
-  padding: 14px;
-  font-size: 15px;
 }
 
 /* ── Settings sheet ───────────────────────────────────────────────────── */
@@ -2181,7 +1638,7 @@ html.modal-open .screen {
   letter-spacing: 0;
   padding: 0;
 }
-/* Two section actions (Edit plan · Edit workouts) sit together, right-aligned. */
+/* Section actions (e.g. Edit plan) sit together, right-aligned. */
 .section-actions {
   display: inline-flex;
   gap: 14px;
@@ -2217,8 +1674,7 @@ html.modal-open .screen {
     animation: none;
   }
   .ring-value,
-  .macro-fill,
-  .progress-ring-value {
+  .macro-fill {
     transition: none;
   }
 }
@@ -2562,11 +2018,6 @@ button.home-card:hover {
 .coach-card-goals li {
   margin: 1px 0;
 }
-.coach-card-summary {
-  margin-top: 8px;
-  border-top: 1px solid var(--line);
-  padding-top: 8px;
-}
 
 /* Source-app pill on cross-app recipe search results. */
 /* Cross-app source badge on "From your apps" result cards — shows which app
@@ -2711,48 +2162,7 @@ button.home-card:hover {
   justify-content: center;
   gap: 6px;
 }
-.mode-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.mode-card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  text-align: left;
-  padding: 14px 16px;
-  border-radius: var(--cui-radius);
-  border: 1px solid var(--line);
-  background: var(--bg-2);
-  color: var(--text);
-  cursor: pointer;
-}
-.mode-card.active {
-  border-color: var(--accent);
-  background: var(--cui-accent-mute, rgba(124, 106, 247, 0.12));
-}
-.mode-card-title {
-  font-size: 15px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.mode-card-badge {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding: 2px 7px;
-  border-radius: 999px;
-  color: var(--accent);
-  background: var(--cui-accent-mute, rgba(124, 106, 247, 0.14));
-}
-.mode-card-blurb {
-  font-size: 13px;
-  color: var(--muted);
-}
+
 .field-label {
   display: block;
   font-size: 13px;
@@ -2829,116 +2239,6 @@ button.home-card:hover {
 }
 .disclaimer-inline {
   align-items: flex-start;
-}
-
-/* ── W1: color-coded player frame + set recorder + summary ────────────── */
-/* Whole-step top bar recolors on transition: purple=timed, blue=reps, green=rest. */
-.player.timed { box-shadow: inset 0 3px 0 var(--accent); }
-.player.reps { box-shadow: inset 0 3px 0 var(--accent-2); }
-.player.rest { box-shadow: inset 0 3px 0 var(--good); }
-.player.reps .player-phase { color: var(--accent-2); }
-
-.set-recorder {
-  width: 100%;
-  max-width: 340px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin: 8px 0;
-}
-.set-lasttime { text-align: center; }
-.set-fields {
-  display: flex;
-  gap: 12px;
-}
-.set-field {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.set-field span {
-  font-size: 12px;
-  color: var(--muted);
-  font-weight: 600;
-}
-.set-field .text-input {
-  font-size: 22px;
-  font-weight: 700;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-.set-suggestion {
-  text-align: center;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent-2);
-}
-.set-rpe {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: center;
-}
-.plate-calc { text-align: center; }
-.plate-breakdown { margin-top: 6px; }
-.plate-chip {
-  display: inline-block;
-  min-width: 24px;
-  padding: 2px 6px;
-  margin: 0 3px;
-  border-radius: 6px;
-  background: var(--bg-3);
-  border: 1px solid var(--line);
-  font-variant-numeric: tabular-nums;
-}
-
-.workout-summary { display: flex; flex-direction: column; gap: 16px; }
-.summary-head h1 { font-size: 22px; font-weight: 700; margin: 0; }
-.summary-head p { margin: 2px 0 0; }
-.summary-stats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-}
-.summary-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 12px 6px;
-  border-radius: var(--cui-radius);
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-}
-.summary-stat-value { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.summary-stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.summary-prs { display: flex; flex-direction: column; gap: 8px; }
-.pr-badge {
-  padding: 10px 12px;
-  border-radius: var(--cui-radius);
-  background: var(--cui-accent-mute, rgba(124, 106, 247, 0.14));
-  border: 1px solid var(--cui-accent-tint, rgba(124, 106, 247, 0.3));
-  color: var(--accent);
-  font-weight: 700;
-  font-size: 14px;
-}
-.summary-exercises { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.summary-ex {
-  padding: 10px 12px;
-  border-radius: var(--cui-radius-sm, 10px);
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-}
-.summary-ex-name { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
-.summary-ex-sets { display: flex; flex-wrap: wrap; gap: 6px; }
-.summary-set {
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--bg-3);
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
 }
 
 /* ── S1/S2: setup wizard + Home banner ────────────────────────────────── */
@@ -3048,19 +2348,6 @@ input[type="date"].text-input {
   appearance: none;
 }
 
-/* Review-step workout list — surfaces the actual AI-authored exercises. */
-.plan-workouts { display: flex; flex-direction: column; gap: 10px; }
-.plan-workout {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: var(--bg-2);
-}
-.plan-workout-name { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
-.plan-exercise-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.plan-exercise-list li { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
-.plan-exercise-list .pe-sets { color: var(--muted); flex: 0 0 auto; }
-
 .btn.danger-subtle { color: var(--cui-accent, #ef4444); }
 .btn.danger {
   display: inline-flex;
@@ -3103,84 +2390,7 @@ input[type="date"].text-input {
 }
 .danger-text { color: var(--bad); }
 
-/* ── W2: exercise explainer dropdown ──────────────────────────────────── */
-.explainer { width: 100%; max-width: 340px; margin: 6px auto 0; }
-.explainer-toggle { display: block; margin: 0 auto; }
-.explainer-body {
-  margin-top: 8px;
-  padding: 12px;
-  border-radius: var(--cui-radius);
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  text-align: left;
-}
-.explainer-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.explainer-source {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding: 2px 7px;
-  border-radius: 6px;
-  background: var(--bg-3);
-  color: var(--muted);
-}
-.explainer-source.src-ai { color: var(--accent-2); background: color-mix(in srgb, var(--accent-2) 14%, transparent); }
-.explainer-source.src-user { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
-.explainer-source.src-coach { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
-.explainer-howto { font-size: 13px; line-height: 1.5; margin: 0 0 8px; }
-.explainer-muscles { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
-.muscle-chip {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--bg-3);
-  color: var(--muted);
-}
-.explainer-useful { margin: 0; }
-.explainer-edit { display: flex; flex-direction: column; gap: 8px; }
-.explainer-empty { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-
-/* ── W3: cardio player ────────────────────────────────────────────────── */
-.cardio-player { display: flex; flex-direction: column; height: 100%; gap: 12px; }
-.cardio-title { font-size: 18px; font-weight: 700; text-align: center; margin: 0; }
-.cardio-stats { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 24px; }
-.cardio-distance {
-  font-size: 72px;
-  font-weight: 800;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  color: var(--accent-2);
-}
-.cardio-unit { font-size: 22px; font-weight: 700; color: var(--muted); margin-left: 6px; }
-.cardio-sub { display: flex; gap: 32px; }
-.cardio-metric { display: flex; flex-direction: column; align-items: center; }
-.cardio-val { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.cardio-lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.cardio-autopause {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--carbs);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.cardio-splits {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: center;
-  margin-top: 8px;
-}
-.split-chip {
-  font-size: 12px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.manual-cardio { display: flex; flex-direction: column; gap: 14px; }
+/* ── Nutrition estimate editor: calories, macros, more nutrients ───────── */
 
 .calories-card {
   background:
@@ -3301,185 +2511,6 @@ input[type="date"].text-input {
   .scanner-line { animation: none; top: 50%; }
   .scanner-flash { animation: none; opacity: 0; }
 }
-
-/* ── Coach (Phase 2): check-ins + trainer chat ─────────────────────── */
-
-.checkin-form { display: flex; flex-direction: column; gap: 18px; }
-.checkin-q { display: flex; flex-direction: column; gap: 8px; }
-.checkin-q-text { font-size: 15px; font-weight: 600; }
-.checkin-scale { display: flex; align-items: center; gap: 10px; }
-.checkin-scale-label { font-size: 11px; color: var(--muted); flex: 0 0 auto; max-width: 72px; }
-.checkin-scale .chip-row { flex: 1; justify-content: center; flex-wrap: nowrap; }
-.checkin-scale .chip,
-.coach-suggestions .chip {
-  padding: 8px 14px;
-  font-size: 14px;
-  text-transform: none;
-  letter-spacing: normal;
-  border: 1px solid var(--line);
-  background: var(--bg-2);
-  color: var(--text);
-  cursor: pointer;
-}
-.checkin-scale .chip.active {
-  border-color: var(--accent);
-  background: var(--cui-accent-mute, rgba(124, 106, 247, 0.14));
-  color: var(--accent);
-}
-.checkin-text { resize: vertical; }
-.checkin-sheet .center-fill { min-height: 160px; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; }
-.checkin-banner .setup-banner-text::before { content: "💬 "; }
-
-.coach-reply-card {
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--radius);
-  background: var(--bg-2);
-  padding: 14px 16px;
-  margin: 8px 0 16px;
-}
-.coach-reply-card p { margin: 6px 0 0; line-height: 1.5; }
-.coach-reply-tag {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--accent);
-  font-weight: 700;
-}
-.coach-plan-note { margin-top: 10px; font-size: 13px; color: var(--good); }
-.coach-reflect .center-fill { display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; min-height: 200px; }
-
-/* Trainer chat */
-.coach-screen {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-}
-.coach-thread {
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 16px 0 12px;
-}
-.coach-empty { text-align: center; padding: 32px 12px 8px; }
-.coach-empty h2 { margin: 0 0 8px; }
-.coach-empty p { margin: 0 auto 16px; max-width: 420px; line-height: 1.5; }
-.coach-suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
-.coach-msg {
-  max-width: 85%;
-  padding: 10px 14px;
-  border-radius: 16px;
-  line-height: 1.45;
-  font-size: 15px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.coach-msg.user {
-  align-self: flex-end;
-  background: var(--accent);
-  color: var(--cui-on-accent);
-  border-bottom-right-radius: 6px;
-}
-.coach-msg.assistant {
-  align-self: flex-start;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-bottom-left-radius: 6px;
-}
-.coach-msg.typing { color: var(--muted); letter-spacing: 2px; }
-/* Plan-change proposal card — the coach asks before it changes anything. */
-.coach-proposal {
-  align-self: stretch;
-  background: var(--bg-2);
-  border: 1px solid var(--accent);
-  border-radius: 14px;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.coach-proposal.done {
-  border-color: var(--line);
-  padding: 6px 12px;
-}
-.coach-proposal-why { margin: 0; }
-.coach-proposal-q { margin: 0; font-weight: 600; }
-.coach-proposal-opts { display: flex; flex-wrap: wrap; gap: 8px; }
-.coach-proposal-opts .chip.selected {
-  background: var(--accent);
-  color: var(--cui-on-accent);
-  border-color: var(--accent);
-}
-.coach-proposal-other { min-height: 38px; }
-.coach-proposal-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.coach-input-row {
-  display: flex;
-  gap: 8px;
-  align-items: flex-end;
-  padding: 10px 0 12px;
-  border-top: 1px solid var(--line);
-  background: var(--bg);
-  position: sticky;
-  bottom: 0;
-}
-.coach-input { flex: 1; resize: none; min-height: 42px; max-height: 120px; }
-
-/* ── Pre-workout overview / splash (tap a workout → overview → Start) ───── */
-
-.workout-overview { display: flex; flex-direction: column; gap: 14px; padding-bottom: 96px; }
-.overview-head { display: flex; flex-direction: column; gap: 8px; }
-.overview-title {
-  margin: 0;
-  font-size: 26px;
-  line-height: 1.15;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.overview-meta { display: flex; flex-wrap: wrap; gap: 8px; }
-.overview-chip {
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.overview-description { margin: 0; line-height: 1.55; color: var(--text); }
-
-.overview-exercises { display: flex; flex-direction: column; gap: 8px; }
-.overview-ex-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.overview-ex {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-2);
-  padding: 12px 14px;
-}
-.overview-ex-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.overview-ex-name { font-weight: 600; }
-.overview-ex-sets { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.overview-ex-notes { color: var(--muted); font-size: 13px; margin-top: 4px; }
-
-.overview-actions {
-  position: fixed;
-  left: 0; right: 0;
-  bottom: calc(var(--tabbar-h) + var(--version-h));
-  display: flex;
-  gap: 10px;
-  padding: 12px 16px;
-  background: linear-gradient(to top, var(--bg) 70%, transparent);
-}
-.overview-actions .overview-start { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 
 /* ── Weekly movement goal (Plan tab) ─────────────────────────────────── */
 .exercise-goal-head {

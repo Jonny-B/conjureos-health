@@ -1,10 +1,10 @@
 /**
  * Health bridge — reads workouts + burned calories from the ConjureOS native
  * health broker (HealthKit / Health Connect via
- * `window.__conjureos.native.health`). Mirrors bridge/location.ts: it degrades
- * gracefully to empty when the native op is absent (web `npm run dev`, desktop,
- * or a mobile build without the health entitlement) so nothing hard-fails —
- * the diary just shows no wearable calories.
+ * `window.__conjureos.native.health`). It degrades gracefully to empty when
+ * the native op is absent (web `npm run dev`, desktop, or a mobile build
+ * without the health entitlement) so nothing hard-fails — the diary just
+ * shows no wearable calories.
  *
  * One integration per OS aggregator captures EVERY wearable that writes to it:
  * an Apple Watch run lands in HealthKit automatically; Fitbit/Strava/Oura land

@@ -1,11 +1,10 @@
 /**
  * Plan service — the single API surface for the active plan.
  *
- * Everything that reads or writes a plan goes through here: the wizard (create),
- * the settings editor (mode / targets / program edits), and the workouts screen
- * (post-session adaptation). Screens never call `getRepository()` for plan ops
- * or hand-spread `{ ...plan }` inline anymore — that glue lived in three places
- * and drifted. This module also owns the reconciliation between the three
+ * Everything that reads or writes a plan goes through here: the wizard (create
+ * and edit) and the Plan tab (targets). Screens never call `getRepository()`
+ * for plan ops or hand-spread `{ ...plan }` inline anymore — that glue lived in
+ * three places and drifted. This module also owns the reconciliation between the three
  * previously-disjoint stores (Plan ↔ Profile ↔ Goals) so a plan actually
  * informs the diary and body stats aren't entered twice.
  *
@@ -13,27 +12,12 @@
  * told) and the returned in-memory plan stays authoritative for the session.
  */
 
-import type {
-  AgeBand,
-  Goals,
-  Plan,
-  PlanGoal,
-  PlanTargets,
-  Profile,
-  WorkoutProgram,
-  WorkoutSession,
-} from "../../types";
+import type { AgeBand, Goals, Plan, PlanGoal, PlanTargets, Profile } from "../../types";
 import { DEFAULT_PROFILE } from "../../types";
 import { getRepository } from "../../data/repository";
 import { persist } from "../../data/saveFailure";
-import { newId } from "../../data/id";
-import { measureSession, recordBenchmarkResult } from "./program";
-import { calibrateToBenchmark, maybeAdapt } from "./analyze";
-import { advanceToNextGroup, setWorkoutDone } from "./groups";
 import { modeTracksFood } from "./model";
-import { deriveDirection, macrosForCalories, recommendGoals } from "../goals";
-import { loadMemory, summarizeMemoryForProgram } from "../coach/memory";
-import { clamp } from "../num";
+import { recommendGoals } from "../goals";
 
 /** Body stats the wizard collects, reconciled into the Profile on commit. */
 export interface WizardBody {
@@ -45,7 +29,6 @@ export interface WizardBody {
   age?: number;
   ageBand?: AgeBand;
   activityLevel?: Profile["activityLevel"];
-  experienceLevel?: Profile["experienceLevel"];
   direction?: Profile["direction"];
   units?: Profile["units"];
 }
@@ -116,7 +99,6 @@ export function mergeBodyIntoProfile(base: Profile, b: WizardBody): Profile {
     // Prefer the exact age; fall back to the age-band's representative age.
     age: b.age ?? (b.ageBand ? AGE_FOR_BAND[b.ageBand] : base.age),
     activityLevel: b.activityLevel ?? base.activityLevel,
-    experienceLevel: b.experienceLevel ?? base.experienceLevel,
     direction: b.direction ?? base.direction,
     units: b.units ?? base.units,
   };
@@ -156,16 +138,8 @@ export async function commitNewPlan(
   return { plan, profile, goals };
 }
 
-/** Persist a program edit. (ProgramEditor validates before calling this.) */
-export async function saveProgram(plan: Plan, program: WorkoutProgram): Promise<Plan> {
-  const next: Plan = { ...plan, program };
-  const repo = await getRepository();
-  await persist("your plan", repo.savePlan(next));
-  return next;
-}
-
-/** The plan fields an edit may change. Deliberately excludes `program` and
- *  `id`, so patching can never drop group progress or benchmark history. */
+/** The plan fields an edit may change. Deliberately excludes `id`, and a
+ *  legacy plan's `program`, which patching carries forward untouched. */
 export interface PlanPatch {
   mode?: Plan["mode"];
   /** Weekly exercise-days target; 0 clears it (see Plan.weeklyExerciseDays). */
@@ -183,8 +157,8 @@ const PLAN_ARCHIVE_PATH = "plan-archive.json";
  * Archive the outgoing plan so history/insight survives a "start a new plan"
  * reset. Keeps the 20 most recent, newest first.
  *
- * Diary, weight, and workout-session history live in separate stores and are
- * never touched here. Best-effort: a failed write is swallowed rather than
+ * Diary, weight, and exercise history live in separate stores and are never
+ * touched here. Best-effort: a failed write is swallowed rather than
  * blocking the new plan.
  */
 export async function archivePlan(plan: Plan): Promise<void> {
@@ -227,7 +201,7 @@ export interface PlanEditAnswers {
 }
 
 /** What an edit does: fork a brand-new plan (archiving the old one) or patch
- *  the existing one in place, keeping its id, groups, and benchmarks. */
+ *  the existing one in place, keeping its id and goals. */
 export type PlanEditDecision = "new" | "modify";
 
 const normGoal = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
@@ -236,9 +210,9 @@ const normGoal = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
  * Decide whether editing a plan should regenerate a brand-new plan or modify
  * the existing one in place. Owner-locked trigger: a change to the GOAL TEXT,
  * the MODE, or the START DATE means the plan itself is different → new plan
- * (archive + regenerate workouts). Everything else (end date, calories/macros,
- * goal weight, activity, experience, days/week, equipment) is a tune of the
- * same plan → modify in place, keeping the plan id + program/group progress.
+ * (archive + regenerate). Everything else (end date, calories/macros, goal
+ * weight, activity, weekly movement days) is a tune of the same plan → modify
+ * in place, keeping the plan id and goals.
  *
  * Legacy plans created before `goalText` was persisted can't be diffed on text,
  * so for those only mode/start-date fork a new plan (a freshly typed goal won't
@@ -253,14 +227,15 @@ export function decidePlanEdit(plan: Plan, next: PlanEditAnswers): PlanEditDecis
 
 /**
  * Modify the active plan in place from an edit that didn't change its identity.
- * Keeps the plan id, the workout program (group progress, benchmark history,
- * every `completedAt`), and the plan goals — but re-merges body stats into the
- * profile and RECOMPUTES the daily calorie target from that updated profile.
+ * Keeps the plan id and the plan goals (and a legacy plan's `program`) — but
+ * re-merges body stats into the profile and RECOMPUTES the daily calorie
+ * target from that updated profile.
  *
  * The recompute is the fix for the old cog behaviour, where editing goal weight
  * only moved `profile.direction` and never touched the calorie target, so the
  * diary ring never changed. Targets only recompute when the mode tracks food; a
- * workouts-only plan keeps whatever (null) target it had.
+ * plan that doesn't (logging-only, or a legacy get-fit one) keeps whatever
+ * (null) target it had.
  */
 export async function modifyPlanInPlace(
   plan: Plan,
@@ -276,8 +251,8 @@ export async function modifyPlanInPlace(
     ? goalsToTargets(recommendGoals(profile))
     : plan.targets ?? { dailyCalories: null };
 
-  // Patch intentionally omits program / goals / mode → updatePlan's spread
-  // preserves them, so group progress and benchmark history survive untouched.
+  // Patch intentionally omits goals / mode → updatePlan's spread preserves
+  // them, along with a legacy plan's program.
   const { plan: next, goals } = await updatePlan(
     plan,
     { targets, ...patch },
@@ -290,230 +265,4 @@ export async function modifyPlanInPlace(
 export async function clearPlan(): Promise<void> {
   const repo = await getRepository();
   await persist("that change to your plan", repo.clearPlan());
-}
-
-/**
- * Persist a finished session, then run the adaptive loop: fold any benchmark
- * result into the program (measurement), then — every N sessions — let the AI
- * propose a bounded, re-validated adjustment (adaptation). The plan is saved at
- * most once. Returns the (possibly updated) plan for the caller to set in state.
- */
-export async function recordSessionAndAdapt(
-  plan: Plan | null,
-  session: WorkoutSession,
-  opts?: {
-    /** The ProgramWorkout this session fulfilled — checks it off in its group. */
-    programWorkoutId?: string;
-  },
-): Promise<Plan | null> {
-  const repo = await getRepository();
-  await persist("this workout", repo.saveWorkoutSession(session));
-  if (!plan?.program) return plan;
-
-  const measuresBenchmark = Boolean(session.benchmarkId || session.benchmarkIds?.length);
-
-  let next: Plan = plan;
-  if (opts?.programWorkoutId) {
-    const done = setWorkoutDone(plan.program, opts.programWorkoutId, true, session.completedAt);
-    if (done !== plan.program) next = { ...plan, program: done };
-  }
-  let baselineJustSet = false;
-  if (measuresBenchmark) {
-    const before = next.program!;
-    const program = recordBenchmarkResult(before, session);
-    if (program !== before) {
-      next = { ...next, program };
-      // A benchmark whose baseline flipped null → value this fold-in means the
-      // user just did their first assessment — time to calibrate the program.
-      // (recordBenchmarkResult preserves benchmark order, so indexes align.)
-      baselineJustSet = before.benchmarks.some(
-        (b, i) => b.baseline == null && program.benchmarks[i]?.baseline != null,
-      );
-    }
-  }
-
-  try {
-    const sessions = await repo.listWorkoutSessions(200);
-    // Feed the coach's memory of the user (stated dislikes/constraints + recent
-    // reflections) into the program engine so adaptation honors their feedback.
-    const prefs = await coachPreferences();
-    if (baselineJustSet) {
-      // Benchmark-first: the assessment just set the baselines, so tune the
-      // provisional workouts to the measured capacity before the periodic loop.
-      next = await calibrateToBenchmark(next, sessions, prefs);
-    } else {
-      const adapted = await maybeAdapt(next, sessions, prefs);
-      if (adapted) next = adapted;
-    }
-  } catch {
-    /* AI/adaptation is best-effort; keep the measurement result */
-  }
-
-  if (next !== plan) await persist("your plan", repo.savePlan(next));
-  return next;
-}
-
-/** Manually toggle a program workout's done state (skipped workouts shouldn't
- *  wedge the group) and persist. Returns the updated plan. */
-export async function toggleWorkoutDone(plan: Plan, programWorkoutId: string, done: boolean): Promise<Plan> {
-  if (!plan.program) return plan;
-  const program = setWorkoutDone(plan.program, programWorkoutId, done);
-  if (program === plan.program) return plan;
-  const next: Plan = { ...plan, program };
-  const repo = await getRepository();
-  await persist("your plan", repo.savePlan(next));
-  return next;
-}
-
-/** Advance to the next group (generating it when needed) and persist. The next
- *  group's progression is shaped by recorded stats AND the coach's memory of the
- *  user's feedback/preferences. */
-export async function startNextGroup(plan: Plan): Promise<Plan> {
-  const repo = await getRepository();
-  const sessions = await repo.listWorkoutSessions(200).catch(() => [] as WorkoutSession[]);
-  const next = await advanceToNextGroup(plan, sessions, await coachPreferences());
-  if (next !== plan) await persist("your plan", repo.savePlan(next));
-  return next;
-}
-
-/** The coach-memory feedback block for the program engine, or "" if none/error. */
-async function coachPreferences(): Promise<string> {
-  try {
-    return summarizeMemoryForProgram(await loadMemory());
-  } catch {
-    return "";
-  }
-}
-
-/** A plan-level change the coach can apply from chat (ask-first, like program
- *  tweaks). All fields optional; kg + kcal are validated/clamped on apply. */
-export interface CoachPlanChange {
-  summary: string;
-  /** New goal weight in KILOGRAMS. Updates profile + recomputes calorie target. */
-  goalWeightKg?: number;
-  /** New daily calorie target. */
-  dailyCalories?: number;
-  /** New plan end date, YYYY-MM-DD. */
-  endDate?: string;
-}
-
-const weeksBetweenIso = (start: string, end: string): number => {
-  const ms = Date.parse(end) - Date.parse(start);
-  return Number.isFinite(ms) ? Math.min(52, Math.max(1, Math.round(ms / (7 * 86400000)))) : 1;
-};
-
-/**
- * Apply a coach-proposed PLAN-LEVEL change (goal weight, daily calories, end
- * date) — the confirmation-gated counterpart to program tweaks. Persists the
- * profile (for goal weight, which also recomputes the calorie target) and the
- * plan/goals. Returns the updated trio, or null when nothing valid changed.
- */
-export async function applyCoachPlanChange(
-  plan: Plan | null,
-  profile: Profile | null,
-  goals: Goals,
-  change: CoachPlanChange,
-): Promise<CommitResult | null> {
-  if (!plan) return null;
-  const repo = await getRepository();
-  let nextProfile = profile;
-  const patch: PlanPatch = {};
-
-  if (change.goalWeightKg != null && Number.isFinite(change.goalWeightKg) && profile) {
-    const gw = Math.round(clamp(change.goalWeightKg, 25, 400) * 10) / 10;
-    nextProfile = { ...profile, goalWeightKg: gw, direction: deriveDirection(profile.weightKg, gw) };
-    await persist("your profile", repo.saveProfile(nextProfile));
-    if (modeTracksFood(plan.mode)) patch.targets = goalsToTargets(recommendGoals(nextProfile));
-  }
-  if (change.dailyCalories != null && Number.isFinite(change.dailyCalories) && modeTracksFood(plan.mode)) {
-    const cal = clamp(Math.round(change.dailyCalories), 800, 10000);
-    const weightKg = nextProfile?.weightKg ?? 70;
-    patch.targets = { dailyCalories: cal, ...macrosForCalories(cal, weightKg) };
-  }
-  if (change.endDate && /^\d{4}-\d{2}-\d{2}$/.test(change.endDate) && change.endDate > plan.startDate) {
-    patch.endDate = change.endDate;
-    patch.durationWeeks = weeksBetweenIso(plan.startDate, change.endDate);
-  }
-
-  const changedProfile = nextProfile !== profile;
-  if (Object.keys(patch).length === 0 && !changedProfile) return null;
-
-  const { plan: next, goals: ng } = await updatePlan(plan, patch, { currentGoals: goals });
-  return { plan: next, profile: nextProfile, goals: ng };
-}
-
-/** One manually-entered benchmark result: the Benchmark id + the value in the
- *  benchmark's STORAGE metric (reps / kg / seconds / km). */
-export interface ManualBenchmarkEntry {
-  benchmarkId: string;
-  value: number;
-}
-
-/**
- * Record an evaluation's results WITHOUT running the workout — an experienced
- * lifter often already knows their numbers. Builds a synthetic session carrying
- * each entered value in the shape `measureSession` reads (strength values as a
- * recorded set on the benchmark's exercise key; run/ride results as a cardio
- * block), then routes it through the exact same fold-in + calibration path a
- * performed assessment takes, checking the evaluation workout off its group.
- */
-export async function recordManualBenchmarkEntry(
-  plan: Plan,
-  programWorkoutId: string,
-  entries: ManualBenchmarkEntry[],
-): Promise<Plan | null> {
-  const program = plan.program;
-  if (!program || entries.length === 0) return plan;
-  const now = new Date().toISOString();
-  const stamp = { startedAt: now, completedAt: now };
-
-  const byExercise: NonNullable<WorkoutSession["byExercise"]> = [];
-  let cardio: WorkoutSession["cardio"];
-  const benchmarkIds: string[] = [];
-
-  for (const e of entries) {
-    const b = program.benchmarks.find((x) => x.id === e.benchmarkId);
-    if (!b || !Number.isFinite(e.value) || e.value <= 0) continue;
-    benchmarkIds.push(b.id);
-    if (b.metric === "distanceKm") {
-      cardio = { distanceKm: e.value, durationSec: cardio?.durationSec ?? 0, source: "manual" };
-    } else if (b.metric === "durationSec" && isCardioBenchmark(b.exerciseKey)) {
-      cardio = { distanceKm: cardio?.distanceKm ?? 0, durationSec: e.value, source: "manual" };
-    } else {
-      const set =
-        b.metric === "weightKg"
-          ? { weightKg: e.value, ...stamp }
-          : b.metric === "durationSec"
-            ? { durationSec: Math.round(e.value), ...stamp }
-            : { reps: Math.round(e.value), ...stamp };
-      byExercise.push({ exerciseKey: b.exerciseKey, name: b.name, sets: [set] });
-    }
-  }
-  if (benchmarkIds.length === 0) return plan;
-
-  const session: WorkoutSession = {
-    id: newId(),
-    date: now.slice(0, 10),
-    planned: [],
-    actual: [],
-    reprompts: [],
-    ...(byExercise.length ? { byExercise } : {}),
-    ...(cardio ? { cardio } : {}),
-    benchmarkIds,
-    completedAt: now,
-  };
-  // Sanity: every entered benchmark must actually be measurable off this
-  // session; drop silently-unmeasurable ones rather than recording a no-op.
-  const measurable = program.benchmarks.some(
-    (b) => benchmarkIds.includes(b.id) && measureSession(b, session) != null,
-  );
-  if (!measurable) return plan;
-
-  return recordSessionAndAdapt(plan, session, { programWorkoutId });
-}
-
-/** Heuristic: a benchmark keyed to a run/ride/row-style movement records its
- *  time as a cardio result rather than a timed strength set. */
-function isCardioBenchmark(exerciseKey: string): boolean {
-  return /\b(run|jog|sprint|bike|cycle|cycling|row|rowing|swim|walk|ruck)\b/.test(exerciseKey);
 }
