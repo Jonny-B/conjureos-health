@@ -1523,8 +1523,10 @@ body {
   background: var(--bg-3);
   color: var(--muted);
 }
-/* Prefixed: a bare `.app` modifier picked up the app shell's layout rules. */
-.source-pill.source-wearable {
+/* Prefixed: a bare `.app` modifier picked up the app shell's layout rules.
+   Linked-app workouts read the same as wearable ones: synced from elsewhere. */
+.source-pill.source-wearable,
+.source-pill.source-linked {
   background: var(--cui-accent-mute);
   color: var(--cui-accent-soft);
 }

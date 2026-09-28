@@ -346,7 +346,9 @@ function CompletedEditModal({
           <p className="muted small">
             {item.source === "app"
               ? "Your in-app workout."
-              : `From ${item.sourceLabel}. Editing here only changes what ConjureOS counts — it won't change Apple Health.`}
+              : item.source === "linked"
+                ? `From ${item.sourceLabel}. Editing here only changes what counts on your calorie ring — it won't change ${item.sourceLabel}.`
+                : `From ${item.sourceLabel}. Editing here only changes what ConjureOS counts — it won't change Apple Health.`}
           </p>
           <label className="field">
             <span>Calories burned</span>

@@ -122,9 +122,26 @@ Conjure Health registers actions other apps / the home orchestrator can call:
 | `logFood({ name, calories, protein?, carbs?, fat?, meal?, date? })` | write | Log a food to the diary |
 | `todayTotals()` | read | Today's totals + goals + calories remaining |
 | `logRecipeMeal({ slug, servings?, meal?, date? })` | write | Log a Recipes-app recipe by slug and mark it cooked |
-| `logWorkout({ calories, type?, durationMin?, date? })` | write | Put a workout's burned calories on the day's ring — how a fitness app feeds Conjure Health |
+| `logWorkout({ calories, type?, durationMin?, date? })` | write | Put a workout's burned calories on the day's ring, for a caller with no workout app of its own |
 
-That's a sample; `package.json` → `conjureos.actions` is the full list. It also consumes the Recipes app's `listRecipes` / `getRecipe` / `markCooked`.
+That's a sample; `package.json` → `conjureos.actions` is the full list.
+
+It also consumes two kinds of data from other apps, through `needs` that
+ConjureOS matches by shape (no app is named anywhere):
+
+| Need | Who provides it today | What Health does with it |
+|---|---|---|
+| `recipeSource` | Recipes' `listRecipes` | Log a saved recipe as a meal (`src/bridge/recipeBridge.ts`) |
+| `workoutSource` | Conjure Fitness's `listWorkouts` | Count its workouts on the calorie ring, next to Apple Health (`src/bridge/workoutSource.ts`) |
+
+`workoutSource` requires `id`, `date` and `caloriesBurned` on each workout and
+reads `name`, `durationMin` and `completedAt` when present. Linked workouts can
+be removed from the ring or have their calories corrected on the Exercise
+screen, like Apple Health ones; neither changes the other app. A fetch covers a
+whole week and is cached for a minute, and any failure just means no linked
+workouts. Changing either side's schema can silently break the match: check it
+with `schemaSatisfies` from `@conjureos/bridge` (conjureos-fitness's
+`ACTIONS.md` has the snippet).
 
 ## License
 
