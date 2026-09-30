@@ -9,6 +9,7 @@ import {
   listCustomFoods,
   saveCustomFood,
   searchCustomFoods,
+  toFoodItem,
 } from "./customFoods";
 import { searchFoods } from "./foodSearch";
 
@@ -81,5 +82,40 @@ describe("custom foods", () => {
     expect(await listCustomFoods()).toEqual([]);
     vi.restoreAllMocks();
     expect(await vfs.read(CUSTOM_FOODS_PATH)).toBe(before);
+  });
+
+  it("preserves 2-decimal serving amounts (0.25 cup -> '0.25 cup', not '0.3 cup')", () => {
+    const food = toFoodItem({
+      ...base,
+      servingAmount: 0.25,
+      servingUnit: "cup",
+    });
+    expect(food.servingSize).toBe("0.25 cup");
+  });
+
+  it("preserves 2-decimal serving amounts (0.33 cup -> '0.33 cup', not '0.3 cup')", () => {
+    const food = toFoodItem({
+      ...base,
+      servingAmount: 0.33,
+      servingUnit: "cup",
+    });
+    expect(food.servingSize).toBe("0.33 cup");
+  });
+
+  it("rejects serving amounts that round to 0 (0.004 g)", () => {
+    expect(customFoodProblem({
+      ...base,
+      servingAmount: 0.004,
+    })).not.toBeNull();
+  });
+
+  it("computes correct oz grams from 2-decimal amount (0.25 oz -> 7.1 g, not 8.5 g)", () => {
+    const food = toFoodItem({
+      ...base,
+      servingAmount: 0.25,
+      servingUnit: "oz",
+    });
+    expect(food.servingSize).toBe("0.25 oz");
+    expect(food.servingGrams).toBe(7.1);
   });
 });

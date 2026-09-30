@@ -41,17 +41,19 @@ async function load(): Promise<CustomFoodsFile> {
 
 const nonNeg = (n: number) => (Number.isFinite(n) && n > 0 ? Math.round(n * 10) / 10 : 0);
 
+const round2 = (n: number) => (Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0);
+
 /** Why the input cannot be saved, or null when it can. */
 export function customFoodProblem(input: CustomFoodInput): string | null {
   if (!input.name.trim()) return "Give the food a name.";
-  if (!(input.servingAmount > 0)) return "Enter a serving amount above zero.";
+  if (!(round2(input.servingAmount) > 0)) return "Enter a serving amount above zero.";
   if (!input.servingUnit.trim()) return "Pick a serving unit.";
   if (!(input.calories >= 0)) return "Enter the calories per serving.";
   return null;
 }
 
 export function toFoodItem(input: CustomFoodInput, id = newId()): FoodItem {
-  const amount = nonNeg(input.servingAmount);
+  const amount = round2(input.servingAmount);
   const unit = input.servingUnit.trim();
   const grams =
     unit === "g" || unit === "ml" ? amount : unit === "oz" ? Math.round(amount * 28.35 * 10) / 10 : undefined;
