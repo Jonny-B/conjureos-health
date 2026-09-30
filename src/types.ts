@@ -214,7 +214,7 @@ export const COMMON_SYMPTOMS: readonly string[] = [
 export type Sex = "male" | "female" | "not_shared";
 
 /** Day-to-day activity outside deliberate training. Scales BMR into TDEE
- *  (see `tdee`) and seeds the wizard's suggested training days per week. */
+ *  (see `tdee`). */
 export type ActivityLevel =
   | "sedentary"
   | "light"
@@ -290,8 +290,8 @@ export interface Goals {
   fat: number;
 }
 
-/** Fallback daily targets before a plan exists (or for a workouts-only plan
- *  that tracks no food). Deliberately middle-of-the-road, not personalized. */
+/** Fallback daily targets before a plan exists. Deliberately
+ *  middle-of-the-road, not personalized. */
 export const DEFAULT_GOALS: Goals = {
   calories: 2000,
   protein: 120,
@@ -328,12 +328,11 @@ export interface WeightEntry {
 // self-contained so Phase 9 platform sync can back the JSON up as-is.
 
 /**
- * How a plan is oriented. New plans are `eat_better`, or `logging_only` — the
- * safety fallback the intake gate (under-18 / pregnant / cardiac) forces, with
- * no calorie target. `get_fit` and `both` are legacy: stored plans from before
- * workouts moved to their own app can still carry them.
+ * How a plan is oriented: `eat_better`, or `logging_only` — the safety fallback
+ * the intake gate (under-18 / pregnant / cardiac) forces, with no calorie
+ * target.
  */
-export type PlanMode = "eat_better" | "get_fit" | "both" | "logging_only";
+export type PlanMode = "eat_better" | "logging_only";
 
 /** Coarse age bands — we never store an exact DOB for the safety intake. */
 export type AgeBand = "under_18" | "18_39" | "40_59" | "60_plus";
@@ -341,7 +340,6 @@ export type AgeBand = "under_18" | "18_39" | "40_59" | "60_plus";
 /**
  * The short safety questionnaire captured at wizard step 2. Drives the intake
  * gate (layer 1). Deliberately coarse: bands and booleans, no medical detail.
- * (Plans from before workouts moved out may also carry an `injuries` list.)
  */
 export interface SafetyIntake {
   ageBand: AgeBand;
@@ -361,9 +359,8 @@ export interface PlanGoal {
   id: string;
   /** User-facing line, e.g. "Hit 120 g protein". */
   label: string;
-  /** New plans only get "nutrition" and "habit"; "workout" survives on legacy
-   *  plans and is never shown (see plan/display). */
-  kind: "nutrition" | "workout" | "habit";
+  /** "nutrition" for food, "habit" for everything else. */
+  kind: "nutrition" | "habit";
   /** Optional machine detail (e.g. target grams) for future automation. */
   detail?: string;
 }
@@ -431,21 +428,12 @@ export interface Plan {
    * Additive; absent on every plan before this shipped.
    */
   weeklyExerciseDays?: number;
-  /**
-   * Legacy: the adaptive workout program a plan could carry before workouts
-   * moved out of Conjure Health into their own app. Never read here. Declared
-   * so it's clear it must survive: plan edits spread the stored plan, which
-   * keeps it for the user to take elsewhere.
-   */
-  program?: unknown;
 }
 
 /**
  * A single day's plan progress. Meals are NOT duplicated here — they live in
  * the diary and are read by date; this record only holds what the diary can't
- * express (which plan goals were ticked, the day's weigh-in). Older records
- * can also hold the retired evening check-in; saves merge onto the stored
- * record, so it's kept.
+ * express (which plan goals were ticked, the day's weigh-in).
  */
 export interface DailyCheckoff {
   /** YYYY-MM-DD. */
@@ -467,9 +455,8 @@ export interface DailyCheckoff {
  * One exercise entry on the calorie ring: added by hand, logged by another app
  * through the `logWorkout` action, or a session from the workout player this
  * app had before workouts moved to their own app. Entries of that last kind
- * carry more fields than are listed here (planned and recorded sets, GPS,
- * benchmark links); nothing reads them, and writes spread the stored entry, so
- * nothing drops them either.
+ * carry more fields than are listed here; nothing reads them, and writes
+ * spread the stored entry, so nothing drops them either.
  */
 export interface WorkoutSession {
   id: string;

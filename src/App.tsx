@@ -233,9 +233,9 @@ export function App() {
     [plan, profile, goals],
   );
 
-  // Edit-mode, non-forking change: modify the current plan in place (keep id,
-  // program, group progress) and recompute the calorie target. No archive, no
-  // recordPlanStarted — this is the same plan, not a new episode.
+  // Edit-mode, non-forking change: modify the current plan in place (keep id and
+  // goals) and recompute the calorie target. No archive — this is the same
+  // plan, not a new episode.
   const onModifyPlan = useCallback(
     async (body: WizardBody, patch: { endDate?: string; durationWeeks?: number }) => {
       if (!plan) return;

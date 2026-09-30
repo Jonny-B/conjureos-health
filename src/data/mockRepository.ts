@@ -37,6 +37,7 @@ import type {
   DiaryEntry,
   Goals,
   Plan,
+  PlanGoal,
   Profile,
   SleepEntry,
   SymptomEntry,
@@ -56,6 +57,12 @@ import type {
 import { newId } from "./id";
 
 const STORE_PATH = "store.json";
+/** The retired AI trainer's long-term memory of the user. Nothing reads it any
+ *  more and no reset row covers it, so each device removes it once (see
+ *  `clearTrainerMemoryOnce`). (`coach-chat.json` is the food coach's; it stays.) */
+const TRAINER_MEMORY_PATH = "coach.json";
+/** localStorage flag: this device has removed {@link TRAINER_MEMORY_PATH}. */
+const TRAINER_MEMORY_CLEARED_KEY = "conjure-health:trainer-memory-cleared";
 /** Device-local authoritative key. App origins partition it per app already,
  *  but the name is explicit for clarity when inspecting devtools storage. It
  *  keeps the app's old name on purpose: every user's saved data sits under
@@ -71,6 +78,16 @@ interface StoreShapeV1 {
   weights: WeightEntry[];
 }
 
+/** A plan as saved before workouts moved to Conjure Fitness: `Plan` plus the
+ *  modes, goal kind and fields that left with them. `retireFitnessPlan`
+ *  removes those whenever a store is loaded. */
+type StoredPlan = Omit<Plan, "mode" | "goals" | "safety"> & {
+  mode: Plan["mode"] | "get_fit" | "both";
+  goals: Array<Omit<PlanGoal, "kind"> & { kind: PlanGoal["kind"] | "workout" }>;
+  safety: Plan["safety"] & { injuries?: unknown };
+  program?: unknown;
+};
+
 /** v2: adds the plan / daily check-off / workout-session slices. */
 interface StoreShapeV2 {
   v: 2;
@@ -78,13 +95,24 @@ interface StoreShapeV2 {
   goals: Goals | null;
   diary: DiaryEntry[];
   weights: WeightEntry[];
-  plan: Plan | null;
+  plan: StoredPlan | null;
   dayLogs: Record<string, DailyCheckoff>;
   workoutSessions: WorkoutSession[];
   updatedAt?: string;
 }
 
-/** v3: adds sleep, water and symptoms. */
+/** A v3 document as it may sit on disk: its plan can predate the split. */
+type StoredShapeV3 = Omit<StoreShape, "plan"> & { plan: StoredPlan | null };
+
+/**
+ * v3: adds sleep, water and symptoms.
+ *
+ * Removing the workouts did NOT bump the version, on purpose: a build that
+ * doesn't know a version resets the store to empty, and an older build still
+ * open in another window would then write that empty store over everything on
+ * its next save. The plan is cleaned on every load instead (`retireFitnessPlan`
+ * is idempotent), which every build can read.
+ */
 interface StoreShape {
   v: 3;
   profile: Profile | null;
@@ -114,14 +142,23 @@ function localStore(): Storage | null {
   }
 }
 
+/** The device-local copy, normalised to the current shape, and whether its plan
+ *  still carried what moved to Conjure Fitness (so the cleaned copy should be
+ *  saved back). */
+interface LocalCopy {
+  store: StoreShape;
+  retired: boolean;
+}
+
 /** Read the device-local authoritative copy, or null when absent/unreadable. */
-function readLocal(): StoreShape | null {
+function readLocal(): LocalCopy | null {
   const ls = localStore();
   if (!ls) return null;
   try {
     const raw = ls.getItem(LOCAL_KEY);
     if (!raw) return null;
-    return migrate(JSON.parse(raw));
+    const doc: unknown = JSON.parse(raw);
+    return { store: migrate(doc), retired: carriesFitnessPlan(doc) };
   } catch {
     return null;
   }
@@ -208,10 +245,96 @@ const EMPTY: StoreShape = {
   symptoms: [],
 };
 
+/** The `v` a stored document claims, or undefined when it claims none. */
+function versionOf(loaded: unknown): number | undefined {
+  const v = (loaded as { v?: unknown } | null | undefined)?.v;
+  return typeof v === "number" ? v : undefined;
+}
+
+/** Whether a stored document of a known version (v2 or v3) has a plan that
+ *  still carries anything `retireFitnessPlan` removes. */
+function carriesFitnessPlan(loaded: unknown): boolean {
+  const v = versionOf(loaded);
+  if (v !== 2 && v !== 3) return false;
+  const plan = (loaded as { plan?: unknown }).plan;
+  if (!plan || typeof plan !== "object") return false;
+  const p = plan as Partial<StoredPlan>;
+  return (
+    p.mode === "both" ||
+    p.mode === "get_fit" ||
+    "program" in p ||
+    (!!p.safety && typeof p.safety === "object" && "injuries" in p.safety) ||
+    (Array.isArray(p.goals) && p.goals.some((g) => g?.kind === "workout"))
+  );
+}
+
+/**
+ * Remove the retired AI trainer's memory file once per device. Nothing reads it
+ * and no reset row covers it, so leaving it would keep health data the user can
+ * neither see nor delete. Never awaited by launch; a failure leaves the flag
+ * unset, so the next launch tries again. Resolves when done, for tests.
+ */
+export function clearTrainerMemoryOnce(): Promise<void> {
+  const ls = localStore();
+  try {
+    if (ls?.getItem(TRAINER_MEMORY_CLEARED_KEY)) return Promise.resolve();
+  } catch {
+    /* unreadable flag: just try the delete */
+  }
+  return (async () => {
+    try {
+      if (await vfs.exists(TRAINER_MEMORY_PATH)) await vfs.rm(TRAINER_MEMORY_PATH);
+      ls?.setItem(TRAINER_MEMORY_CLEARED_KEY, "1");
+    } catch {
+      /* try again next launch */
+    }
+  })();
+}
+
+/**
+ * What moved to Conjure Fitness, removed from a stored plan so nothing else has
+ * to know a plan could ever carry it. Runs on every load and is idempotent: a
+ * plan with none of it comes back as it was.
+ *
+ *  - Mode "both" and "get_fit" become "eat_better". A get-fit plan tracked
+ *    calories against the stored goals (its own target was null), while an
+ *    eat_better plan reads its target from the plan, so when such a plan has no
+ *    target and the store has goals, those goals become its targets — the diary
+ *    shows the same numbers before and after.
+ *  - Workout goals, `program` and `safety.injuries` are dropped.
+ *
+ * Every other field of the plan is kept. The stored document is whatever was on
+ * disk, so this never throws: a plan that isn't an object comes back as it is, a
+ * field that isn't the expected shape is left alone, and the input is copied,
+ * not edited.
+ */
+function retireFitnessPlan(plan: StoredPlan | null | undefined, goals: Goals | null): Plan | null {
+  if (!plan || typeof plan !== "object") return plan ?? null;
+  const next: Partial<StoredPlan> = { ...plan };
+  delete next.program;
+  if (plan.mode === "both" || plan.mode === "get_fit") next.mode = "eat_better";
+  if (
+    plan.mode === "get_fit" &&
+    plan.targets?.dailyCalories == null &&
+    goals &&
+    Number.isFinite(goals.calories)
+  ) {
+    next.targets = { dailyCalories: goals.calories, protein: goals.protein, carbs: goals.carbs, fat: goals.fat };
+  }
+  if (Array.isArray(plan.goals)) next.goals = plan.goals.filter((g) => g?.kind !== "workout");
+  if (plan.safety && typeof plan.safety === "object") {
+    const { injuries: _injuries, ...safety } = plan.safety;
+    next.safety = safety;
+  }
+  return next as Plan;
+}
+
 /**
  * Normalise whatever was on disk into the current StoreShape. A v1 document is
- * migrated by retaining its slices and synthesising empty v2 fields; anything
- * else (missing, corrupt, future version) resets to EMPTY.
+ * migrated by retaining its slices and synthesising empty v2 fields; a v2 or v3
+ * one also has its plan cleared of what moved to Conjure Fitness (see
+ * `retireFitnessPlan`); anything else (missing, corrupt, future version) resets
+ * to EMPTY.
  */
 function migrate(loaded: unknown): StoreShape {
   if (!loaded || typeof loaded !== "object") return structuredClone(EMPTY);
@@ -222,14 +345,14 @@ function migrate(loaded: unknown): StoreShape {
   // fallback for a corrupt store is EMPTY, which would silently discard the
   // slices that ARE intact. Filling gaps keeps whatever survived.
   if (doc.v === 3) {
-    const v3 = loaded as Partial<StoreShape>;
+    const v3 = loaded as Partial<StoredShapeV3>;
     return {
       v: 3,
       profile: v3.profile ?? null,
       goals: v3.goals ?? null,
       diary: Array.isArray(v3.diary) ? v3.diary : [],
       weights: Array.isArray(v3.weights) ? v3.weights : [],
-      plan: v3.plan ?? null,
+      plan: retireFitnessPlan(v3.plan, v3.goals ?? null),
       dayLogs: v3.dayLogs && typeof v3.dayLogs === "object" ? v3.dayLogs : {},
       workoutSessions: Array.isArray(v3.workoutSessions) ? v3.workoutSessions : [],
       sleep: Array.isArray(v3.sleep) ? v3.sleep : [],
@@ -238,9 +361,10 @@ function migrate(loaded: unknown): StoreShape {
       ...(v3.updatedAt ? { updatedAt: v3.updatedAt } : {}),
     };
   }
-  // v2 → v3 is purely additive: every existing slice is kept as-is and the
-  // three new ones start empty. Losing a user's diary to a version bump would
-  // be unforgivable, so this path never discards.
+  // v2 → v3 is purely additive: every existing slice is kept as-is (the plan
+  // loses only what `retireFitnessPlan` removes) and the three new ones start
+  // empty. Losing a user's diary to a version bump would be unforgivable, so
+  // this path never discards.
   if (doc.v === 2) {
     const v2 = loaded as Partial<StoreShapeV2>;
     return {
@@ -249,7 +373,7 @@ function migrate(loaded: unknown): StoreShape {
       goals: v2.goals ?? null,
       diary: Array.isArray(v2.diary) ? v2.diary : [],
       weights: Array.isArray(v2.weights) ? v2.weights : [],
-      plan: v2.plan ?? null,
+      plan: retireFitnessPlan(v2.plan, v2.goals ?? null),
       dayLogs: v2.dayLogs && typeof v2.dayLogs === "object" ? v2.dayLogs : {},
       workoutSessions: Array.isArray(v2.workoutSessions) ? v2.workoutSessions : [],
       sleep: [],
@@ -306,6 +430,7 @@ export class MockRepository implements Repository {
         this.store = fresh;
       });
     }
+    void clearTrainerMemoryOnce();
 
     // Device-local copy wins whenever it exists: it's the authoritative store
     // and — crucially — it is NOT cloud-synced, so it can't have been reverted
@@ -314,7 +439,7 @@ export class MockRepository implements Repository {
     // it is precisely how a stale synced blob used to clobber on-device data.
     const local = readLocal();
     if (local) {
-      this.store = local;
+      this.adoptLocal(local);
       return;
     }
 
@@ -331,14 +456,23 @@ export class MockRepository implements Repository {
       this.storeUnread = true;
       return;
     }
-    const before = (loaded as { v?: number } | null)?.v;
+    const before = versionOf(loaded);
     this.store = migrate(loaded);
     writeLocal(this.store);
     // Persist the upgrade immediately so a doc already on the current version
     // doesn't get rewritten every load. Compared against EMPTY.v (the current
     // schema version), not a hardcoded old number, so the next version bump
-    // doesn't leave this check silently stale again.
-    if (before !== EMPTY.v) await writeJson(STORE_PATH, this.store);
+    // doesn't leave this check silently stale again. A plan that still carried
+    // fitness-era fields is saved cleaned the same way.
+    if (before !== EMPTY.v || carriesFitnessPlan(loaded)) await writeJson(STORE_PATH, this.store);
+  }
+
+  /** Take the device-local copy as the store. A plan that still carried what
+   *  moved to Conjure Fitness is saved back cleaned now, so it leaves the
+   *  device on first launch rather than at the first write. */
+  private adoptLocal(local: LocalCopy): void {
+    this.store = local.store;
+    if (local.retired) writeLocal(this.store);
   }
 
   /** Retry the store read init() could not complete. Resolves once the store
@@ -347,17 +481,19 @@ export class MockRepository implements Repository {
   private async recoverUnreadStore(): Promise<void> {
     const local = readLocal();
     if (local) {
-      this.store = local;
+      this.adoptLocal(local);
       this.storeUnread = false;
       return;
     }
+    let loaded: unknown;
     try {
-      this.store = migrate(await readJsonStrict<unknown>(STORE_PATH, structuredClone(EMPTY)));
+      loaded = await readJsonStrict<unknown>(STORE_PATH, structuredClone(EMPTY));
     } catch (err) {
       throw new Error("MockRepository: refusing to save — the stored data could not be read.", {
         cause: err,
       });
     }
+    this.store = migrate(loaded);
     this.storeUnread = false;
   }
 
@@ -387,7 +523,7 @@ export class MockRepository implements Repository {
     if (this.storeUnread) await this.recoverUnreadStore();
     // A failed local write leaves localStorage OLDER than this.store; building
     // on that stale copy would silently drop everything written since.
-    const fresh = this.localDirty ? this.store : (readLocal() ?? this.store);
+    const fresh = this.localDirty ? this.store : (readLocal()?.store ?? this.store);
     const result = fn(fresh);
     this.store = fresh;
     await this.flush();

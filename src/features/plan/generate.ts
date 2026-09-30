@@ -252,11 +252,14 @@ const CORE_RETRY_HINT = [
 export function buildPlan(gen: GeneratedPlan, input: PlanInput, liability: LiabilityAck): Plan {
   const startDate = input.startDate ?? todayISO();
   const endDate = input.endDate ?? shiftDate(startDate, input.durationWeeks * 7 - 1);
-  const goals: PlanGoal[] = gen.goals.map((g, i) => {
+  // validatePlan rejects a workout goal and no template has one; any that still
+  // arrive are dropped, so a stored plan can never prescribe exercise.
+  const goals: PlanGoal[] = gen.goals.flatMap((g, i) => {
+    if (g.kind === "workout") return [];
     const goal: PlanGoal = { id: `${i}-${newId()}`, label: g.label, kind: g.kind };
     // Carry the AI's detail through for future automation.
     if (g.detail) goal.detail = g.detail;
-    return goal;
+    return [goal];
   });
   // Structured targets: the calorie target plus a macro split, so the plan — not
   // a free-text goal string — is the source of truth the diary rings read from.

@@ -38,10 +38,12 @@ export interface PlanInput {
   safety: SafetyIntake;
 }
 
-/** One goal as emitted by generation, before it becomes a PlanGoal (+ id). */
+/** One goal as emitted by generation, before it becomes a PlanGoal (+ id). The
+ *  model may still call a goal a "workout"; validatePlan rejects a plan that
+ *  has one, and buildPlan never turns one into a PlanGoal. */
 export interface GeneratedGoal {
   label: string;
-  kind: PlanGoal["kind"];
+  kind: PlanGoal["kind"] | "workout";
   /** Machine hint, e.g. the kcal number for a nutrition goal. */
   detail?: string;
 }
@@ -61,10 +63,9 @@ export function kcalFloor(sex: Sex | undefined): number {
   return 1500; // male + unspecified default
 }
 
-/** Whether this mode tracks food (and therefore needs a calorie target). A
- *  stored legacy "both" plan still does; a legacy "get_fit" one never did. */
+/** Whether this mode tracks food (and therefore needs a calorie target). */
 export function modeTracksFood(mode: PlanMode): boolean {
-  return mode === "eat_better" || mode === "both";
+  return mode === "eat_better";
 }
 
 /**
@@ -78,7 +79,7 @@ export function modeTracksFood(mode: PlanMode): boolean {
  * handing out the mode would tell them which of those applies.
  *
  * Everyone else tracks against a target, including someone with no plan yet
- * (the default goals) and a legacy get-fit plan (the stored goals).
+ * (the default goals).
  */
 export function planTracksCalories(plan: Pick<Plan, "mode"> | null | undefined): boolean {
   return plan?.mode !== "logging_only";

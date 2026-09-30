@@ -145,8 +145,7 @@ export async function commitNewPlan(
   return { plan, profile, goals };
 }
 
-/** The plan fields an edit may change. Deliberately excludes `id`, and a
- *  legacy plan's `program`, which patching carries forward untouched. */
+/** The plan fields an edit may change. Deliberately excludes `id`. */
 export interface PlanPatch {
   mode?: Plan["mode"];
   /** Weekly exercise-days target; 0 clears it (see Plan.weeklyExerciseDays). */
@@ -236,15 +235,13 @@ export function decidePlanEdit(plan: Plan, next: PlanEditAnswers): PlanEditDecis
 
 /**
  * Modify the active plan in place from an edit that didn't change its identity.
- * Keeps the plan id and the plan goals (and a legacy plan's `program`) — but
- * re-merges body stats into the profile and RECOMPUTES the daily calorie
- * target from that updated profile.
+ * Keeps the plan id and the plan goals — but re-merges body stats into the
+ * profile and RECOMPUTES the daily calorie target from that updated profile.
  *
  * The recompute is the fix for the old cog behaviour, where editing goal weight
  * only moved `profile.direction` and never touched the calorie target, so the
  * diary ring never changed. Targets only recompute when the mode tracks food; a
- * plan that doesn't (logging-only, or a legacy get-fit one) keeps whatever
- * (null) target it had.
+ * plan that doesn't (logging-only) keeps whatever (null) target it had.
  */
 export async function modifyPlanInPlace(
   plan: Plan,
@@ -264,8 +261,7 @@ export async function modifyPlanInPlace(
     ? goalsToTargets(recommendGoals(profile))
     : plan.targets ?? { dailyCalories: null };
 
-  // Patch intentionally omits goals / mode → updatePlan's spread preserves
-  // them, along with a legacy plan's program.
+  // Patch intentionally omits goals / mode → updatePlan's spread preserves them.
   const { plan: next, goals } = await updatePlan(
     plan,
     { targets, ...patch },

@@ -2234,7 +2234,6 @@ button.home-card:hover {
   border-radius: 6px;
 }
 .goal-nutrition { color: var(--protein); background: color-mix(in srgb, var(--protein) 14%, transparent); }
-.goal-workout { color: var(--accent-2); background: color-mix(in srgb, var(--accent-2) 14%, transparent); }
 .goal-habit { color: var(--carbs); background: color-mix(in srgb, var(--carbs) 14%, transparent); }
 .goal-label {
   font-size: 14px;

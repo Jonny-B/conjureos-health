@@ -11,7 +11,7 @@ vi.mock("../../bridge/ai", async (orig) => ({
   isAiAvailable: () => true,
 }));
 
-import { createPlan } from "./generate";
+import { buildPlan, createPlan } from "./generate";
 import { fallbackPlan } from "./fallbackTemplates";
 
 const input: PlanInput = {
@@ -58,7 +58,6 @@ describe("createPlan", () => {
     expect(complete).toHaveBeenCalledTimes(1);
     expect(res.plan.goals.map((g) => g.label)).toContain("Protein at every meal");
     expect(res.plan.targets?.dailyCalories).toBe(1800);
-    expect("program" in res.plan).toBe(false);
   });
 
   it("never asks for workouts", async () => {
@@ -74,7 +73,7 @@ describe("createPlan", () => {
     complete.mockResolvedValueOnce(WITH_WORKOUT).mockResolvedValueOnce(GOOD_CORE);
     const res = await createPlan(input, liability);
     expect(res.usedFallback).toBe(false);
-    expect(res.plan.goals.some((g) => g.kind === "workout")).toBe(false);
+    expect(res.plan.goals.map((g) => g.kind)).not.toContain("workout");
     expect(messageOf(1)).toMatch(/REJECTED for: .*workout goal/i);
   });
 
@@ -83,7 +82,7 @@ describe("createPlan", () => {
     const res = await createPlan(input, liability);
     expect(res.usedFallback).toBe(true);
     expect(res.failureReason).toMatch(/workout goal/i);
-    expect(res.plan.goals.every((g) => g.kind !== "workout")).toBe(true);
+    expect(res.plan.goals.map((g) => g.kind)).not.toContain("workout");
   });
 
   // The safety gate (under-18 / pregnant / heart condition) forces
@@ -254,4 +253,26 @@ describe("createPlan", () => {
   // (Transport-error → fallback with the thrown message is the try/catch path
   // in createPlan; a mock that throws trips vitest's uncaught-error guard, so
   // it isn't re-asserted here.)
+});
+
+describe("buildPlan", () => {
+  it("never turns a workout goal into a plan goal, even when the plan skipped validation", () => {
+    const plan = buildPlan(
+      {
+        summary: "A plan.",
+        dailyCalorieTarget: 1800,
+        goals: [
+          { label: "Protein at every meal", kind: "nutrition" },
+          { label: "Three short strength sessions", kind: "workout" },
+          { label: "Water before each meal", kind: "habit" },
+        ],
+      },
+      input,
+      liability,
+    );
+    expect(plan.goals.map((g) => [g.label, g.kind])).toEqual([
+      ["Protein at every meal", "nutrition"],
+      ["Water before each meal", "habit"],
+    ]);
+  });
 });

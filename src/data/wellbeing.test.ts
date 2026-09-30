@@ -25,7 +25,7 @@ describe("v2 → v3 migration", () => {
   let ls: Map<string, string>;
   beforeEach(async () => {
     ls = installLocalStorage();
-    await vfs.write("store.json", JSON.stringify({ v: 3 }));
+    await vfs.write("store.json", JSON.stringify({ v: 4 }));
   });
 
   it("KEEPS every existing slice — a version bump must never eat the diary", async () => {
@@ -72,7 +72,7 @@ describe("sleep / water / symptom storage", () => {
   let repo: MockRepository;
   beforeEach(async () => {
     installLocalStorage();
-    await vfs.write("store.json", JSON.stringify({ v: 3 }));
+    await vfs.write("store.json", JSON.stringify({ v: 4 }));
     repo = new MockRepository();
     await repo.init();
   });

@@ -1,47 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { planModeLabel, visiblePlanGoals } from "./display";
-import type { Plan, PlanGoal } from "../../types";
+import { planModeLabel } from "./display";
+import type { Plan } from "../../types";
 
-const goal = (kind: PlanGoal["kind"], label: string): PlanGoal => ({ id: label, label, kind });
+const plan = (mode: Plan["mode"]) => ({ id: "p1", mode }) as Plan;
 
-// A plan from before workouts moved out: mode "both", with workout goals on it.
-const legacy = {
-  id: "p1",
-  mode: "both",
-  durationWeeks: 4,
-  startDate: "2026-07-27",
-  endDate: "2026-08-24",
-  goals: [
-    goal("nutrition", "Hit a 300-500 cal daily deficit"),
-    goal("workout", "Run 1.5-3 miles 2x per week"),
-    goal("workout", "Murph-specific strength session (Day 1)"),
-    goal("habit", "Weigh in every morning"),
-  ],
-  safety: {} as Plan["safety"],
-  liability: {} as Plan["liability"],
-  createdAt: "2026-07-27T00:00:00Z",
-} as Plan;
-
-describe("plan display for plans that predate the move", () => {
-  it("reads a legacy 'both' plan as the half we can still deliver", () => {
-    expect(planModeLabel(legacy)).toBe("Eat better");
-  });
-
-  it("leaves a food-only plan's label alone", () => {
-    expect(planModeLabel({ ...legacy, mode: "eat_better" })).toBe("Eat better");
-  });
-
-  it("hides workout goals without touching the plan", () => {
-    const shown = visiblePlanGoals(legacy);
-    expect(shown.map((g) => g.label)).toEqual([
-      "Hit a 300-500 cal daily deficit",
-      "Weigh in every morning",
-    ]);
-    // The plan itself is untouched.
-    expect(legacy.goals).toHaveLength(4);
-  });
-
-  it("keeps nutrition and habit goals", () => {
-    expect(visiblePlanGoals(legacy).every((g) => g.kind !== "workout")).toBe(true);
+describe("planModeLabel", () => {
+  it("labels each mode", () => {
+    expect(planModeLabel(plan("eat_better"))).toBe("Eat better");
+    expect(planModeLabel(plan("logging_only"))).toBe("Logging");
   });
 });

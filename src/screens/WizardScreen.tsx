@@ -90,10 +90,7 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
 
   // Step 1 — free-text goal prefill from the plan being edited.
   const [weeklyExerciseDays, setWeeklyExerciseDays] = useState<number>(editPlan?.weeklyExerciseDays ?? 0);
-  // Every plan is food-only now. A legacy "both" or "get_fit" plan lands on
-  // "eat_better", which decidePlanEdit reads as a mode change, so editing it
-  // forks a fresh plan instead of carrying its workout goals forward.
-  const mode: PlanMode = editPlan?.mode === "logging_only" ? "logging_only" : "eat_better";
+  const mode: PlanMode = editPlan?.mode ?? "eat_better";
   // Step 2 (safety intake) — age is a number now; the band is derived.
   // Prefill every body-stat field from the existing profile so nothing entered
   // in the cog is lost or re-typed; fall back to the same defaults as before

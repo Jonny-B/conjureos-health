@@ -36,10 +36,9 @@ const LOGGING_ONLY: GeneratedPlan = {
 };
 
 /**
- * The safe template for a mode. Only `eat_better` and `logging_only` plans are
- * created now; a legacy mode gets the `eat_better` template. The calorie
- * target is null for modes that don't track food. Deliberately generic — the
- * template's whole job is to be unconditionally safe.
+ * The safe template for a mode. The calorie target is null for modes that
+ * don't track food. Deliberately generic — the template's whole job is to be
+ * unconditionally safe.
  */
 export function fallbackPlan(mode: PlanMode, kcal?: number | null): GeneratedPlan {
   const t = mode === "logging_only" ? LOGGING_ONLY : EAT_BETTER;

@@ -22,9 +22,6 @@ import { CloseIcon, TrashIcon } from "../components/icons";
  * `logWorkout` action. Its calories are added back to the day's budget, so the
  * user must be able to see them, correct them, and remove what's wrong
  * (wearable removals are local + reversible; see features/exercise).
- *
- * Workouts themselves — a library, a player, a program — are not part of
- * Conjure Health; they live in a separate fitness app.
  */
 export function ExerciseScreen({
   date = todayISO(),

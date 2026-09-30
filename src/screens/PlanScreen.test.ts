@@ -3,7 +3,7 @@ import type { Plan } from "../types";
 import { SAVE_FAILED_EVENT } from "../data/saveFailure";
 import { planSummaryLine, saveWeighIn } from "./PlanScreen";
 
-const plan = (over: Partial<Plan>): Plan => ({ mode: "both", targets: { dailyCalories: 2000 }, ...over }) as Plan;
+const plan = (over: Partial<Plan>): Plan => ({ mode: "eat_better", targets: { dailyCalories: 2000 }, ...over }) as Plan;
 
 describe("planSummaryLine", () => {
   it("shows the calorie target and end date for a food-tracking plan", () => {

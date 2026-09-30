@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DEFAULT_GOALS, type Goals } from "../types";
-import { HISTORY_ITEMS, clearAllHistories, clearHistory, visibleHistoryItems, type HistoryKind } from "./resetData";
+import { HISTORY_ITEMS, clearAllHistories, clearHistory, type HistoryKind } from "./resetData";
 
 const calls: string[] = [];
 const repo = {
@@ -33,7 +33,7 @@ describe("every clearable slice is actually offered", () => {
   it("lists a row for each HistoryKind", () => {
     const listed = new Set(HISTORY_ITEMS.map((i) => i.kind));
     const known: HistoryKind[] = [
-      "diary", "weights", "workouts", "coach", "coachChat",
+      "diary", "weights", "workouts", "coachChat",
       "sleep", "water", "symptoms", "planHistory", "plan",
     ];
     for (const k of known) expect(listed.has(k)).toBe(true);
@@ -55,7 +55,6 @@ describe("clearAllHistories", () => {
       expect(calls).toContain(kind);
     }
     // The VFS-backed slices go too.
-    expect(calls).toContain("rm:coach.json");
     expect(calls).toContain("rm:coach-chat.json");
     expect(calls).toContain("rm:plan-archive.json");
     expect(calls).toContain("rm:food-cache.json");
@@ -93,9 +92,9 @@ describe("clearing the current plan", () => {
   });
 });
 
-describe("visibleHistoryItems", () => {
+describe("the rows Settings offers", () => {
   it("offers the food and wellbeing rows", () => {
-    const kinds = visibleHistoryItems().map((i) => i.kind);
+    const kinds = HISTORY_ITEMS.map((i) => i.kind);
     expect(kinds).toContain("diary");
     expect(kinds).toContain("weights");
     expect(kinds).toContain("sleep");
@@ -105,17 +104,6 @@ describe("visibleHistoryItems", () => {
   });
 
   it("offers the exercise on the ring, which the user can see and add to", () => {
-    expect(visibleHistoryItems().map((i) => i.kind)).toContain("workouts");
-  });
-
-  it("hides only the retired trainer's memory", () => {
-    const hidden = HISTORY_ITEMS.filter((i) => !visibleHistoryItems().includes(i)).map((i) => i.kind);
-    expect(hidden).toEqual(["coach"]);
-  });
-
-  it("hides rows without removing them — every slice is still clearable", () => {
-    // visibleHistoryItems only filters the UI; HISTORY_ITEMS (what clearAll
-    // walks) must keep every kind, or leftover data would become unwipeable.
-    expect(HISTORY_ITEMS.map((i) => i.kind)).toContain("coach");
+    expect(HISTORY_ITEMS.map((i) => i.kind)).toContain("workouts");
   });
 });

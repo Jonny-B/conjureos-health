@@ -6,7 +6,7 @@
 
 > Renamed from "Conjure Fitness" on 2026-06-24, and moved here from
 > `Jonny-B/conjureos-fitness` on 2026-09-24 with its full history; that repo is
-> left for a separate fitness app. The store slug stays `fitness`: it names the
+> now Conjure Fitness, a separate app. The store slug stays `fitness`: it names the
 > existing listing and where each user's data lives, so changing it would start
 > a new listing and leave that data behind.
 
@@ -33,10 +33,12 @@ Phase 8 bundler. **Open source app, private backend** — see below.
 - **Trends** — weight tracking with a trend sparkline + BMI.
 - **Exercise on the calorie ring** — calories burned go back into the day's
   budget: synced from Apple Health (or another wearable), logged by another app
-  through `logWorkout`, or added by hand. The ring's Exercise row opens the
-  day's list to review, correct, or add to it. Workouts themselves — a library,
-  guided sessions, programs — are not part of Conjure Health; they belong in a
-  separate fitness app, the way recipes live in the Recipes app.
+  through `logWorkout`, linked from Conjure Fitness, or added by hand. The
+  ring's Exercise row opens the day's list to review, correct, or add to it.
+  Workouts themselves — a library, guided sessions, programs, the AI trainer —
+  are not part of Conjure Health; they live in
+  [Conjure Fitness](https://github.com/Jonny-B/conjureos-fitness), the way
+  recipes live in the Recipes app.
 - **Profile & goals** — Mifflin-St Jeor recommendation with manual override.
 
 Nutrition logging is the core; weight tracking and exercise calories support

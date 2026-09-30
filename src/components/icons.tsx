@@ -86,7 +86,7 @@ export const TrendsIcon = (p: IconProps) => (
   </Svg>
 );
 
-/** Tab icon: workouts (a dumbbell). */
+/** The Exercise row on the calorie ring (a dumbbell). */
 export const WorkoutsIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M6.5 6.5v11M17.5 6.5v11M4 9v6M20 9v6M6.5 12h11" />
@@ -106,13 +106,6 @@ export const SearchIcon = (p: IconProps) => (
   <Svg {...p}>
     <circle cx="11" cy="11" r="7" />
     <path d="M21 21l-4.3-4.3" />
-  </Svg>
-);
-
-/** Start a workout or a timed step. */
-export const PlayIcon = (p: IconProps) => (
-  <Svg {...p}>
-    <path d="M7 5.5v13a1 1 0 0 0 1.5.87l11-6.5a1 1 0 0 0 0-1.74l-11-6.5A1 1 0 0 0 7 5.5z" fill="currentColor" stroke="none" />
   </Svg>
 );
 

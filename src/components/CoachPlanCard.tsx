@@ -4,7 +4,7 @@
  */
 
 import type { Goals, Plan } from "../types";
-import { planModeLabel, visiblePlanGoals } from "../features/plan/display";
+import { planModeLabel } from "../features/plan/display";
 import { planTracksCalories } from "../features/plan/model";
 import { CoachIcon, ChevronRight } from "./icons";
 
@@ -19,7 +19,7 @@ export function CoachPlanCard({
   goals: Goals;
   onOpen: () => void;
 }) {
-  const topGoals = plan ? visiblePlanGoals(plan).slice(0, 3).map((g) => g.label) : [];
+  const topGoals = plan ? plan.goals.slice(0, 3).map((g) => g.label) : [];
 
   return (
     <button

@@ -3,7 +3,7 @@ import type { Goals, Profile } from "../types";
 import { getRepository } from "../data/repository";
 import { CloseIcon } from "../components/icons";
 import { useScrollLock } from "../hooks/useScrollLock";
-import { clearAllHistories, clearHistory, visibleHistoryItems } from "../features/resetData";
+import { clearAllHistories, clearHistory, HISTORY_ITEMS } from "../features/resetData";
 import { HealthDataPolicy } from "../components/HealthDataPolicy";
 import {
   consentIsCurrent,
@@ -154,7 +154,7 @@ export function SettingsSheet({
             <p className="muted small reset-warning">
               Clearing is permanent. Your profile and units are kept.
             </p>
-            {visibleHistoryItems().map((item) => (
+            {HISTORY_ITEMS.map((item) => (
               <ResetRow
                 key={item.kind}
                 label={item.label}

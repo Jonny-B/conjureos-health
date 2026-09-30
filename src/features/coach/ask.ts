@@ -3,11 +3,9 @@
  * screen.
  *
  * A question about food gets an answer, and nothing about the user's plan
- * moves: no plan changes, no long-term memory. (The AI trainer that did those
- * things left with the workouts, which now belong to a separate fitness app.)
+ * moves: no plan changes, no long-term memory.
  *
- * History lives in `coach-chat.json`, which the trainer's chat also wrote, so
- * older conversations still show up here.
+ * History lives in `coach-chat.json`.
  */
 
 import { aiErrorMessage, complete, isAiAvailable, type ChatMessage } from "../../bridge/ai";
@@ -20,9 +18,8 @@ import { fmtWeight } from "../units";
 const CHAT_PATH = "coach-chat.json";
 
 /**
- * One stored turn of the conversation. The file predates this feature (the
- * retired trainer chat wrote it too), so an old item can carry extra fields;
- * only these two are read.
+ * One stored turn of the conversation. Older items, saved by an earlier chat in
+ * this app, can carry extra fields; only these two are read.
  */
 export interface CoachChatItem {
   role: "user" | "assistant";

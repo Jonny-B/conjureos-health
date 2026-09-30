@@ -52,9 +52,7 @@ export function validatePlan(gen: GeneratedPlan, ctx: ValidationContext): Valida
     }
   }
 
-  // 2. No workout goals, on any plan. The logging-only gate (under-18 /
-  // pregnancy / cardiac) relied on this before workouts left the app; now it
-  // holds for everyone.
+  // 2. No workout goals, on any plan: a nutrition plan never prescribes exercise.
   const workoutGoals = gen.goals.filter((g) => g.kind === "workout").length;
   if (workoutGoals > 0) {
     reasons.push(`the plan has ${workoutGoals} workout goal(s); use only "nutrition" or "habit" goals`);

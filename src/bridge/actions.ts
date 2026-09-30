@@ -1379,8 +1379,9 @@ async function deleteEntry(raw?: unknown): Promise<{ deleted: true; kind: Deleta
     case "workout": {
       const session = (await repo.listWorkoutSessions()).find((s) => s.id === id);
       exists = session !== undefined;
-      // An entry from the old workout player may be the only copy of that
-      // workout (its sets, its route), kept for the fitness app to take over.
+      // An entry from the old workout player may be the only record of that
+      // workout (its sets, its route), so another app can't delete it; the
+      // user still can, in the app.
       if (session && originOfSession(session) === "legacy") {
         throw new Error("that workout was recorded by an earlier version of Conjure Health and can only be removed in the app");
       }

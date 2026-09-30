@@ -35,7 +35,7 @@ const plan: Plan = {
   startDate: "2026-09-24",
   endDate: "2026-10-07",
   goals: [{ id: "g1", label: "Drink 2 litres of water", kind: "habit" }],
-  safety: { ageBand: "18_39", pregnant: false, cardiacFlag: false, injuries: [], activityLevel: "moderate" },
+  safety: { ageBand: "18_39", pregnant: false, cardiacFlag: false, activityLevel: "moderate" },
   liability: { acknowledged: true, acceptedAt: "2026-09-24T00:00:00Z" },
   createdAt: "2026-09-24T00:00:00Z",
 } as Plan;

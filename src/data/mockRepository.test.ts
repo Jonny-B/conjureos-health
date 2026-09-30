@@ -1,8 +1,10 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import type { Profile } from "../types";
-import { DEFAULT_PROFILE } from "../types";
+import type { Plan, Profile } from "../types";
+import { DEFAULT_GOALS, DEFAULT_PROFILE } from "../types";
 import { vfs } from "../bridge/vfs";
-import { MockRepository } from "./mockRepository";
+import { planTracksCalories } from "../features/plan/model";
+import { goalsToTargets, targetsToGoals } from "../features/plan/planService";
+import { MockRepository, clearTrainerMemoryOnce } from "./mockRepository";
 
 // node env has no window/localStorage — back it with a tiny Map-based Storage
 // so the device-local persistence path is exercised.
@@ -40,7 +42,7 @@ describe("MockRepository device-local persistence", () => {
     const repo = new MockRepository();
     await repo.init();
     await repo.saveProfile(imperial());
-    expect(ls.size).toBeGreaterThan(0);
+    expect(ls.has(STORE_KEY)).toBe(true);
 
     // 2. Simulate a stale cloud pull: another surface's blind flush overwrites
     //    the synced VFS store.json with an OLD metric profile.
@@ -69,7 +71,7 @@ describe("MockRepository device-local persistence", () => {
     await repo.init();
     expect((await repo.getProfile())?.units).toBe("imperial");
     // …and pins it locally so the next load is device-authoritative.
-    expect(ls.size).toBeGreaterThan(0);
+    expect(ls.has(STORE_KEY)).toBe(true);
   });
 
   it("degrades to the VFS mirror when localStorage is disabled (private mode)", async () => {
@@ -215,13 +217,14 @@ describe("MockRepository storage failures", () => {
     await tabA.addDiaryEntry(entry("dinner"));
     expect(await tabB.listDiary("2026-01-05")).toHaveLength(0);
     // The browser delivers the storage event to the other tab only.
-    const key = [...ls.keys()][0]!;
+    const key = STORE_KEY;
     listeners[1]!({ key, newValue: ls.get(key)! });
     expect(await tabB.listDiary("2026-01-05")).toHaveLength(1);
   });
 
   describe("when the VFS store cannot be read on a device with no local copy", () => {
     let writes: Array<[string, string]>;
+    let removed: string[];
     let failReads: boolean;
     const synced = {
       v: 3,
@@ -239,6 +242,7 @@ describe("MockRepository storage failures", () => {
 
     beforeEach(() => {
       writes = [];
+      removed = [];
       failReads = true;
       (globalThis as unknown as { window: Record<string, unknown> }).window.__vfs = {
         exists: async () => true,
@@ -250,14 +254,14 @@ describe("MockRepository storage failures", () => {
         write: async (path: string, content: string) => void writes.push([path, content]),
         ls: async () => [],
         mkdir: async () => {},
-        rm: async () => {},
+        rm: async (path: string) => void removed.push(path),
       };
     });
 
     it("does not pin an empty store locally or write it to the mirror", async () => {
       const repo = new MockRepository();
       await repo.init();
-      expect(ls.size).toBe(0);
+      expect(ls.has(STORE_KEY)).toBe(false);
       expect(writes).toEqual([]);
     });
 
@@ -265,7 +269,7 @@ describe("MockRepository storage failures", () => {
       const repo = new MockRepository();
       await repo.init();
       await expect(repo.saveProfile(imperial())).rejects.toThrow();
-      expect(ls.size).toBe(0);
+      expect(ls.has(STORE_KEY)).toBe(false);
       expect(writes).toEqual([]);
     });
 
@@ -279,6 +283,371 @@ describe("MockRepository storage failures", () => {
       expect(mirror.diary).toHaveLength(1);
       expect(mirror.profile.units).toBe("imperial");
     });
+
+    it("removes the trainer's memory even while the store is unreadable, and keeps v3", async () => {
+      const repo = new MockRepository();
+      await repo.init();
+      await settle();
+      expect(removed).toEqual(["coach.json"]);
+      failReads = false;
+      await repo.saveProfile(imperial());
+      expect(JSON.parse(writes[writes.length - 1]![1]).v).toBe(3);
+    });
+  });
+});
+
+// ── The split from Conjure Fitness: old plans and files are retired ──────────
+//
+// Stores saved before the split can hold fitness-era plan data, and the VFS the
+// AI trainer's memory file. The plan is cleaned on every load (the store stays
+// v3, so an older build still open elsewhere can read it), and each device
+// removes the trainer's file once.
+
+/** Let the un-awaited clean-up launch starts finish (the in-memory VFS
+ *  resolves within a tick). */
+const settle = () => new Promise((r) => setTimeout(r, 0));
+const CLEARED_KEY = "conjure-health:trainer-memory-cleared";
+
+/** The key keeps the app's old name, so every user's data still sits under it. */
+const STORE_KEY = "conjure-fitness:store:v2";
+const SAVED_GOALS = { calories: 2150, protein: 140, carbs: 230, fat: 70 };
+
+/** A plan as a fitness-era build saved it: a workout goal, a program, injuries. */
+function fitnessEraPlan(over: Record<string, unknown> = {}) {
+  return {
+    id: "plan-1",
+    mode: "eat_better",
+    durationWeeks: 4,
+    startDate: "2026-07-27",
+    endDate: "2026-08-23",
+    goals: [
+      { id: "g1", label: "Protein at every meal", kind: "nutrition" },
+      { id: "g2", label: "Run 1.5-3 miles 2x per week", kind: "workout", detail: "w1" },
+      { id: "g3", label: "Weigh in every morning", kind: "habit" },
+    ],
+    targets: { dailyCalories: 2000, protein: 130, carbs: 210, fat: 65 },
+    safety: { ageBand: "18_39", pregnant: false, cardiacFlag: false, injuries: ["knee"], activityLevel: "moderate" },
+    liability: { acknowledged: true, acceptedAt: "2026-07-27T00:00:00Z", appVersion: "1.30.0" },
+    createdAt: "2026-07-27T00:00:00Z",
+    goalText: "lose a few pounds",
+    weeklyExerciseDays: 3,
+    program: { workouts: [{ id: "pw1", isBenchmark: true }], benchmarks: [{ id: "b1", name: "Push-ups" }], currentGroup: 1 },
+    ...over,
+  };
+}
+
+/** A whole v3 document with every collection filled, so a migration that
+ *  drops or rewrites any of them shows up. */
+function v3Store(plan: unknown, over: Record<string, unknown> = {}) {
+  return {
+    v: 3,
+    profile: { ...DEFAULT_PROFILE, units: "imperial", experienceLevel: "advanced" },
+    goals: SAVED_GOALS,
+    diary: [{ id: "d1", date: "2026-08-01", meal: "lunch", quantity: 1.5, loggedAt: "2026-08-01T12:00:00Z", food: aFood() }],
+    weights: [{ date: "2026-08-01", weightKg: 81 }],
+    plan,
+    dayLogs: {
+      "2026-08-01": {
+        date: "2026-08-01",
+        goalsCompleted: ["g1", "g2"],
+        checkin: { at: "2026-08-01T21:00:00Z", answers: [{ question: "How was your day?", answer: "Fine" }] },
+        excludedWearableKeys: ["k1"],
+        wearableKcalOverrides: { k1: 120 },
+      },
+    },
+    workoutSessions: [
+      {
+        id: "w1",
+        date: "2026-08-01",
+        workoutName: "Leg Day",
+        completedAt: "2026-08-01T18:00:00Z",
+        caloriesBurned: 300,
+        planned: [{ reps: 10, durationSec: null, restSec: 60 }],
+        actual: [],
+        reprompts: [],
+        benchmarkId: "b1",
+      },
+    ],
+    sleep: [{ id: "s1", date: "2026-08-01", bedAt: "2026-07-31T23:00:00Z", wakeAt: "2026-08-01T07:00:00Z", quality: 4 }],
+    water: [{ id: "h1", date: "2026-08-01", loggedAt: "2026-08-01T09:00:00Z", ml: 500 }],
+    symptoms: [{ id: "y1", date: "2026-08-01", loggedAt: "2026-08-01T20:00:00Z", label: "Headache", severity: 2 }],
+    updatedAt: "2026-08-01T12:00:00Z",
+    ...over,
+  };
+}
+
+describe("MockRepository store upgrade: fitness-era plans and files", () => {
+  let ls: Map<string, string>;
+
+  beforeEach(async () => {
+    ls = installLocalStorage();
+    // With no window, vfs is an in-memory map that outlives each repository.
+    await vfs.write("store.json", JSON.stringify({ v: 2 }));
+    for (const f of ["coach.json", "coach-chat.json", "plan-archive.json"]) await vfs.rm(f);
+  });
+
+  /** Open a repository over a device-local copy of `doc`. */
+  async function openWith(doc: unknown): Promise<MockRepository> {
+    ls.set(STORE_KEY, JSON.stringify(doc));
+    const repo = new MockRepository();
+    await repo.init();
+    return repo;
+  }
+
+  it("turns a 'both' plan into eat_better and keeps its targets", async () => {
+    const repo = await openWith(v3Store(fitnessEraPlan({ mode: "both" })));
+    const plan = (await repo.getPlan())!;
+    expect(plan.mode).toBe("eat_better");
+    expect(plan.targets).toEqual({ dailyCalories: 2000, protein: 130, carbs: 210, fat: 65 });
+    // The rest of the plan is exactly what was saved.
+    expect(plan).toMatchObject({
+      id: "plan-1",
+      durationWeeks: 4,
+      startDate: "2026-07-27",
+      endDate: "2026-08-23",
+      liability: { acknowledged: true, acceptedAt: "2026-07-27T00:00:00Z", appVersion: "1.30.0" },
+      createdAt: "2026-07-27T00:00:00Z",
+      goalText: "lose a few pounds",
+      weeklyExerciseDays: 3,
+    });
+  });
+
+  describe("a 'get_fit' plan tracked calories against the stored goals", () => {
+    const noTarget: Array<[string, Record<string, unknown>]> = [
+      ["a null calorie target", { targets: { dailyCalories: null } }],
+      ["no targets at all", { targets: undefined }],
+      ["macros but no calorie target", { targets: { dailyCalories: null, protein: 99 } }],
+    ];
+
+    it.each(noTarget)("takes the stored goals as its targets, so the diary budget is unchanged (%s)", async (_label, over) => {
+      const saved = fitnessEraPlan({ mode: "get_fit", ...over });
+      const repo = await openWith(v3Store(saved));
+      const stored = await repo.getGoals();
+      const plan = (await repo.getPlan())!;
+
+      expect(plan.mode).toBe("eat_better");
+      expect(plan.targets).toEqual(goalsToTargets(SAVED_GOALS));
+      // What the diary shows, before (the plan as saved) and after.
+      const before = { tracks: planTracksCalories(saved as unknown as Plan), goals: targetsToGoals(saved as unknown as Plan, stored) };
+      const after = { tracks: planTracksCalories(plan), goals: targetsToGoals(plan, stored) };
+      expect(after).toEqual(before);
+      expect(after).toEqual({ tracks: true, goals: SAVED_GOALS });
+    });
+
+    it("keeps a calorie target the plan already has", async () => {
+      const repo = await openWith(v3Store(fitnessEraPlan({ mode: "get_fit", targets: { dailyCalories: 1900, protein: 120 } })));
+      expect((await repo.getPlan())?.targets).toEqual({ dailyCalories: 1900, protein: 120 });
+    });
+
+    it("leaves the targets as they are when the store has no goals", async () => {
+      const repo = await openWith(v3Store(fitnessEraPlan({ mode: "get_fit", targets: { dailyCalories: null } }), { goals: null }));
+      const plan = (await repo.getPlan())!;
+      expect(plan.mode).toBe("eat_better");
+      expect(plan.targets).toEqual({ dailyCalories: null });
+      // The diary keeps showing the defaults, as it did.
+      expect(targetsToGoals(plan, await repo.getGoals())).toEqual(DEFAULT_GOALS);
+    });
+  });
+
+  it("drops workout goals and keeps the others in order", async () => {
+    const plan = (await (await openWith(v3Store(fitnessEraPlan()))).getPlan())!;
+    expect(plan.goals.map((g) => [g.id, g.kind])).toEqual([
+      ["g1", "nutrition"],
+      ["g3", "habit"],
+    ]);
+  });
+
+  it("removes the program and the injuries list, and keeps the rest of the safety answers", async () => {
+    const repo = await openWith(v3Store(fitnessEraPlan()));
+    const plan = (await repo.getPlan())!;
+    expect("program" in plan).toBe(false);
+    expect(plan.safety).toEqual({ ageBand: "18_39", pregnant: false, cardiacFlag: false, activityLevel: "moderate" });
+    // Gone from disk too, not just hidden on read.
+    const saved = JSON.parse(ls.get(STORE_KEY)!);
+    expect(saved.plan).not.toHaveProperty("program");
+    expect(saved.plan.safety).not.toHaveProperty("injuries");
+  });
+
+  it("changes nothing but the plan, and keeps the store on v3", async () => {
+    const doc = v3Store(fitnessEraPlan({ mode: "get_fit", targets: { dailyCalories: null } }));
+    const repo = await openWith(doc);
+
+    const { v: _v, plan: _plan, ...kept } = doc;
+    const { v, plan: _saved, ...savedRest } = JSON.parse(ls.get(STORE_KEY)!);
+    // Not bumped: an older build that doesn't know a version resets the store,
+    // and one still open in another window would then save over everything.
+    expect(v).toBe(3);
+    // Diary, weights, day logs (check-in and all), exercise entries (sets and
+    // all), sleep, water, symptoms, profile and goals: byte for byte.
+    expect(savedRest).toEqual(kept);
+    expect(await repo.listWorkoutSessions()).toEqual(doc.workoutSessions);
+    expect(await repo.getDayLog("2026-08-01")).toEqual(doc.dayLogs["2026-08-01"]);
+  });
+
+  it("removes the AI trainer's memory once, and keeps the food coach's chat", async () => {
+    const chat = JSON.stringify([{ role: "user", content: "Are bananas high in fiber?" }]);
+    await vfs.write("coach.json", JSON.stringify({ memory: "prefers mornings" }));
+    await vfs.write("coach-chat.json", chat);
+
+    await openWith(v3Store(fitnessEraPlan()));
+    await settle();
+    expect(await vfs.exists("coach.json")).toBe(false);
+    expect(await vfs.read("coach-chat.json")).toBe(chat);
+    expect(ls.get(CLEARED_KEY)).toBe("1");
+
+    // Done on this device, so a later launch does not go looking again.
+    await vfs.write("coach.json", "written later");
+    await new MockRepository().init();
+    await settle();
+    expect(await vfs.exists("coach.json")).toBe(true);
+  });
+
+  it("removes the trainer's memory whatever the plan looks like", async () => {
+    await vfs.write("coach.json", "x");
+    await openWith(v3Store(null));
+    await settle();
+    expect(await vfs.exists("coach.json")).toBe(false);
+  });
+
+  it("does both when it seeds from the synced mirror on a fresh device", async () => {
+    await vfs.write("store.json", JSON.stringify(v3Store(fitnessEraPlan({ mode: "get_fit", targets: { dailyCalories: null } }))));
+    await vfs.write("coach.json", "x");
+    ls.clear();
+
+    const repo = new MockRepository();
+    await repo.init();
+    await settle();
+    expect((await repo.getPlan())?.mode).toBe("eat_better");
+    expect(await vfs.exists("coach.json")).toBe(false);
+    // Pinned locally and re-mirrored cleaned, still as v3.
+    expect(JSON.parse(ls.get(STORE_KEY)!).v).toBe(3);
+    const mirror = JSON.parse(await vfs.read("store.json"));
+    expect(mirror.v).toBe(3);
+    expect(mirror.plan).toMatchObject({ mode: "eat_better", targets: goalsToTargets(SAVED_GOALS) });
+    expect(mirror.plan).not.toHaveProperty("program");
+  });
+
+  it("upgrades a v2 store the same way, and v2's new slices start empty", async () => {
+    const { sleep: _s, water: _w, symptoms: _y, updatedAt: _u, ...v2Slices } = v3Store(
+      fitnessEraPlan({ mode: "both" }),
+    );
+    await vfs.write("coach.json", "x");
+    const repo = await openWith({ ...v2Slices, v: 2 });
+    await settle();
+
+    const plan = (await repo.getPlan())!;
+    expect(plan.mode).toBe("eat_better");
+    expect(plan.goals.map((g) => g.kind)).toEqual(["nutrition", "habit"]);
+    expect(plan).not.toHaveProperty("program");
+    expect(plan.safety).not.toHaveProperty("injuries");
+    expect(await repo.listDiary("2026-08-01")).toHaveLength(1);
+    expect(await repo.listSleep("2026-08-01")).toEqual([]);
+    expect(await vfs.exists("coach.json")).toBe(false);
+  });
+
+  it("leaves the archive of past plans alone", async () => {
+    const archive = JSON.stringify([fitnessEraPlan({ id: "old", mode: "both" })]);
+    await vfs.write("plan-archive.json", archive);
+    await openWith(v3Store(fitnessEraPlan()));
+    expect(await vfs.read("plan-archive.json")).toBe(archive);
+  });
+
+  it("leaves a store with nothing to clean exactly as it is on disk", async () => {
+    const clean = v3Store({ ...fitnessEraPlan(), goals: [], safety: { ageBand: "18_39", pregnant: false, cardiacFlag: false, activityLevel: "moderate" }, program: undefined });
+    delete (clean.plan as Record<string, unknown>).program;
+    const raw = JSON.stringify(clean);
+    const repo = await openWith(clean);
+    expect(ls.get(STORE_KEY)).toBe(raw);
+    expect(await repo.getPlan()).toEqual(clean.plan);
+  });
+
+  it("does not rewrite a store it cannot read as any known version", async () => {
+    const future = { v: 99, plan: fitnessEraPlan() };
+    await openWith(future);
+    expect(ls.get(STORE_KEY)).toBe(JSON.stringify(future));
+  });
+
+  it("still cleans the plan when the trainer's file cannot be deleted, and retries next launch", async () => {
+    await vfs.write("coach.json", "x");
+    const original = vfs.rm;
+    vfs.rm = async () => {
+      throw new Error("vfs unavailable");
+    };
+    try {
+      const repo = await openWith(v3Store(fitnessEraPlan({ mode: "both" })));
+      await settle();
+      expect((await repo.getPlan())?.mode).toBe("eat_better");
+      expect(ls.get(CLEARED_KEY)).toBeUndefined();
+      // The same on the path that seeds from the mirror.
+      ls.clear();
+      await vfs.write("store.json", JSON.stringify(v3Store(fitnessEraPlan({ mode: "both" }))));
+      const seeded = new MockRepository();
+      await expect(seeded.init()).resolves.toBeUndefined();
+      expect((await seeded.getPlan())?.mode).toBe("eat_better");
+    } finally {
+      vfs.rm = original;
+    }
+    await settle();
+    await new MockRepository().init();
+    await settle();
+    expect(await vfs.exists("coach.json")).toBe(false);
+    expect(ls.get(CLEARED_KEY)).toBe("1");
+  });
+
+  it("clearTrainerMemoryOnce records a device where the file never existed", async () => {
+    await clearTrainerMemoryOnce();
+    expect(ls.get(CLEARED_KEY)).toBe("1");
+  });
+
+  it("loads a store whose plan is not shaped like one, keeping everything else", async () => {
+    const odd = { mode: "get_fit", goals: "none", safety: null, targets: "?" };
+    const repo = await openWith(v3Store(odd));
+    const plan = (await repo.getPlan()) as unknown as Record<string, unknown>;
+    expect(plan.mode).toBe("eat_better");
+    expect(plan.goals).toBe("none");
+    expect(plan.safety).toBeNull();
+    expect(await repo.listDiary("2026-08-01")).toHaveLength(1);
+    expect(await repo.getGoals()).toEqual(SAVED_GOALS);
+  });
+
+  it("also upgrades a copy another tab left behind while the first read was failing", async () => {
+    const removed: string[] = [];
+    (globalThis as unknown as { window: Record<string, unknown> }).window.__vfs = {
+      exists: async () => true,
+      read: async () => {
+        throw new Error("vfs timeout");
+      },
+      write: async () => {},
+      ls: async () => [],
+      mkdir: async () => {},
+      rm: async (path: string) => void removed.push(path),
+    };
+    const repo = new MockRepository();
+    await repo.init(); // no local copy and an unreadable mirror: nothing adopted yet
+    ls.set(STORE_KEY, JSON.stringify(v3Store(fitnessEraPlan({ mode: "both" }))));
+
+    await repo.saveProfile(imperial());
+    expect((await repo.getPlan())?.mode).toBe("eat_better");
+    expect(removed).toEqual(["coach.json"]);
+    expect(JSON.parse(ls.get(STORE_KEY)!).v).toBe(3);
+  });
+
+  it("keeps a plan that is not an object exactly as it was", async () => {
+    const repo = await openWith(v3Store("corrupt"));
+    expect(await repo.getPlan()).toBe("corrupt");
+    expect(await repo.listDiary("2026-08-01")).toHaveLength(1);
+  });
+
+  it("survives a reopen and further writes on the upgraded store", async () => {
+    const repo = await openWith(v3Store(fitnessEraPlan({ mode: "get_fit", targets: { dailyCalories: null } })));
+    await repo.saveProfile(imperial());
+    const reopened = new MockRepository();
+    await reopened.init();
+    const plan = (await reopened.getPlan())!;
+    expect(plan.mode).toBe("eat_better");
+    expect(plan.goals).toHaveLength(2);
+    expect(plan.targets).toEqual(goalsToTargets(SAVED_GOALS));
+    expect(await reopened.listDiary("2026-08-01")).toHaveLength(1);
   });
 });
 

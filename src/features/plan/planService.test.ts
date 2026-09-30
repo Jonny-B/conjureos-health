@@ -29,7 +29,7 @@ const cogProfile: Profile = {
 
 const plan: Plan = {
   id: "p1",
-  mode: "both",
+  mode: "eat_better",
   durationWeeks: 2,
   startDate: "2026-07-22",
   endDate: "2026-08-04",
@@ -78,7 +78,7 @@ describe("commitNewPlan preserves pre-plan profile data", () => {
   });
 
   it("never overwrites a cog field the wizard body leaves undefined", async () => {
-    // e.g. a "get fit" (workouts-only) plan collects no sex/height/weight.
+    // e.g. a logging-only plan collects no sex/height/weight.
     const res = await commitNewPlan(plan, {
       body: { age: 45, activityLevel: "very_active" },
       currentProfile: cogProfile,
@@ -98,20 +98,20 @@ describe("commitNewPlan preserves pre-plan profile data", () => {
 
 // ── Editing a plan: the new-vs-modify decision ─────────────────────────
 describe("decidePlanEdit", () => {
-  const base: Plan = { ...plan, goalText: "lose weight and get better at the half murph" };
+  const base: Plan = { ...plan, goalText: "lose weight and eat more protein" };
 
   it("forks a new plan when the goal text changes", () => {
-    expect(decidePlanEdit(base, { mode: base.mode, goalText: "train for a 5k", startDate: base.startDate })).toBe("new");
+    expect(decidePlanEdit(base, { mode: base.mode, goalText: "cut back on sugar", startDate: base.startDate })).toBe("new");
   });
   it("forks a new plan when the mode changes", () => {
-    expect(decidePlanEdit(base, { mode: "get_fit", goalText: base.goalText!, startDate: base.startDate })).toBe("new");
+    expect(decidePlanEdit(base, { mode: "logging_only", goalText: base.goalText!, startDate: base.startDate })).toBe("new");
   });
   it("forks a new plan when the start date moves", () => {
     expect(decidePlanEdit(base, { mode: base.mode, goalText: base.goalText!, startDate: "2026-09-01" })).toBe("new");
   });
   it("modifies in place for anything else (same goal/mode/start)", () => {
     // Goal text differing only by whitespace/case is NOT a change.
-    expect(decidePlanEdit(base, { mode: base.mode, goalText: "  Lose weight and get better at the HALF Murph ", startDate: base.startDate })).toBe("modify");
+    expect(decidePlanEdit(base, { mode: base.mode, goalText: "  Lose weight and eat MORE protein ", startDate: base.startDate })).toBe("modify");
   });
   it("forks a new plan when a goal is typed on a plan that has none stored", () => {
     const noGoal: Plan = { ...plan }; // created with the box blank (or pre-goalText)
@@ -164,33 +164,15 @@ describe("seedActivityLevel", () => {
 describe("modifyPlanInPlace", () => {
   beforeEach(() => __resetRepository());
 
-  // What a plan from before workouts moved out can still carry on disk.
-  const legacyProgram = {
-    workouts: [
-      {
-        id: "pw1",
-        isBenchmark: true,
-        group: 1,
-        completedAt: "2026-07-23T10:00:00Z",
-        workout: { id: "w1", name: "Baseline", exercises: [] },
-      },
-    ],
-    benchmarks: [
-      { id: "b1", exerciseKey: "pushup", name: "Push-ups", metric: "reps", baseline: 20, target: 40, unit: "reps", history: [{ value: 20, at: "2026-07-23T10:00:00Z" }] },
-    ],
-    currentGroup: 1,
-    groupsPerCycle: 4,
-  };
-  const both: Plan = { ...plan, program: legacyProgram };
   const cur: Profile = { sex: "male", age: 45, heightCm: 180, weightKg: 85, activityLevel: "very_active", direction: "lose", goalWeightKg: 78, units: "imperial" };
 
   it("recomputes the calorie target from an updated goal weight and moves stored Goals", async () => {
     const res = await modifyPlanInPlace(
-      both,
+      plan,
       // Lowering the goal weight keeps direction=lose but the recompute still
       // runs; assert it produced a fresh, non-null target that persisted.
       { ...cur, direction: "lose", goalWeightKg: 70 },
-      { endDate: both.endDate },
+      { endDate: plan.endDate },
       { currentProfile: cur, currentGoals: { calories: 0, protein: 0, carbs: 0, fat: 0 } },
     );
     expect(res.plan.targets?.dailyCalories).not.toBeNull();
@@ -199,24 +181,25 @@ describe("modifyPlanInPlace", () => {
     expect((await repo.getGoals()).calories).toBe(res.goals.calories);
   });
 
-  it("keeps the plan id, and a legacy plan's stored program exactly as it was", async () => {
+  it("keeps the plan id and its goals", async () => {
+    const withGoals: Plan = { ...plan, goals: [{ id: "g1", label: "Protein at every meal", kind: "nutrition" }] };
     const res = await modifyPlanInPlace(
-      both,
+      withGoals,
       cur,
       { endDate: "2026-08-11", durationWeeks: 3 },
       { currentProfile: cur, currentGoals: { calories: 0, protein: 0, carbs: 0, fat: 0 } },
     );
-    expect(res.plan.id).toBe(both.id);
+    expect(res.plan.id).toBe(withGoals.id);
     expect(res.plan.endDate).toBe("2026-08-11");
-    expect(res.plan.program).toEqual(legacyProgram);
+    expect(res.plan.goals).toEqual(withGoals.goals);
     const repo = await getRepository();
-    expect((await repo.getPlan())?.program).toEqual(legacyProgram);
+    expect((await repo.getPlan())?.goals).toEqual(withGoals.goals);
   });
 
-  it("leaves the calorie target null for a legacy get-fit plan", async () => {
-    const getFit: Plan = { ...both, mode: "get_fit", targets: { dailyCalories: null } };
+  it("leaves the calorie target null for a logging-only plan", async () => {
+    const loggingOnly: Plan = { ...plan, mode: "logging_only", targets: { dailyCalories: null } };
     const res = await modifyPlanInPlace(
-      getFit,
+      loggingOnly,
       { ...cur, direction: "maintain" },
       {},
       { currentProfile: cur, currentGoals: { calories: 0, protein: 0, carbs: 0, fat: 0 } },
