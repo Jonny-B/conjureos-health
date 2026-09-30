@@ -5,8 +5,9 @@
  * Nothing here names an app. ConjureOS matches the need's shape against every
  * installed app's action `returns` and `actions.discover("workoutSource")`
  * hands back the providers; Conjure Fitness's `listWorkouts` is one, and any
- * other app returning the same shape works the same way. Reads never prompt,
- * and a closed provider is started off-screen by ConjureOS to answer.
+ * other app returning the same shape works the same way. The first call asks
+ * the user once (Allow once / Always / Block; a Block degrades to no linked
+ * workouts), and a closed provider is started off-screen by ConjureOS to answer.
  *
  * An empty answer is normal (no provider installed, or the user turned off
  * "Allow apps to connect to each other") and degrades to "no linked workouts".
@@ -28,8 +29,8 @@ const CACHE_MS = 60_000;
 const FAILURE_CACHE_MS = 15_000;
 /** How long "no provider" is remembered before discovering again. */
 const NONE_RETRY_MS = 60_000;
-/** Generous: the first call may have to start the provider off-screen. */
-const INVOKE_TIMEOUT_MS = 8_000;
+/** Covers the one-time cross-app consent dialog and provider start-up. */
+const INVOKE_TIMEOUT_MS = 30_000;
 
 /** One workout from a linked app, validated and ready to list. */
 export interface LinkedWorkout {
@@ -158,10 +159,17 @@ export async function linkedWorkoutsForDate(date: string): Promise<LinkedWorkout
     weeks.set(key, entry);
     const mine = entry;
     // A failure is cached briefly as "nothing", then retried.
-    value.catch(() => {
-      mine.ttl = FAILURE_CACHE_MS;
-      mine.value = Promise.resolve([]);
-      resolved = null; // the provider may be gone: discover again next time
+    // TIMEOUT errors are not cached, so the next read retries.
+    value.catch((e) => {
+      const isTimeout = e?.code === "TIMEOUT" || (typeof e?.message === "string" && /timed? ?out/i.test(e.message));
+      if (isTimeout) {
+        // Remove from cache so the next read retries (only our own entry)
+        if (weeks.get(key) === mine) weeks.delete(key);
+      } else {
+        mine.ttl = FAILURE_CACHE_MS;
+        mine.value = Promise.resolve([]);
+        resolved = null; // the provider may be gone: discover again next time
+      }
     });
   }
   const all = await entry.value.catch(() => [] as LinkedWorkout[]);

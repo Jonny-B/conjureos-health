@@ -141,4 +141,47 @@ describe("linkedWorkoutsForDate", () => {
     expect(await linkedWorkoutsForDate("today")).toEqual([]);
     expect(discover).not.toHaveBeenCalled();
   });
+
+  it("does not cache TIMEOUT errors, so the next read retries", async () => {
+    // First call: timeout error
+    const timeoutError = Object.assign(new Error("Request timed out"), { code: "TIMEOUT" });
+    invoke.mockRejectedValueOnce(timeoutError);
+    expect(await linkedWorkoutsForDate(WED)).toEqual([]);
+    expect(invoke).toHaveBeenCalledTimes(1);
+
+    // Second call within cache window: should retry, not return cached []
+    invoke.mockResolvedValueOnce({ workouts: [item()] });
+    expect(await linkedWorkoutsForDate(WED)).toHaveLength(1);
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("caches non-TIMEOUT errors for the failure cache period", async () => {
+    // First call: non-timeout error
+    const error = Object.assign(new Error("Provider error"), { code: "PROVIDER_ERROR" });
+    invoke.mockRejectedValueOnce(error);
+    expect(await linkedWorkoutsForDate(WED)).toEqual([]);
+    expect(invoke).toHaveBeenCalledTimes(1);
+
+    // Second call immediately after: should return cached []
+    invoke.mockResolvedValueOnce({ workouts: [item()] });
+    expect(await linkedWorkoutsForDate(WED)).toEqual([]);
+    expect(invoke).toHaveBeenCalledTimes(1); // No second invoke call
+  });
+
+  it("handles timeout errors with message pattern matching", async () => {
+    // Test with 'timed out' message pattern
+    invoke.mockRejectedValueOnce(new Error("Request timed out"));
+    expect(await linkedWorkoutsForDate(WED)).toEqual([]);
+
+    // Second call should retry
+    invoke.mockResolvedValueOnce({ workouts: [item()] });
+    expect(await linkedWorkoutsForDate(WED)).toHaveLength(1);
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives the invoke a budget that covers the consent dialog", async () => {
+    await linkedWorkoutsForDate(WED);
+    const opts = invoke.mock.calls[0]![3] as { timeoutMs: number };
+    expect(opts.timeoutMs).toBeGreaterThanOrEqual(30_000);
+  });
 });
