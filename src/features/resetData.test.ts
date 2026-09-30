@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { HISTORY_ITEMS, clearAllHistories, visibleHistoryItems, type HistoryKind } from "./resetData";
+import { DEFAULT_GOALS, type Goals } from "../types";
+import { HISTORY_ITEMS, clearAllHistories, clearHistory, visibleHistoryItems, type HistoryKind } from "./resetData";
 
 const calls: string[] = [];
 const repo = {
@@ -10,7 +11,9 @@ const repo = {
   clearWater: async () => void calls.push("water"),
   clearSymptoms: async () => void calls.push("symptoms"),
   clearPlan: async () => void calls.push("plan"),
+  saveGoals: async (g: Goals) => void (savedGoals = g),
 };
+let savedGoals: Goals | null = null;
 vi.mock("../data/repository", () => ({ getRepository: async () => repo }));
 vi.mock("../bridge/vfs", () => ({
   vfs: { rm: async (p: string) => void calls.push(`rm:${p}`) },
@@ -18,6 +21,7 @@ vi.mock("../bridge/vfs", () => ({
 
 beforeEach(() => {
   calls.length = 0;
+  savedGoals = null;
 });
 
 /**
@@ -55,12 +59,37 @@ describe("clearAllHistories", () => {
     expect(calls).toContain("rm:coach-chat.json");
     expect(calls).toContain("rm:plan-archive.json");
     expect(calls).toContain("rm:food-cache.json");
+    // Consent kept in the VFS for a plan-less user is withdrawn too.
+    expect(calls).toContain("rm:ai-journal-consent.json");
   });
 
   it("covers every kind in the list, not a hand-maintained subset", async () => {
     await clearAllHistories();
     // One clear per row (some rows clear more than one thing, hence >=).
     expect(calls.length).toBeGreaterThanOrEqual(HISTORY_ITEMS.length);
+  });
+});
+
+describe("clearing the current plan", () => {
+  it("resets the stored daily targets the row says it clears", async () => {
+    await clearHistory("plan");
+    expect(calls).toContain("plan");
+    expect(savedGoals).toEqual(DEFAULT_GOALS);
+  });
+
+  it("is also part of clearing all history", async () => {
+    await clearAllHistories();
+    expect(savedGoals).toEqual(DEFAULT_GOALS);
+  });
+
+  it("never rejects when the repository cannot save goals", async () => {
+    const saved = repo.saveGoals;
+    (repo as Partial<typeof repo>).saveGoals = undefined;
+    try {
+      await expect(clearHistory("plan")).resolves.toBeUndefined();
+    } finally {
+      repo.saveGoals = saved;
+    }
   });
 });
 

@@ -13,6 +13,8 @@
 
 import { getRepository } from "../data/repository";
 import { vfs } from "../bridge/vfs";
+import { DEFAULT_GOALS } from "../types";
+import { AI_CONSENT_VFS_PATH } from "./aiConsent";
 
 /** One independently clearable slice of the user's history. */
 export type HistoryKind =
@@ -93,6 +95,12 @@ export async function clearHistory(kind: HistoryKind): Promise<void> {
       // removed the archive — so a user who cleared everything still landed on
       // the Plan tab with their old plan intact.
       await repo.clearPlan().catch(() => {});
+      // Stored Goals are the projection of the plan's daily targets (only
+      // planService writes them), and targetsToGoals falls back to them once
+      // the plan is gone — so without this the "cleared" targets stay in force.
+      await Promise.resolve()
+        .then(() => repo.saveGoals({ ...DEFAULT_GOALS }))
+        .catch(() => {});
       // The retired trainer's memory is a narrative ABOUT the plan, so it goes
       // with it — its own row is hidden, making this one of the ways to reach
       // the stale text. The chat thread is deliberately NOT cleared here: those
@@ -110,6 +118,8 @@ export async function clearAllHistories(): Promise<void> {
     await clearHistory(item.kind);
   }
   await rm("food-cache.json");
+  // Consent kept in the VFS for a user with no profile (see aiConsent.ts).
+  await rm(AI_CONSENT_VFS_PATH);
 }
 
 /** Slices no visible feature produces any more: the AI trainer left with the

@@ -35,6 +35,9 @@ export function AskCoachCard({ onAsk }: { onAsk: (question: string) => void }) {
   // shows. Set only long enough to either fire on accept or drop on cancel —
   // this is not a second history, just a one-question waiting room.
   const [pending, setPending] = useState<string | null>(null);
+  // Set when the accept could not be written. The question is dropped (nothing
+  // is sent without a stored record), so say so rather than closing silently.
+  const [consentFailed, setConsentFailed] = useState(false);
 
   /**
    * Gate every question through the same consent check as "Find patterns",
@@ -43,6 +46,7 @@ export function AskCoachCard({ onAsk }: { onAsk: (question: string) => void }) {
    * caching a stale answer to "has the user agreed".
    */
   const ask = (question: string) => {
+    setConsentFailed(false);
     void (async () => {
       if (await hasAiJournalConsent()) onAsk(question);
       else setPending(question);
@@ -103,6 +107,12 @@ export function AskCoachCard({ onAsk }: { onAsk: (question: string) => void }) {
           </button>
         </div>
 
+        {consentFailed && (
+          <div className="notice notice-error" role="alert">
+            Couldn't save your choice, so the question wasn't sent. Try again.
+          </div>
+        )}
+
         <div className="muted small ask-hint">
           Nutrition questions, answered. Your plan and diary stay untouched.
         </div>
@@ -117,7 +127,8 @@ export function AskCoachCard({ onAsk }: { onAsk: (question: string) => void }) {
             const stored = await recordAiJournalConsent(includeNotes);
             const q = pending;
             setPending(null);
-            if (stored && q) onAsk(q);
+            if (!stored) setConsentFailed(true);
+            else if (q) onAsk(q);
           }}
         />
       )}

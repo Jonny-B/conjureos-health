@@ -35,6 +35,7 @@
 
 import type { AiJournalConsent, Profile } from "../types";
 import { getRepository } from "../data/repository";
+import { readJson, vfs, writeJsonOrThrow } from "../bridge/vfs";
 
 /**
  * Current disclosure wording. Bump on any material change to `DISCLOSURE_*`
@@ -88,74 +89,96 @@ export function consentIsCurrent(consent: AiJournalConsent | undefined): boolean
 }
 
 /**
+ * Where consent lives when there is no profile to hold it. Profiles are only
+ * created by the plan wizard, and the app is usable (Diary, Ask about food,
+ * Journal) without one — so a plan-less user's accept has to land somewhere,
+ * and fabricating a DEFAULT profile to carry it would be overwritten by
+ * `commitNewPlan` (dropping the consent) and mistaken for real stats.
+ * Exported so "Clear all history" can remove it.
+ */
+export const AI_CONSENT_VFS_PATH = "ai-journal-consent.json";
+
+/** The consent held in the VFS key. A missing or unreadable file reads as no
+ *  consent, which is the fail-closed answer. */
+async function readVfsConsent(): Promise<AiJournalConsent | undefined> {
+  const v = await readJson<AiJournalConsent | null>(AI_CONSENT_VFS_PATH, null);
+  return v && typeof v === "object" ? v : undefined;
+}
+
+/**
  * Whether the AI pattern-finder may run without asking first.
  *
  * Fails CLOSED: a profile that cannot be read means we do not know what was
  * agreed, and an unknown agreement is not an agreement.
  */
 export async function hasAiJournalConsent(): Promise<boolean> {
-  try {
-    const repo = await getRepository();
-    const profile = await repo.getProfile();
-    return consentIsCurrent(profile?.aiJournalConsent);
-  } catch {
-    return false;
-  }
+  return consentIsCurrent(await readAiJournalConsent());
 }
 
-/** The stored consent, or undefined when there is none (or none readable). */
+/** The stored consent, or undefined when there is none (or none readable).
+ *  The profile's copy wins; the VFS key covers users with no profile yet. */
 export async function readAiJournalConsent(): Promise<AiJournalConsent | undefined> {
   try {
     const repo = await getRepository();
     const profile = await repo.getProfile();
-    return profile?.aiJournalConsent;
+    return profile?.aiJournalConsent ?? (await readVfsConsent());
   } catch {
     return undefined;
   }
 }
 
 /**
- * Record an accept. Returns false when there is no profile to attach it to —
+ * Record an accept. Returns false when the agreement could not be written —
  * the caller must then treat consent as absent rather than proceeding, or the
- * agreement would exist only in memory for this session.
+ * agreement would exist only in memory for this session. Never throws.
+ *
+ * Kept on the profile when one exists; otherwise in a VFS key, so a user who
+ * has not built a plan can still consent (the profile is never fabricated).
  */
 export async function recordAiJournalConsent(includeNotes: boolean): Promise<boolean> {
-  const repo = await getRepository();
-  const profile = await repo.getProfile();
-  if (!profile) return false;
-  const next: Profile = {
-    ...profile,
-    aiJournalConsent: {
+  try {
+    const repo = await getRepository();
+    const profile = await repo.getProfile();
+    const consent: AiJournalConsent = {
       acceptedAt: new Date().toISOString(),
       version: DISCLOSURE_VERSION,
       includeNotes,
-    },
-  };
-  await repo.saveProfile(next);
-  return true;
+    };
+    if (profile) await repo.saveProfile({ ...profile, aiJournalConsent: consent });
+    else await writeJsonOrThrow(AI_CONSENT_VFS_PATH, consent);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Change the notes opt-in without re-accepting the whole disclosure. No-op
  * when there is no consent to amend — turning notes on cannot be a back door
- * to consenting.
+ * to consenting. Amends whichever location holds the consent.
  */
 export async function setAiJournalNotes(includeNotes: boolean): Promise<void> {
   const repo = await getRepository();
   const profile = await repo.getProfile();
-  if (!profile?.aiJournalConsent) return;
-  await repo.saveProfile({
-    ...profile,
-    aiJournalConsent: { ...profile.aiJournalConsent, includeNotes },
-  });
+  if (profile?.aiJournalConsent) {
+    await repo.saveProfile({
+      ...profile,
+      aiJournalConsent: { ...profile.aiJournalConsent, includeNotes },
+    });
+    return;
+  }
+  const vfsConsent = await readVfsConsent();
+  if (vfsConsent) await writeJsonOrThrow(AI_CONSENT_VFS_PATH, { ...vfsConsent, includeNotes });
 }
 
 /**
  * Withdraw consent. The next pattern-finder run asks again from scratch.
  * Withdrawal has to be as easy as granting, which is why it sits in Settings
  * next to the other health-data controls rather than behind a support email.
+ * Clears both places consent can live.
  */
 export async function withdrawAiJournalConsent(): Promise<void> {
+  if (await vfs.exists(AI_CONSENT_VFS_PATH)) await vfs.rm(AI_CONSENT_VFS_PATH);
   const repo = await getRepository();
   const profile = await repo.getProfile();
   if (!profile) return;
