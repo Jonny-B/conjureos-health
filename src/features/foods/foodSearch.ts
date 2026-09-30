@@ -22,7 +22,8 @@ const CACHE_VERSION = 2 as const;
 
 interface BarcodeCache {
   v: typeof CACHE_VERSION;
-  // barcode -> FoodItem, or null when a prior lookup found nothing.
+  // barcode -> FoodItem, or null when a prior lookup definitively found nothing
+  // (never for a failed lookup: those are retried).
   entries: Record<string, FoodItem | null>;
   /**
    * barcode -> the user's own corrected food, from the "Looks wrong" flow.
@@ -83,7 +84,14 @@ export async function lookupBarcode(
   const t0 = performance.now();
 
   // Step 1: Conjure Health DB (the Edge Function itself checks OFF + backfills on hit).
-  const ours = await conjure.lookupBarcode(code, signal);
+  // Its null can't tell "unknown" from "unreachable / not configured", so it is
+  // never what decides a cached miss; OFF's answer below is.
+  let ours: FoodItem | null = null;
+  try {
+    ours = await conjure.lookupBarcode(code, signal);
+  } catch {
+    ours = null;
+  }
   if (ours) {
     void logScanAttempt({
       barcode: code,
@@ -97,8 +105,9 @@ export async function lookupBarcode(
 
   // Step 2: OFF direct fallback. Only useful when the Edge Function is unreachable
   // (DEMO mode, network outage); the server side already tried OFF in step 1 when live.
-  const offItem = await off.lookupBarcode(code, signal);
-  if (offItem) {
+  const offResult = await off.lookupBarcodeDetailed(code, signal);
+  if (offResult.kind === "hit") {
+    const offItem = offResult.food;
     void logScanAttempt({
       barcode: code,
       resolvedFrom: "off",
@@ -108,6 +117,10 @@ export async function lookupBarcode(
     await writeJson(CACHE_PATH, c);
     return offItem;
   }
+
+  // We couldn't check (offline, timeout, 429/5xx, bad body, aborted): report
+  // nothing found for now but leave the cache alone so the next scan retries.
+  if (offResult.kind === "error" || signal?.aborted) return null;
 
   void logScanAttempt({
     barcode: code,

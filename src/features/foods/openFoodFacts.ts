@@ -74,6 +74,7 @@ interface OffProduct {
   nutriments?: OffNutriments;
 }
 
+const isFiniteNum = (v: unknown): boolean => typeof v === "number" && Number.isFinite(v);
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
 /** Map one OFF product to a FoodItem, preferring per-serving over per-100g. */
@@ -81,7 +82,10 @@ function toFoodItem(p: OffProduct): FoodItem | null {
   const name = (p.product_name ?? "").trim();
   if (!name) return null;
   const n = p.nutriments ?? {};
-  const hasServing = n["energy-kcal_serving"] !== undefined;
+  // A record with no energy figure is incomplete, not a 0 kcal food. A real 0
+  // (water) still passes: the test is that the number is present, not > 0.
+  const hasServing = isFiniteNum(n["energy-kcal_serving"]);
+  if (!hasServing && !isFiniteNum(n["energy-kcal_100g"])) return null;
 
   const perServing: Macros = hasServing
     ? {
@@ -131,25 +135,44 @@ const round1 = (v: unknown): number | undefined =>
 const mg = (v: unknown): number | undefined =>
   typeof v === "number" && Number.isFinite(v) ? Math.round(v * 1000) : undefined;
 
+/** Outcome of a barcode lookup that keeps "OFF has no usable record" (`miss`,
+ *  safe to remember) apart from "we couldn't find out" (`error`, not safe). */
+export type BarcodeLookup =
+  | { kind: "hit"; food: FoodItem }
+  | { kind: "miss" }
+  | { kind: "error" };
+
+/** Look up a barcode directly in Open Food Facts, telling a definite miss (HTTP
+ *  404, status !== 1, or a record with no name or energy data) from a failure
+ *  (network error, abort, 429/5xx, unparseable body). Never throws. */
+export async function lookupBarcodeDetailed(
+  barcode: string,
+  signal?: AbortSignal,
+): Promise<BarcodeLookup> {
+  const code = barcode.replace(/\D/g, "");
+  if (!code) return { kind: "miss" };
+  const url = `${BASE}/api/v2/product/${encodeURIComponent(code)}.json`;
+  try {
+    const resp = await fetch(url, { signal, headers: { "User-Agent": UA } });
+    if (resp.status === 404) return { kind: "miss" };
+    if (!resp.ok) return { kind: "error" };
+    const json = (await resp.json()) as { status?: number; product?: OffProduct } | null;
+    if (!json || json.status !== 1 || !json.product) return { kind: "miss" };
+    const food = toFoodItem({ ...json.product, code });
+    return food ? { kind: "hit", food } : { kind: "miss" };
+  } catch {
+    return { kind: "error" };
+  }
+}
+
 /** Look up a barcode directly in Open Food Facts. Returns null for a miss,
  *  a non-OK response, or a network failure — never throws. */
 export async function lookupBarcode(
   barcode: string,
   signal?: AbortSignal,
 ): Promise<FoodItem | null> {
-  const code = barcode.replace(/\D/g, "");
-  if (!code) return null;
-  const url = `${BASE}/api/v2/product/${encodeURIComponent(code)}.json`;
-  let resp: Response;
-  try {
-    resp = await fetch(url, { signal, headers: { "User-Agent": UA } });
-  } catch {
-    return null;
-  }
-  if (!resp.ok) return null;
-  const json = (await resp.json()) as { status?: number; product?: OffProduct };
-  if (json.status !== 1 || !json.product) return null;
-  return toFoodItem({ ...json.product, code });
+  const r = await lookupBarcodeDetailed(barcode, signal);
+  return r.kind === "hit" ? r.food : null;
 }
 
 /** Search Open Food Facts by name. Strong on branded/packaged items, weak on

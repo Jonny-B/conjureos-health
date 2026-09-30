@@ -255,13 +255,17 @@ export interface ScanAttempt {
 /** Record a lookup outcome so provider hit-rates can be tuned. Fire-and-
  *  forget: never throws and is not awaited on the user's critical path. */
 export async function logScanAttempt(a: ScanAttempt): Promise<void> {
-  await call("logScanAttempt", {
-    barcode: a.barcode,
-    query_text: a.query,
-    resolved_from: a.resolvedFrom,
-    duration_ms: a.durationMs,
-    app_version: APP_VERSION,
-    platform: navigator.platform,
-    client_tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
-  });
+  try {
+    await call("logScanAttempt", {
+      barcode: a.barcode,
+      query_text: a.query,
+      resolved_from: a.resolvedFrom,
+      duration_ms: a.durationMs,
+      app_version: APP_VERSION,
+      platform: navigator.platform,
+      client_tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+  } catch {
+    /* telemetry only */
+  }
 }
