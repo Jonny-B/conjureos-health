@@ -22,6 +22,8 @@ interface Props {
   nonce: number;
   plan: Plan | null;
   profile: Profile | null;
+  /** The units the app shows; before a profile exists, the Settings choice. */
+  units?: Profile["units"];
   onChangeDate: (date: string) => void;
   onOpenMeal: (meal: MealType) => void;
   onOpenPlan: () => void;
@@ -39,6 +41,7 @@ export function DiaryScreen({
   nonce,
   plan,
   profile,
+  units: unitsProp,
   onChangeDate,
   onOpenMeal,
   onOpenPlan,
@@ -163,10 +166,10 @@ export function DiaryScreen({
       </div>
 
       <div className="diary-side">
-        <WeightCard profile={profile} nonce={nonce} />
+        <WeightCard profile={profile} units={unitsProp} nonce={nonce} />
         <WellbeingCard
           date={date}
-          units={profile?.units ?? "metric"}
+          units={unitsProp ?? profile?.units ?? "metric"}
           nonce={nonce}
           onMutated={onMutated}
         />

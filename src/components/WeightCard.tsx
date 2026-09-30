@@ -47,11 +47,20 @@ export async function logWeighIn(shown: number, units: Profile["units"], date: s
 
 /** Home-screen weigh-in card: latest weight, trend, and a quick-add field.
  *  Bump `nonce` to force a re-read after an external write (e.g. a reset). */
-export function WeightCard({ profile, nonce = 0 }: { profile: Profile | null; nonce?: number }) {
+export function WeightCard({
+  profile,
+  nonce = 0,
+  units: unitsProp,
+}: {
+  profile: Profile | null;
+  nonce?: number;
+  /** The units the app shows; before a profile exists, the Settings choice. */
+  units?: Profile["units"];
+}) {
   const [weights, setWeights] = useState<WeightEntry[]>([]);
   const [input, setInput] = useState("");
   const saving = useRef(false);
-  const units = profile?.units ?? "metric";
+  const units = unitsProp ?? profile?.units ?? "metric";
 
   const reload = async () => {
     const repo = await getRepository();

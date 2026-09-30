@@ -158,18 +158,16 @@ export async function linkedWorkoutsForDate(date: string): Promise<LinkedWorkout
     entry = { at: now, ttl: CACHE_MS, value };
     weeks.set(key, entry);
     const mine = entry;
-    // A failure is cached briefly as "nothing", then retried.
-    // TIMEOUT errors are not cached, so the next read retries.
+    // A failure is cached briefly as "nothing", then retried, so a provider
+    // that never answers costs one wait per FAILURE_CACHE_MS rather than one
+    // per read. A timeout keeps the provider (it was found, just slow, or the
+    // user took a while over the one-time consent dialog); any other failure
+    // discovers it again next time, since it may be gone.
     value.catch((e) => {
       const isTimeout = e?.code === "TIMEOUT" || (typeof e?.message === "string" && /timed? ?out/i.test(e.message));
-      if (isTimeout) {
-        // Remove from cache so the next read retries (only our own entry)
-        if (weeks.get(key) === mine) weeks.delete(key);
-      } else {
-        mine.ttl = FAILURE_CACHE_MS;
-        mine.value = Promise.resolve([]);
-        resolved = null; // the provider may be gone: discover again next time
-      }
+      mine.ttl = FAILURE_CACHE_MS;
+      mine.value = Promise.resolve([]);
+      if (!isTimeout) resolved = null;
     });
   }
   const all = await entry.value.catch(() => [] as LinkedWorkout[]);

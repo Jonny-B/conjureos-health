@@ -309,6 +309,7 @@ export function App() {
       nonce={nonce}
       plan={plan}
       profile={profile}
+      units={profile?.units ?? pendingUnits}
       onChangeDate={(d) => setSelectedDate(pinSelectedDate(d, todayISO()))}
       onOpenMeal={openMeal}
       onOpenPlan={() => setTab("plan")}
@@ -382,6 +383,7 @@ export function App() {
           <PlanScreen
             nonce={nonce}
             profile={profile}
+            units={profile?.units ?? pendingUnits}
             plan={plan}
             goals={effectiveGoals}
             onPlanChange={setPlan}

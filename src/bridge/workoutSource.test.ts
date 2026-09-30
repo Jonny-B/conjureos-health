@@ -142,17 +142,23 @@ describe("linkedWorkoutsForDate", () => {
     expect(discover).not.toHaveBeenCalled();
   });
 
-  it("does not cache TIMEOUT errors, so the next read retries", async () => {
-    // First call: timeout error
-    const timeoutError = Object.assign(new Error("Request timed out"), { code: "TIMEOUT" });
-    invoke.mockRejectedValueOnce(timeoutError);
-    expect(await linkedWorkoutsForDate(WED)).toEqual([]);
-    expect(invoke).toHaveBeenCalledTimes(1);
+  it("caches a timeout briefly, so a hung provider isn't waited on by every read, then retries", async () => {
+    const t0 = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(t0);
+    try {
+      invoke.mockRejectedValueOnce(Object.assign(new Error("Request timed out"), { code: "TIMEOUT" }));
+      expect(await linkedWorkoutsForDate(WED)).toEqual([]);
+      expect(await linkedWorkoutsForDate(WED)).toEqual([]); // served from the failure cache
+      expect(invoke).toHaveBeenCalledTimes(1);
 
-    // Second call within cache window: should retry, not return cached []
-    invoke.mockResolvedValueOnce({ workouts: [item()] });
-    expect(await linkedWorkoutsForDate(WED)).toHaveLength(1);
-    expect(invoke).toHaveBeenCalledTimes(2);
+      clock.mockReturnValue(t0 + 16_000);
+      invoke.mockResolvedValueOnce({ workouts: [item()] });
+      expect(await linkedWorkoutsForDate(WED)).toHaveLength(1);
+      expect(invoke).toHaveBeenCalledTimes(2);
+      expect(discover).toHaveBeenCalledTimes(1); // the provider was kept
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("caches non-TIMEOUT errors for the failure cache period", async () => {
@@ -168,15 +174,19 @@ describe("linkedWorkoutsForDate", () => {
     expect(invoke).toHaveBeenCalledTimes(1); // No second invoke call
   });
 
-  it("handles timeout errors with message pattern matching", async () => {
-    // Test with 'timed out' message pattern
-    invoke.mockRejectedValueOnce(new Error("Request timed out"));
-    expect(await linkedWorkoutsForDate(WED)).toEqual([]);
-
-    // Second call should retry
-    invoke.mockResolvedValueOnce({ workouts: [item()] });
-    expect(await linkedWorkoutsForDate(WED)).toHaveLength(1);
-    expect(invoke).toHaveBeenCalledTimes(2);
+  it("treats a 'timed out' message as a timeout: the provider is kept for the retry", async () => {
+    const t0 = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(t0);
+    try {
+      invoke.mockRejectedValueOnce(new Error("Request timed out"));
+      expect(await linkedWorkoutsForDate(WED)).toEqual([]);
+      clock.mockReturnValue(t0 + 16_000);
+      invoke.mockResolvedValueOnce({ workouts: [item()] });
+      expect(await linkedWorkoutsForDate(WED)).toHaveLength(1);
+      expect(discover).toHaveBeenCalledTimes(1);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("gives the invoke a budget that covers the consent dialog", async () => {

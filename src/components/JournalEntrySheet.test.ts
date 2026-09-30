@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextFoodQuantity, nextWaterMl } from "./JournalEntrySheet";
+import { isQuantityEdit, nextFoodQuantity, nextWaterMl } from "./JournalEntrySheet";
 import { fmtWater, flOzToMl, mlToFlOz } from "../features/water";
 
 // Simulates what the sheet does when it opens: seed `amount` by parsing the
@@ -88,5 +88,20 @@ describe("nextFoodQuantity — an untouched servings field must not rewrite the 
   it("omits a cleared or non-positive edit", () => {
     expect(nextFoodQuantity(undefined, true)).toBeUndefined();
     expect(nextFoodQuantity(0, true)).toBeUndefined();
+  });
+});
+
+describe("isQuantityEdit — focusing the servings field and leaving is not an edit", () => {
+  it("ignores the rounded or clamped value NumberField reports on blur", () => {
+    expect(isQuantityEdit(1.33, 1.333)).toBe(false); // 2-decimal rounding
+    expect(isQuantityEdit(0.1, 0.05)).toBe(false); // clamped to the field's minimum
+    expect(isQuantityEdit(1, undefined)).toBe(false); // legacy entry shown as 1
+    expect(nextFoodQuantity(1.33, isQuantityEdit(1.33, 1.333))).toBeUndefined();
+  });
+
+  it("counts a typed change, including clearing the field", () => {
+    expect(isQuantityEdit(2, 1.333)).toBe(true);
+    expect(isQuantityEdit(0.5, 0.05)).toBe(true);
+    expect(isQuantityEdit(undefined, 1)).toBe(true);
   });
 });

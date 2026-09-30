@@ -31,6 +31,7 @@ export function PlanScreen({
   onEditPlan,
   onStartPlan,
   nonce = 0,
+  units,
 }: {
   profile: Profile | null;
   plan: Plan | null;
@@ -42,6 +43,8 @@ export function PlanScreen({
   onStartPlan: () => void;
   /** Bumped by the app after any write, so derived views re-read. */
   nonce?: number;
+  /** The units the app shows; before a profile exists, the Settings choice. */
+  units?: Profile["units"];
 }) {
   return (
     <div className="plan-screen">
@@ -53,7 +56,7 @@ export function PlanScreen({
       {plan && (plan.weeklyExerciseDays ?? 0) > 0 && (
         <ExerciseGoalSection target={plan.weeklyExerciseDays!} nonce={nonce} />
       )}
-      <TrendsPanel profile={profile} nonce={nonce} />
+      <TrendsPanel profile={profile} nonce={nonce} units={units} />
     </div>
   );
 }
@@ -278,7 +281,15 @@ export function saveWeighIn(write: () => Promise<unknown>): Promise<boolean> {
   return persist("your weight", (async () => write())());
 }
 
-function TrendsPanel({ profile, nonce = 0 }: { profile: Profile | null; nonce?: number }) {
+function TrendsPanel({
+  profile,
+  nonce = 0,
+  units: unitsProp,
+}: {
+  profile: Profile | null;
+  nonce?: number;
+  units?: Profile["units"];
+}) {
   const [weights, setWeights] = useState<WeightEntry[]>([]);
   const [input, setInput] = useState("");
   const saving = useRef(false);
@@ -292,7 +303,7 @@ function TrendsPanel({ profile, nonce = 0 }: { profile: Profile | null; nonce?: 
     void reload();
   }, [nonce]);
 
-  const units = profile?.units ?? "metric";
+  const units = unitsProp ?? profile?.units ?? "metric";
 
   const add = async () => {
     const shown = Number(input);

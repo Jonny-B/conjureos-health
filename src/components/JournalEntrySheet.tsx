@@ -71,6 +71,22 @@ export function nextFoodQuantity(qty: number | undefined, edited: boolean): numb
   return Math.round(qty * 100) / 100;
 }
 
+/** The servings field's range; NumberField rounds to 2 decimals and clamps to it on blur. */
+const QTY_MIN = 0.1;
+const QTY_MAX = 99;
+
+/**
+ * Whether a value the servings field reported is a real edit. NumberField also
+ * reports on blur, rounded and clamped, when nothing was typed, so a value equal
+ * to what the field showed for the stored quantity is not one: tapping into the
+ * field and away must leave a stored 1.333 or 0.05 alone.
+ */
+export function isQuantityEdit(v: number | undefined, stored: number | undefined): boolean {
+  const s = stored ?? 1;
+  const shown = Math.min(QTY_MAX, Math.max(QTY_MIN, Math.round(s * 100) / 100));
+  return v !== shown;
+}
+
 /** Whether `stored` (ml) is what produced the amount currently on screen. */
 function displaysAs(storedMl: number, shown: number, units: Units): boolean {
   const asShown = units === "imperial" ? mlToFlOz(storedMl) : storedMl;
@@ -221,10 +237,10 @@ export function JournalEntrySheet({
                   value={qty}
                   onChange={(v) => {
                     setQty(v);
-                    setQtyEdited(true);
+                    setQtyEdited(isQuantityEdit(v, event.quantity));
                   }}
-                  min={0.1}
-                  max={99}
+                  min={QTY_MIN}
+                  max={QTY_MAX}
                   decimals={2}
                   aria-label="Servings"
                 />
