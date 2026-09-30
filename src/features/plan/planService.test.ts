@@ -8,6 +8,12 @@ import {
   withdrawAiJournalConsent,
 } from "../aiConsent";
 import { seedActivityLevel, wizardInputsValid } from "./wizardRules";
+import { vfs } from "../../bridge/vfs";
+
+// With no `window`, vfs is an in-memory store that outlives each test's repository.
+beforeEach(async () => {
+  await vfs.rm("store.json");
+});
 
 // A user who filled in the cog (real body stats) BEFORE ever making a plan.
 const cogProfile: Profile = {
