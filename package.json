@@ -1,6 +1,6 @@
 {
   "name": "conjureos-fitness",
-  "version": "1.39.0",
+  "version": "1.39.1",
   "description": "Conjure Health: calorie + nutrition logging, daily targets, weight tracking, and a simple weight-loss plan for ConjureOS.",
   "type": "module",
   "license": "MIT",

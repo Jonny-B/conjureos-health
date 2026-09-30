@@ -40,7 +40,7 @@ export function AiConsentSheet({
         <div className="sheet-body">
           <p className="muted small">
             Finding patterns means sending part of your journal to an AI service outside this
-            app. It only ever happens when you ask for it — never in the background.
+            app. It only ever happens when you ask for it, never in the background.
           </p>
 
           <div className="section-label">What gets sent</div>
