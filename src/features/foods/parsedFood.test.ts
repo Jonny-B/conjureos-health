@@ -1,6 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { parseLabelJson } from "./labelParse";
-import { parseFrontJson } from "./frontParse";
+import { parseFrontJson, estimateFromFront } from "./frontParse";
+import * as ai from "../../bridge/ai";
+import type { ChatImage } from "../../bridge/ai";
 
 const NUTRITION = {
   name: "Glazed doughnut",
@@ -147,5 +149,21 @@ describe("gates and guards", () => {
     // false for sodium should leave it undefined
     const r = label({ sodium: false as unknown })!;
     expect(r.food.micros?.sodium).toBeUndefined();
+  });
+});
+
+describe("error propagation", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("propagates AI host errors from estimateFromFront so PackageCapture can format them", async () => {
+    const completeSpy = vi.spyOn(ai, "complete");
+    completeSpy.mockRejectedValue(new Error("out_of_credits"));
+
+    // Create a minimal mock image for the test
+    const mockImage: ChatImage = { mediaType: "image/jpeg", data: "test" };
+
+    await expect(estimateFromFront(mockImage, "123456")).rejects.toThrow("out_of_credits");
+
+    completeSpy.mockRestore();
   });
 });

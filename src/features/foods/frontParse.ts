@@ -54,6 +54,10 @@ const MIN_CONFIDENCE = 0.25;
  *
  * This is a genuine guess, not a label read: the editable review screen is
  * MANDATORY on this path so the user confirms every number before it is logged.
+ *
+ * Rejects when the host fails (out of credits, daily cap, network down, etc.);
+ * callers own the error handling. Returns null only for genuine no-food results
+ * (model doesn't recognize it, confidence below the floor).
  */
 export async function estimateFromFront(
   image: ChatImage,
@@ -63,17 +67,12 @@ export async function estimateFromFront(
     ? `Identify this product (barcode ${barcode}) and estimate per-serving macros from the front of the package.`
     : "Identify this food and estimate per-serving macros.";
 
-  let raw: string;
-  try {
-    raw = await complete({
-      system: SYSTEM,
-      messages: [{ role: "user", content: userText, images: [image] }],
-      maxTokens: 1024,
-      tier: "capable",
-    });
-  } catch {
-    return null;
-  }
+  const raw = await complete({
+    system: SYSTEM,
+    messages: [{ role: "user", content: userText, images: [image] }],
+    maxTokens: 1024,
+    tier: "capable",
+  });
   return parseFrontJson(raw, barcode);
 }
 
