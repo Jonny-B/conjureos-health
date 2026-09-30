@@ -126,4 +126,31 @@ describe("extractJson", () => {
   it("survives prose with no JSON in it", () => {
     expect(extractJson("  I could not identify any food.  ")).toBe("I could not identify any food.");
   });
+
+  it("handles uppercase fence language tags (```JSON)", () => {
+    const raw = '```JSON\n{"items":[{"name":"a"}]}\n```';
+    // Should extract the body without the "JSON" prefix, and it should parse
+    expect(() => JSON.parse(extractJson(raw))).not.toThrow();
+    const parsed = JSON.parse(extractJson(raw)) as { items: { name: string }[] };
+    expect(parsed.items).toHaveLength(1);
+    expect(parsed.items[0]?.name).toBe("a");
+  });
+
+  it("handles space after fence backticks (``` json)", () => {
+    const raw = '``` json\n{"items":[{"name":"b"}]}\n```';
+    // Should extract the body without the "json" prefix, and it should parse
+    expect(() => JSON.parse(extractJson(raw))).not.toThrow();
+    const parsed = JSON.parse(extractJson(raw)) as { items: { name: string }[] };
+    expect(parsed.items).toHaveLength(1);
+    expect(parsed.items[0]?.name).toBe("b");
+  });
+
+  it("falls back to balanced objects when fence has unparseable content", () => {
+    const raw = '```json\ngarbage\n```\n\nActually, here is the real one:\n\n{"items":[{"name":"c"}]}';
+    // The fence body is "garbage", which doesn't parse, but the balanced object
+    // outside the fence should be found and returned.
+    const parsed = JSON.parse(extractJson(raw)) as { items: { name: string }[] };
+    expect(parsed.items).toHaveLength(1);
+    expect(parsed.items[0]?.name).toBe("c");
+  });
 });

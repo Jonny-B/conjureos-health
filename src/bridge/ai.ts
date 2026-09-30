@@ -175,12 +175,11 @@ export function aiErrorMessage(err: unknown, fallback = "The AI didn't answer. T
 export function extractJson(raw: string): string {
   // Fenced blocks first — a model that fenced its answer fenced each attempt,
   // so the last parseable fence wins for the same reason as below.
-  const fences = [...raw.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)]
+  const fences = [...raw.matchAll(/```\s*(?:json)?\s*([\s\S]*?)```/gi)]
     .map((m) => (m[1] ?? "").trim())
     .filter(Boolean);
   const parseableFence = lastParseable(fences);
   if (parseableFence) return parseableFence;
-  if (fences.length > 0 && fences[fences.length - 1]) return fences[fences.length - 1] as string;
 
   const objects = balancedObjects(raw);
   const parseable = lastParseable(objects);
@@ -191,6 +190,12 @@ export function extractJson(raw: string): string {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start !== -1 && end > start) return raw.slice(start, end + 1);
+
+  // As a last resort, return the last fence body even if unparseable, when
+  // nothing else was found. This allows unparseable fence content to bubble up
+  // for the caller to report, rather than falling through to raw.trim().
+  if (fences.length > 0 && fences[fences.length - 1]) return fences[fences.length - 1] as string;
+
   return raw.trim();
 }
 
