@@ -121,7 +121,9 @@ async function askContext(): Promise<string> {
 
     const bio: string[] = [];
     if (profile?.weightKg) bio.push(`Weight: ${fmtWeight(profile.weightKg, units)}.`);
-    if (profile?.direction) {
+    // A logging-only plan has no calorie target, so no weight-loss framing either
+    // (profile.direction can be stale from an earlier plan).
+    if (today.tracksCalories && profile?.direction) {
       const dir =
         profile.direction === "lose"
           ? "losing weight"

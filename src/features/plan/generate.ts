@@ -70,6 +70,15 @@ function buildUserPrompt(input: PlanInput, priorReasons?: string[]): string {
     if (input.age) lines.push(`Age: ${input.age}.`);
     if (input.sex) lines.push(`Sex (for calorie floor only): ${input.sex}.`);
   }
+  if (modeTracksFood(input.mode)) {
+    if (input.calorieTarget != null) {
+      lines.push(`The app has set the daily calorie target to ${input.calorieTarget} kcal; if a goal mentions calories use exactly that number.`);
+    }
+  } else {
+    lines.push(
+      "This user logs food with NO calorie target: do not mention calories, kcal, deficits, budgets or weight loss in the summary, goal labels or details. Set dailyCalorieTarget to null.",
+    );
+  }
   if (imperial) {
     lines.push(
       "UNITS: the user reads IMPERIAL. Every user-facing string (summary, goal labels/details) MUST use imperial numbers (lb, oz, ft/in) — never kg/km/cm.",
@@ -136,6 +145,31 @@ function coerceGoal(g: unknown): GeneratedGoal | null {
   return detail ? { label, kind, detail } : { label, kind };
 }
 
+/**
+ * Whether a reply looks cut off mid-JSON: it opened an object/array (outside
+ * any string) that never closed, or ended inside a string. Judged from the raw
+ * text, because extractJson's fallback slice always ends in "}" whenever the
+ * reply contains any "}" (e.g. complete inner goals before the cut).
+ */
+function looksTruncated(raw: string): boolean {
+  const start = raw.indexOf("{");
+  if (start === -1) return false;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < raw.length; i++) {
+    const c = raw[i]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === "\\") escaped = true;
+      else if (c === '"') inString = false;
+    } else if (c === '"') inString = true;
+    else if (c === "{" || c === "[") depth++;
+    else if (c === "}" || c === "]") depth--;
+  }
+  return depth > 0 || inString;
+}
+
 /** Why a core parse failed — drives a specific, non-generic failure reason. */
 type CoreFail = "truncated" | "invalid_json" | "no_goals";
 
@@ -152,9 +186,10 @@ function parseCore(raw: string): CoreParse {
   try {
     json = JSON.parse(extracted);
   } catch {
-    // A response cut off mid-object won't end in a closing brace — distinguish
-    // "too long / truncated" from genuinely malformed JSON.
-    const truncated = extracted.trim().length > 0 && !extracted.trimEnd().endsWith("}");
+    // A response cut off mid-object leaves an unclosed brace/bracket or string
+    // in the raw text — distinguish "too long / truncated" from genuinely
+    // malformed JSON.
+    const truncated = extracted.trim().length > 0 && looksTruncated(raw);
     return { plan: null, kind: truncated ? "truncated" : "invalid_json" };
   }
   if (!json || typeof json !== "object") return { plan: null, kind: "invalid_json" };
@@ -329,7 +364,7 @@ export async function createPlan(
 
   onStage?.("checking");
   await sleep(500);
-  const gen = withTarget(fallbackPlan(input.mode));
+  const gen = withTarget(fallbackPlan(input.mode, input.calorieTarget));
   const failureReason = lastError ?? (lastReasons.length ? lastReasons.join("; ") : "unknown");
   return { plan: buildPlan(gen, input, liability), gen, usedFallback: true, failureReason };
 }

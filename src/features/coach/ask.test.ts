@@ -31,8 +31,11 @@ let consent: AiJournalConsent | undefined = {
   acceptedAt: "2026-01-01T00:00:00.000Z",
   includeNotes: false,
 };
+// The active plan's mode; null means "no plan", which tracks calories.
+let planMode: "eat_better" | "logging_only" | null = null;
 vi.mock("../../data/repository", () => ({
   getRepository: async () => ({
+    getPlan: async () => (planMode ? { mode: planMode, goals: [], targets: { dailyCalories: null } } : null),
     getGoals: async () => ({ calories: 2200, protein: 150, carbs: 200, fat: 70 }),
     getProfile: async () => ({
       units: "imperial",
@@ -65,6 +68,7 @@ beforeEach(() => {
   complete.mockReset();
   for (const k of Object.keys(files)) delete files[k];
   consent = { version: DISCLOSURE_VERSION, acceptedAt: "2026-01-01T00:00:00.000Z", includeNotes: false };
+  planMode = null;
 });
 
 describe("askCoach", () => {
@@ -84,6 +88,19 @@ describe("askCoach", () => {
     const req = complete.mock.calls[0]![0] as { system: string };
     expect(req.system).toContain("2200 cal");
     expect(req.system).toContain("losing weight");
+  });
+
+  it("leaves a stale weight-loss goal out of the prompt for a logging-only plan", async () => {
+    // profile.direction stays "lose" after a plan forks to logging_only.
+    planMode = "logging_only";
+    const { askCoach } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    await askCoach("what should I eat?");
+    const sys = (complete.mock.calls[0]![0] as { system: string }).system;
+    expect(sys).toContain("ABOUT THIS USER");
+    expect(sys).toContain("Weight:");
+    expect(sys).not.toContain("Goal:");
+    expect(sys).not.toContain("losing weight");
   });
 
   /**

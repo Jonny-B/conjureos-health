@@ -12,6 +12,7 @@ vi.mock("../../bridge/ai", async (orig) => ({
 }));
 
 import { createPlan } from "./generate";
+import { fallbackPlan } from "./fallbackTemplates";
 
 const input: PlanInput = {
   mode: "eat_better",
@@ -137,6 +138,91 @@ describe("createPlan", () => {
     const res = await createPlan(input, liability);
     expect(res.usedFallback).toBe(true);
     expect(res.failureReason).toMatch(/too long/i);
+  });
+
+  it("reports a truncation that follows complete inner objects as 'too long', not invalid JSON", async () => {
+    // Complete goal objects (with their own "}") then a cut: the extracted
+    // slice still ends in "}", so the old endsWith("}") check missed it.
+    const CUT = '{"summary":"A plan","goals":[{"label":"Protein at every meal","kind":"nutrition"},{"label":"Water","kind":"habit"},{"label":"Veg","ki';
+    complete.mockResolvedValue(CUT);
+    const res = await createPlan(input, liability);
+    expect(res.usedFallback).toBe(true);
+    expect(res.failureReason).toMatch(/too long/i);
+  });
+
+  it("still reports malformed-but-closed JSON as invalid JSON", async () => {
+    complete.mockResolvedValue('{"summary":"A plan","goals":[{"label":"x",}]}');
+    const res = await createPlan(input, liability);
+    expect(res.failureReason).toMatch(/valid JSON/i);
+  });
+
+  it("makes the fallback calorie goal match the plan's real target", async () => {
+    complete.mockResolvedValue("not json");
+    const res = await createPlan({ ...input, calorieTarget: 2350 }, liability);
+    expect(res.usedFallback).toBe(true);
+    expect(res.plan.targets?.dailyCalories).toBe(2350);
+    const g = res.plan.goals[0]!;
+    expect(g.label).toBe("Stay around 2350 kcal");
+    expect(g.detail).toBe("2350");
+  });
+
+  it("keeps the 1800 default in the fallback goal when there is no computed target", () => {
+    expect(fallbackPlan("eat_better", null).goals[0]!.label).toBe("Stay around 1800 kcal");
+    expect(fallbackPlan("eat_better").goals[0]!.label).toBe("Stay around 1800 kcal");
+  });
+
+  it("tells the model the app's calorie target for food-tracking modes", async () => {
+    complete.mockResolvedValueOnce(GOOD_CORE);
+    await createPlan({ ...input, calorieTarget: 2350 }, liability);
+    expect(messageOf(0)).toMatch(/calorie target to 2350 kcal/);
+  });
+
+  describe("logging-only plans never carry calorie wording", () => {
+    const logging: PlanInput = {
+      mode: "logging_only",
+      goalText: "lose weight",
+      durationWeeks: 4,
+      calorieTarget: null,
+      safety: { ...input.safety, ageBand: "under_18" },
+    };
+    const CALORIE_REPLY = JSON.stringify({
+      summary: "Cut 500 kcal a day to reach your goal.",
+      dailyCalorieTarget: null,
+      goals: [
+        { label: "Stay around 1,800 calories a day", kind: "nutrition" },
+        { label: "Water", kind: "habit" },
+      ],
+    });
+
+    it("tells the model not to mention calories", async () => {
+      complete.mockResolvedValueOnce(JSON.stringify({ summary: "Log it.", goals: [{ label: "Log meals", kind: "habit" }] }));
+      await createPlan(logging, liability);
+      expect(messageOf(0)).toMatch(/NO calorie target: do not mention calories/);
+    });
+
+    it("rejects calorie text and falls back to the calorie-free template", async () => {
+      complete.mockResolvedValue(CALORIE_REPLY);
+      const res = await createPlan(logging, liability);
+      expect(res.usedFallback).toBe(true);
+      expect(res.failureReason).toMatch(/calorie/i);
+      expect(messageOf(1)).toMatch(/REJECTED for: .*calorie/i);
+      const text = [res.gen.summary, ...res.gen.goals.map((g) => `${g.label} ${g.detail ?? ""}`)].join(" ");
+      expect(text).not.toMatch(/cal|deficit/i);
+    });
+
+    it("lets a calorie-free reply through unchanged", async () => {
+      complete.mockResolvedValueOnce(
+        JSON.stringify({ summary: "Log what you eat.", goals: [{ label: "Log every meal", kind: "habit" }] }),
+      );
+      const res = await createPlan(logging, liability);
+      expect(res.usedFallback).toBe(false);
+      expect(res.plan.goals[0]!.label).toBe("Log every meal");
+    });
+
+    it("does not apply to food-tracking plans", async () => {
+      complete.mockResolvedValueOnce(GOOD_CORE);
+      expect((await createPlan(input, liability)).usedFallback).toBe(false);
+    });
   });
 
   it("falls back with a 'no goals' reason when the response has an empty goals array", async () => {

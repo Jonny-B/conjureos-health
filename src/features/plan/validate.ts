@@ -5,6 +5,8 @@
  *      sex-specific floor (1200 F / 1500 M / 1500 default).
  *   2. No exercise prescriptions — Conjure Health tracks food. Workouts belong
  *      to a separate fitness app, so a plan never carries a workout goal.
+ *   3. No calorie talk on a logging-only plan — that user must never see a
+ *      target or budget, so the summary and goals can't mention calories either.
  * A failing plan is retried once, then replaced by a fallback template.
  */
 
@@ -26,12 +28,16 @@ export interface ValidationResult {
   reasons: string[];
 }
 
+/** Calorie / deficit wording a logging-only plan must not contain. */
+const CALORIE_TALK = /\b(k?cal(orie)?s?|deficit)\b/i;
+
 /**
  * Safety-check an AI-generated plan before it can be shown or stored.
  *
  * This is the gate, not a warning: a plan that fails here is regenerated or
  * replaced by the fallback template, never surfaced. Checks the calorie floor
- * for food-tracking modes and that no goal prescribes a workout.
+ * for food-tracking modes, that no goal prescribes a workout, and that a
+ * logging-only plan's text doesn't mention calories.
  */
 export function validatePlan(gen: GeneratedPlan, ctx: ValidationContext): ValidationResult {
   const reasons: string[] = [];
@@ -52,6 +58,16 @@ export function validatePlan(gen: GeneratedPlan, ctx: ValidationContext): Valida
   const workoutGoals = gen.goals.filter((g) => g.kind === "workout").length;
   if (workoutGoals > 0) {
     reasons.push(`the plan has ${workoutGoals} workout goal(s); use only "nutrition" or "habit" goals`);
+  }
+
+  // 3. No calorie wording on a plan that doesn't track food (logging_only).
+  // buildPlan nulls the target, but the AI's summary and goal text would still
+  // be shown verbatim.
+  if (!modeTracksFood(ctx.mode)) {
+    const texts = [gen.summary, ...gen.goals.flatMap((g) => [g.label, g.detail ?? ""])];
+    if (texts.some((t) => CALORIE_TALK.test(t))) {
+      reasons.push("a logging-only plan must not mention calories, kcal or deficits");
+    }
   }
 
   return { ok: reasons.length === 0, reasons };

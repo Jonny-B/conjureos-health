@@ -18,6 +18,7 @@ const EAT_BETTER: GeneratedPlan = {
   summary: "A gentle 'eat better' plan: steady calories, more protein and produce, no crash dieting.",
   dailyCalorieTarget: SAFE_KCAL,
   goals: [
+    // The number is filled in by fallbackPlan() from the plan's real target.
     { label: `Stay around ${SAFE_KCAL} kcal`, kind: "nutrition", detail: String(SAFE_KCAL) },
     { label: "Protein at every meal", kind: "nutrition" },
     { label: "Two servings of vegetables", kind: "habit" },
@@ -40,11 +41,16 @@ const LOGGING_ONLY: GeneratedPlan = {
  * target is null for modes that don't track food. Deliberately generic — the
  * template's whole job is to be unconditionally safe.
  */
-export function fallbackPlan(mode: PlanMode): GeneratedPlan {
+export function fallbackPlan(mode: PlanMode, kcal?: number | null): GeneratedPlan {
   const t = mode === "logging_only" ? LOGGING_ONLY : EAT_BETTER;
+  // The calorie goal must quote the target the plan actually carries, so it
+  // follows the app-supplied target and only defaults to SAFE_KCAL without one.
+  const n = kcal ?? SAFE_KCAL;
   return {
     summary: t.summary,
     dailyCalorieTarget: modeTracksFood(mode) ? t.dailyCalorieTarget : null,
-    goals: t.goals.map((g) => ({ ...g })),
+    goals: t.goals.map((g) =>
+      g.detail === String(SAFE_KCAL) ? { ...g, label: `Stay around ${n} kcal`, detail: String(n) } : { ...g },
+    ),
   };
 }
