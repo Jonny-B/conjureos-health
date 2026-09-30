@@ -54,8 +54,21 @@ export async function parseMeal(input: {
   text?: string;
   image?: ChatImage;
 }): Promise<FoodItem[]> {
+  return (await parseMealDetailed(input)).items;
+}
+
+/**
+ * `parseMeal` plus a count of the model's items that did not make it into the
+ * result: rejected for an implausible macro, or past the item cap. A headless
+ * caller (bridge/actions.ts) needs it, because a meal that came back short is
+ * not the meal that was described and there is no review screen to show that.
+ */
+export async function parseMealDetailed(input: {
+  text?: string;
+  image?: ChatImage;
+}): Promise<{ items: FoodItem[]; dropped: number }> {
   const text = (input.text ?? "").trim();
-  if (!text && !input.image) return [];
+  if (!text && !input.image) return { items: [], dropped: 0 };
 
   const content =
     text ||
@@ -117,7 +130,7 @@ export async function parseMealWithGroup(input: {
     return { items: [], groupName: "", outcome: "unreadable" };
   }
 
-  const items = parseItems(raw);
+  const { items } = parseItems(raw);
   return { items, groupName: parseGroupName(raw) || suggestGroupName(items), outcome: "ok" };
 }
 
@@ -143,22 +156,25 @@ function parseGroupName(raw: string): string {
   }
 }
 
-function parseItems(raw: string): FoodItem[] {
+function parseItems(raw: string): { items: FoodItem[]; dropped: number } {
   let json: unknown;
   try {
     json = JSON.parse(extractJson(raw));
   } catch {
-    return [];
+    return { items: [], dropped: 0 };
   }
   const items = (json as { items?: unknown }).items;
-  if (!Array.isArray(items)) return [];
+  if (!Array.isArray(items)) return { items: [], dropped: 0 };
 
   const out: FoodItem[] = [];
+  // Items past the cap count as dropped, like the ones toFoodItem rejects.
+  let dropped = Math.max(0, items.length - MAX_ITEMS);
   for (const it of items.slice(0, MAX_ITEMS)) {
     const item = toFoodItem(it);
     if (item) out.push(item);
+    else dropped++;
   }
-  return out;
+  return { items: out, dropped };
 }
 
 /** A macro/calorie field from the model: a non-negative whole number capped at
@@ -188,8 +204,8 @@ const macro = (v: unknown, max: number): number | null => {
  * so an item with even one implausible macro is dropped whole rather than
  * saved with that field zeroed. Zeroing would silently understate the diary
  * (a "0g protein" entry that was actually just unparseable) while looking
- * like a real reading; dropping the item is the failure a user can notice
- * and re-log instead of one that quietly corrupts their totals.
+ * like a real reading. A drop is only noticeable if the caller is told about
+ * it, so parseItems counts them and parseMealDetailed reports the count.
  */
 function toFoodItem(v: unknown): FoodItem | null {
   if (!v || typeof v !== "object") return null;

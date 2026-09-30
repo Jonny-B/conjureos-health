@@ -74,3 +74,40 @@ describe("parseMeal rejects implausible macros instead of capping them", () => {
     expect(items).toEqual([]);
   });
 });
+
+describe("parseMealDetailed reports what it dropped", () => {
+  const item = (name: string, extra: Record<string, unknown> = {}) => ({
+    name,
+    servingSize: "1",
+    calories: 100,
+    protein: 1,
+    carbs: 1,
+    fat: 1,
+    ...extra,
+  });
+
+  it("counts an item rejected for a bad macro", async () => {
+    const { parseMealDetailed } = await import("./naturalLanguage");
+    complete.mockResolvedValue(JSON.stringify({ items: [item("Sandwich"), item("Beer", { carbs: "~13g" })] }));
+    const res = await parseMealDetailed({ text: "a sandwich and a beer" });
+    expect(res.items.map((i) => i.name)).toEqual(["Sandwich"]);
+    expect(res.dropped).toBe(1);
+  });
+
+  it("counts items past the 20-item cap", async () => {
+    const { parseMealDetailed } = await import("./naturalLanguage");
+    complete.mockResolvedValue(
+      JSON.stringify({ items: Array.from({ length: 23 }, (_, i) => item(`Food ${i}`)) }),
+    );
+    const res = await parseMealDetailed({ text: "a lot" });
+    expect(res.items).toHaveLength(20);
+    expect(res.dropped).toBe(3);
+  });
+
+  it("reports nothing dropped for a clean reply, and parseMeal still returns the array", async () => {
+    const { parseMealDetailed, parseMeal } = await import("./naturalLanguage");
+    complete.mockResolvedValue(JSON.stringify({ items: [item("Apple")] }));
+    expect((await parseMealDetailed({ text: "an apple" })).dropped).toBe(0);
+    expect(await parseMeal({ text: "an apple" })).toHaveLength(1);
+  });
+});

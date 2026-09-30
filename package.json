@@ -1105,7 +1105,8 @@
                 "type": "string",
                 "maxLength": 120
               },
-              "description": "A recipe's ingredient lines with amounts, up to 40. Pass this or text."
+              "maxItems": 20,
+              "description": "A recipe's ingredient lines with amounts, up to 20. Pass this or text."
             },
             "servings": {
               "type": "number",
@@ -1643,7 +1644,7 @@
             },
             "date": {
               "type": "string",
-              "description": "YYYY-MM-DD; defaults to today."
+              "description": "YYYY-MM-DD, not in the future; defaults to today."
             }
           }
         },

@@ -55,7 +55,12 @@ const repo = {
     db.water.push(row);
     return row;
   },
-  saveSleep: async (e: SleepEntry) => void db.sleep.push(e),
+  // Like the real repository: a row with a known id is replaced, not appended.
+  saveSleep: async (e: SleepEntry) => {
+    const i = db.sleep.findIndex((n) => n.id === e.id);
+    if (i >= 0) db.sleep[i] = e;
+    else db.sleep.push(e);
+  },
   addSymptom: async (e: Omit<SymptomEntry, "id">) => {
     const row = { ...e, id: `s${db.symptoms.length}` };
     db.symptoms.push(row);
@@ -73,7 +78,10 @@ const repo = {
   listWeights: async () => [...db.weights].sort((a, b) => b.date.localeCompare(a.date)),
   removeDiaryEntry: async (id: string) => void db.removed.push(`food:${id}`),
   removeWater: async (id: string) => void db.removed.push(`water:${id}`),
-  removeSleep: async (id: string) => void db.removed.push(`sleep:${id}`),
+  removeSleep: async (id: string) => {
+    db.removed.push(`sleep:${id}`);
+    db.sleep = db.sleep.filter((n) => n.id !== id);
+  },
   removeSymptom: async (id: string) => void db.removed.push(`symptom:${id}`),
   removeWeight: async (d: string) => void db.removed.push(`weight:${d}`),
   removeWorkoutSession: async (id: string) => void db.removed.push(`workout:${id}`),
@@ -93,12 +101,25 @@ vi.mock("../features/exercise", async (orig) => ({
     db.workouts.filter((w) => w.date === date).reduce((n, w) => n + (w.caloriesBurned ?? 0), 0),
 }));
 
-const { parseMeal, lookupBarcode, searchFoods } = vi.hoisted(() => ({
+const { parseMeal, lookupBarcode, searchFoods, getRecipe } = vi.hoisted(() => ({
   parseMeal: vi.fn(),
   lookupBarcode: vi.fn(),
   searchFoods: vi.fn(),
+  getRecipe: vi.fn(),
 }));
-vi.mock("../features/naturalLanguage", () => ({ parseMeal }));
+// `parseMeal` stands in for the estimator: a test resolves it with the foods
+// (nothing dropped) or with `{ items, dropped }` to say the model lost some.
+vi.mock("../features/naturalLanguage", () => ({
+  parseMealDetailed: async (input: unknown) => {
+    const r = await parseMeal(input);
+    return Array.isArray(r) ? { items: r, dropped: 0 } : r;
+  },
+}));
+vi.mock("./recipeBridge", async (orig) => ({
+  ...(await orig<typeof import("./recipeBridge")>()),
+  getRecipe,
+  markCooked: async () => {},
+}));
 vi.mock("../features/foods/foodSearch", () => ({ lookupBarcode, searchFoods }));
 
 let actions: Record<string, Handler> = {};
@@ -114,6 +135,7 @@ beforeEach(async () => {
   db.profile = null;
   db.removed = [];
   parseMeal.mockReset();
+  getRecipe.mockReset();
   lookupBarcode.mockReset();
   searchFoods.mockReset();
   (globalThis as { window?: unknown }).window = {
@@ -275,6 +297,14 @@ describe("logFood", () => {
     expect(db.diary[0]?.food.name).toBe("a McCrispy");
   });
 
+  it("refuses to log a meal the estimator only partly read, instead of renaming the survivor", async () => {
+    parseMeal.mockResolvedValueOnce({ items: [food("Chicken sandwich", 350)], dropped: 1 });
+    await expect(call("logFood", { name: "a chicken sandwich and a beer" })).rejects.toThrow(
+      /Couldn't read part of/,
+    );
+    expect(db.diary).toEqual([]);
+  });
+
   it("fails with the reason instead of logging 0 when the AI is paused in the background", async () => {
     parseMeal.mockRejectedValueOnce(new Error("ai.complete blocked: this app's window is minimized"));
     await expect(call("logFood", { name: "a burrito" })).rejects.toThrow(/open on screen/);
@@ -289,6 +319,16 @@ describe("logFood", () => {
 
   it("refuses an empty calorie field rather than reading it as zero", async () => {
     await expect(call("logFood", { name: "Toast", calories: "" })).rejects.toThrow(/non-negative/);
+  });
+
+  it("turns a newline or tab in a name into a space instead of gluing the words", async () => {
+    await call("logFood", { name: "Mac\nand\t\tcheese", calories: 300 });
+    expect(db.diary[0]?.food.name).toBe("Mac and cheese");
+  });
+
+  it("refuses a name made only of control characters", async () => {
+    await expect(call("logFood", { name: "\u0001\u0002", calories: 300 })).rejects.toThrow(/cannot be empty/);
+    expect(db.diary).toEqual([]);
   });
 });
 
@@ -482,11 +522,19 @@ describe("nutrition reads", () => {
     seedFood("b", "Soup", 1500, { date: yesterday() });
     const res = (await call("recentNutrition", { days: 3 })) as { days: unknown[]; value: string };
     expect(res.days).toHaveLength(3);
-    expect(res.value).toMatch(/^1,250 cal and 10 g protein a day on average, over the 2 days/);
+    expect(res.value).toMatch(
+      /^1,250 cal and 10 g protein a day on average, over the 2 days with food logged in the last 3 days$/,
+    );
   });
 
   it("refuses an explicit days: 0 rather than defaulting to 7", async () => {
     await expect(call("recentNutrition", { days: 0 })).rejects.toThrow(/positive/);
+  });
+
+  it("gives the window a unit, singular for one day", async () => {
+    seedFood("a", "Toast", 1000);
+    const res = (await call("recentNutrition", { days: 1 })) as { value: string };
+    expect(res.value).toMatch(/over the 1 day with food logged in the last 1 day$/);
   });
 });
 
@@ -564,6 +612,32 @@ describe("estimateNutrition", () => {
     expect(res.estimated).toBe(true);
     expect(res.value).toBe("About 430 cal per serving, 1,720 cal in all (AI estimate)");
     expect(db.diary).toEqual([]);
+  });
+
+  it("refuses more ingredient lines than the estimator can return, instead of under-counting", async () => {
+    const lines = Array.from({ length: 21 }, (_, i) => `${i + 1} cup thing`);
+    await expect(call("estimateNutrition", { ingredients: lines })).rejects.toThrow(/at most 20 lines/);
+    expect(parseMeal).not.toHaveBeenCalled();
+  });
+
+  it("accepts the full 20 lines", async () => {
+    const lines = Array.from({ length: 20 }, (_, i) => `${i + 1} cup thing`);
+    parseMeal.mockResolvedValueOnce(lines.map((_, i) => food(`Thing ${i}`, 100)));
+    const res = (await call("estimateNutrition", { ingredients: lines })) as { total: { calories: number } };
+    expect(res.total.calories).toBe(2000);
+  });
+
+  it("throws rather than return a total that leaves out a dropped item", async () => {
+    parseMeal.mockResolvedValueOnce({ items: [food("Flour", 910)], dropped: 1 });
+    await expect(
+      call("estimateNutrition", { ingredients: ["2 cups flour", "1 stick butter"], servings: 4 }),
+    ).rejects.toThrow(/Couldn't read part of/);
+  });
+
+  it("turns newlines and tabs in a description into spaces", async () => {
+    parseMeal.mockResolvedValueOnce([food("Eggs", 140)]);
+    await call("estimateNutrition", { text: "2 eggs\n1 slice toast\tcoffee" });
+    expect(parseMeal.mock.calls[0]?.[0]?.text).toBe("2 eggs 1 slice toast coffee");
   });
 
   it("wants text or ingredients, not both", async () => {
@@ -804,6 +878,45 @@ describe("logSleep", () => {
     ).rejects.toThrow(/wakeDate/);
   });
 
+  it("replaces the night already logged for that wake date instead of adding a second", async () => {
+    db.sleep.push({
+      id: "ui1",
+      date: "2026-09-05",
+      bedAt: new Date(2026, 8, 4, 23, 0).toISOString(),
+      wakeAt: new Date(2026, 8, 5, 7, 0).toISOString(),
+      quality: 4,
+    });
+    const res = (await call("logSleep", {
+      bedTime: "22:30",
+      wakeTime: "07:00",
+      wakeDate: "2026-09-05",
+    })) as { id: string; minutes: number };
+    expect(res.id).toBe("ui1");
+    expect(res.minutes).toBe(510);
+    expect(db.sleep).toHaveLength(1);
+    expect(db.sleep[0]).toMatchObject({ id: "ui1", quality: 4 });
+  });
+
+  it("calling twice for the same night leaves one night", async () => {
+    const args = { bedTime: "23:00", wakeTime: "07:00", wakeDate: "2026-09-05" };
+    await call("logSleep", args);
+    await call("logSleep", args);
+    expect(db.sleep).toHaveLength(1);
+  });
+
+  it("cleans up extra nights already stored for that wake date", async () => {
+    const night = (id: string) => ({
+      id,
+      date: "2026-09-05",
+      bedAt: new Date(2026, 8, 4, 23, 0).toISOString(),
+      wakeAt: new Date(2026, 8, 5, 7, 0).toISOString(),
+    });
+    db.sleep.push(night("a"), night("b"), night("c"));
+    await call("logSleep", { bedTime: "23:00", wakeTime: "07:00", wakeDate: "2026-09-05" });
+    expect(db.sleep.map((n) => n.id)).toEqual(["a"]);
+    expect(db.removed).toEqual(["sleep:b", "sleep:c"]);
+  });
+
   it("files the night under wakeDate, not the bedtime's date", async () => {
     // Going to bed at 23:30 on the 4th and waking at 07:00 on the 5th is filed
     // under the 5th — the caller must state the wake day explicitly.
@@ -830,6 +943,19 @@ describe("logSymptom", () => {
   it("requires a label", async () => {
     await expect(call("logSymptom", {})).rejects.toThrow(/label/);
   });
+
+  it("turns newlines and tabs into spaces in the label and note", async () => {
+    await call("logSymptom", { label: "chest\tpain", note: "Started after lunch.\nWorse when standing" });
+    expect(db.symptoms[0]).toMatchObject({
+      label: "chest pain",
+      note: "Started after lunch. Worse when standing",
+    });
+  });
+
+  it("refuses a label that is only control characters", async () => {
+    await expect(call("logSymptom", { label: "\u0001" })).rejects.toThrow(/cannot be empty/);
+    expect(db.symptoms).toEqual([]);
+  });
 });
 
 describe("logWeight", () => {
@@ -842,6 +968,17 @@ describe("logWeight", () => {
     // At one decimal, 180.2 lb was stored as 81.7 kg and read back as 180.1 lb.
     const { weightKg } = (await call("logWeight", { lb: 180.2 })) as { weightKg: number };
     expect(Math.round((weightKg / 0.45359237) * 10) / 10).toBe(180.2);
+  });
+
+  it("refuses a future date, which would become the latest weight", async () => {
+    const tomorrow = iso(new Date(Date.now() + 86_400_000 * 2));
+    await expect(call("logWeight", { kg: 70, date: tomorrow })).rejects.toThrow(/future/);
+    expect(db.weights).toEqual([]);
+  });
+
+  it("accepts today's date", async () => {
+    await call("logWeight", { kg: 70, date: today() });
+    expect(db.weights).toHaveLength(1);
   });
 
   it("keeps one weight per day", async () => {
@@ -885,6 +1022,45 @@ describe("logRecipeMeal", () => {
   it("refuses an explicit zero servings rather than logging a full one", async () => {
     await expect(call("logRecipeMeal", { slug: "any-recipe", servings: 0 })).rejects.toThrow(/positive/);
   });
+
+  // The provider is another app: its nutrition can be partial, stringly or absurd.
+  const provide = (nutrition: unknown) =>
+    getRecipe.mockResolvedValueOnce({ slug: "r", title: "Stew", servings: 4, ingredients: [], nutrition });
+
+  it("logs clean nutrition as given", async () => {
+    provide({ calories: 320, protein: 20, carbs: 30, fat: 10 });
+    await call("logRecipeMeal", { slug: "r", meal: "dinner" });
+    expect(db.diary[0]?.food.perServing).toEqual({ calories: 320, protein: 20, carbs: 30, fat: 10 });
+  });
+
+  it("defaults missing macros to 0 rather than storing undefined (NaN totals)", async () => {
+    provide({ calories: 320 });
+    await call("logRecipeMeal", { slug: "r", meal: "dinner" });
+    expect(db.diary[0]?.food.perServing).toEqual({ calories: 320, protein: 0, carbs: 0, fat: 0 });
+  });
+
+  it("reads numeric strings, and clamps absurd values to asMacros's caps", async () => {
+    provide({ calories: "320", protein: 1e9, carbs: "40", fat: -7 });
+    await call("logRecipeMeal", { slug: "r", meal: "dinner" });
+    expect(db.diary[0]?.food.perServing).toEqual({ calories: 320, protein: 500, carbs: 40, fat: 0 });
+  });
+
+  it.each([
+    ["calories with units", { calories: "320 kcal", protein: 1, carbs: 1, fat: 1 }],
+    ["no calories", { protein: 1, carbs: 1, fat: 1 }],
+    ["negative calories", { calories: -5000000 }],
+    ["a string", "lots"],
+  ])("treats %s as no nutrition and writes nothing", async (_label, nutrition) => {
+    provide(nutrition);
+    await expect(call("logRecipeMeal", { slug: "r", meal: "dinner" })).rejects.toThrow(/has no nutrition/);
+    expect(db.diary).toEqual([]);
+  });
+
+  it("clamps calories to the cap", async () => {
+    provide({ calories: 9_000_000, protein: 1, carbs: 1, fat: 1 });
+    await call("logRecipeMeal", { slug: "r", meal: "dinner" });
+    expect(db.diary[0]?.food.perServing.calories).toBe(5000);
+  });
 });
 
 describe("wellbeing reads never carry the symptom note", () => {
@@ -920,7 +1096,17 @@ describe("wellbeing reads never carry the symptom note", () => {
     expect(res.days).toHaveLength(3);
     expect(JSON.stringify(res)).not.toContain("secret");
     expect(JSON.stringify(res)).toContain("Headache");
-    expect(res.value).toBe("Over the last 3 days, on average: 1 symptom");
+    expect(res.value).toBe("Over the last 3 days: 1 symptom in total");
+  });
+
+  it("keeps a symptom total out of the average clause", async () => {
+    const date = today();
+    db.water.push({ id: "w1", date, ml: 2000, loggedAt: new Date().toISOString() });
+    for (const id of ["s1", "s2"]) {
+      db.symptoms.push({ id, date, loggedAt: new Date(`${date}T09:00:00`).toISOString(), label: "Headache" });
+    }
+    const res = (await call("recentWellbeing", { days: 3 })) as { value: string };
+    expect(res.value).toMatch(/^Over the last 3 days, on average: drank .* a day; 2 symptoms in total$/);
   });
 
   it("totals water and sleep for the day", async () => {

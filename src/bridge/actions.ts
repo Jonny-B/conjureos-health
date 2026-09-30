@@ -68,7 +68,7 @@
 import type { FoodItem, Macros, MealType, Profile, WorkoutSession } from "../types";
 import { MEAL_LABELS, MEAL_TYPES } from "../types";
 import { getRepository, type Repository } from "../data/repository";
-import { parseMeal } from "../features/naturalLanguage";
+import { parseMealDetailed } from "../features/naturalLanguage";
 import { buildDayView, isAiEstimate, shiftDate, todayISO } from "../features/diary";
 import {
   buildSleepEntry,
@@ -90,7 +90,7 @@ import {
 import { daySnapshot, effectiveTargets, recentSnapshots } from "../features/dataApi";
 import { lookupBarcode, searchFoods } from "../features/foods/foodSearch";
 import { notifyDataChanged } from "../features/dataEvents";
-import { coerceFinite } from "../features/num";
+import { coerceFinite, toIntInRange } from "../features/num";
 import { aiErrorMessage } from "./ai";
 import { newId } from "../data/id";
 
@@ -104,11 +104,14 @@ function asObject(v: unknown, field = "params"): Record<string, unknown> {
 }
 function asString(v: unknown, field: string, max: number): string {
   if (typeof v !== "string") throw new Error(`params.${field} must be a string`);
-  const t = v.trim();
+  // Control characters (a newline or tab in a multi-line note) become a space,
+  // not nothing, or "2 eggs\n1 toast" reads "2 eggs1 toast". Clean first, so a
+  // value of only control characters is refused as empty.
+  // eslint-disable-next-line no-control-regex
+  const t = v.replace(/[\x00-\x1F\x7F]+/g, " ").replace(/\s{2,}/g, " ").trim();
   if (!t) throw new Error(`params.${field} cannot be empty`);
   if (t.length > max) throw new Error(`params.${field} exceeds ${max} chars`);
-  // eslint-disable-next-line no-control-regex
-  return t.replace(/[\x00-\x1F\x7F]/g, "");
+  return t;
 }
 function optString(v: unknown, field: string, max: number): string | undefined {
   return v === undefined || v === null ? undefined : asString(v, field, max);
@@ -256,6 +259,26 @@ function asMacros(o: Record<string, unknown>, prefix = ""): Macros {
   };
 }
 
+/**
+ * Per-serving macros from a recipe provider's `nutrition`, or null when there
+ * is nothing usable: not an object, or no valid calories. Missing or invalid
+ * macros become 0 and every field is clamped to asMacros's caps, so a sloppy
+ * provider can't put NaN or a huge number into the diary.
+ */
+function recipeMacros(n: unknown): Macros | null {
+  if (!n || typeof n !== "object") return null;
+  const o = n as Record<string, unknown>;
+  // A negative calorie count is nonsense, not "0": treat it as no nutrition.
+  const cals = coerceFinite(o.calories);
+  if (cals === null || cals < 0) return null;
+  return {
+    calories: toIntInRange(cals, 0, 5000)!,
+    protein: toIntInRange(o.protein, 0, 500) ?? 0,
+    carbs: toIntInRange(o.carbs, 0, 800) ?? 0,
+    fat: toIntInRange(o.fat, 0, 500) ?? 0,
+  };
+}
+
 // ── Answer lines ──────────────────────────────────────────────────────
 // `value` is read by a person (Ask ConjureOS prints it after the summary),
 // so it is words, rounded the way the app shows them, in the user's units.
@@ -333,18 +356,25 @@ function estimateFailure(err: unknown): string {
  * Estimate the foods in a description, or throw a readable reason. Never
  * returns an empty list: logging "0 cal" for a meal the estimator couldn't
  * read used to look like a real entry in the diary and quietly understated
- * the day, and a caller was told it worked. `label` is how errors name what
+ * the day, and a caller was told it worked. Nor a partial one: if the
+ * estimator dropped any item it was given, that throws too. `label` is how errors name what
  * was asked about; `retryHint` is appended to them.
  */
 async function estimateFoods(text: string, label: string, retryHint = ""): Promise<FoodItem[]> {
   let items: FoodItem[];
+  let dropped: number;
   try {
-    items = await parseMeal({ text });
+    ({ items, dropped } = await parseMealDetailed({ text }));
   } catch (err) {
     throw new Error(`Couldn't estimate ${label}. ${estimateFailure(err)}${retryHint}`);
   }
   if (items.length === 0) {
     throw new Error(`Couldn't estimate the calories in ${label}.${retryHint}`);
+  }
+  // A short list is not the meal that was described: the caller would log or
+  // report only part of it, with nothing to say so.
+  if (dropped > 0) {
+    throw new Error(`Couldn't read part of ${label}. Try again.${retryHint}`);
   }
   return items;
 }
@@ -543,7 +573,10 @@ async function logRecipeMeal(raw?: unknown): Promise<{ id: string; logged: boole
   if (!recipe || !recipe.nutrition) {
     throw new Error(`recipe not found or has no nutrition: ${slug}`);
   }
-  const n = recipe.nutrition;
+  // Another app's numbers: validate and clamp them like logFood's own, instead
+  // of trusting a provider that may send partial, stringly or absurd values.
+  const perServing = recipeMacros(recipe.nutrition);
+  if (!perServing) throw new Error(`recipe not found or has no nutrition: ${slug}`);
   const repo = await getRepository();
   const entry = await repo.addDiaryEntry({
     date,
@@ -553,7 +586,7 @@ async function logRecipeMeal(raw?: unknown): Promise<{ id: string; logged: boole
       id: slug,
       source: "recipe",
       name: recipe.title,
-      perServing: { calories: n.calories, protein: n.protein, carbs: n.carbs, fat: n.fat },
+      perServing,
       servingSize: "1 serving",
     },
   });
@@ -778,7 +811,7 @@ async function recentNutrition(raw?: unknown): Promise<{
     days: out,
     value: logged.length
       ? `${cal(avg("calories"))} and ${Math.round(avg("protein"))} g protein a day on average, ` +
-        `over the ${plural(logged.length, "day")} with food logged in the last ${days}`
+        `over the ${plural(logged.length, "day")} with food logged in the last ${plural(days, "day")}`
       : `Nothing logged in the last ${plural(days, "day")}`,
   };
 }
@@ -974,7 +1007,9 @@ async function estimateNutrition(raw?: unknown): Promise<{
     if (!Array.isArray(p.ingredients) || p.ingredients.length === 0) {
       throw new Error("params.ingredients must be a non-empty array of ingredient lines");
     }
-    if (p.ingredients.length > 40) throw new Error("params.ingredients holds at most 40 lines");
+    // The estimator returns at most 20 items (naturalLanguage MAX_ITEMS), so
+    // more lines than that could only ever be under-counted.
+    if (p.ingredients.length > 20) throw new Error("params.ingredients holds at most 20 lines");
     const lines = p.ingredients.map((line, i) => asString(line, `ingredients[${i}]`, 120));
     prompt = `The ingredients of one recipe, each with its amount. One item per ingredient:\n${lines.join("\n")}`;
   }
@@ -1246,7 +1281,18 @@ async function logSleep(raw?: unknown): Promise<{
     throw new Error(`that is ${Math.round(minutes / 60)}h of sleep — check bedTime and wakeTime`);
   }
   const repo = await getRepository();
+  // One night per wake date: the Diary card shows only the first, while the
+  // journal and day totals sum every entry. A second call for the same night
+  // (a retry, or a correction of the one logged in the app) replaces it, and
+  // any extra rows already stored for that date go.
+  const [existing, ...extra] = await repo.listSleep(entry.date);
+  if (existing) {
+    entry.id = existing.id;
+    if (entry.quality === undefined && existing.quality !== undefined) entry.quality = existing.quality;
+    if (existing.note) entry.note = existing.note;
+  }
   await repo.saveSleep(entry);
+  for (const e of extra) await repo.removeSleep(e.id);
   notifyDataChanged();
   return { id: entry.id, date: entry.date, minutes };
 }
@@ -1281,6 +1327,9 @@ async function logWeight(raw?: unknown): Promise<{ date: string; weightKg: numbe
   // (180.2 lb stored as 81.7 kg reads back as 180.1 lb).
   const weightKg = Math.round(asMetricAmount(p, "kg", "lb", lbToKg, 500) * 100) / 100;
   const date = asDate(p.date);
+  // A weigh-in is a measurement of now. Stored under a future date it sorts
+  // first and the weight card and plan wizard would read it as current.
+  if (date > todayISO()) throw new Error("params.date cannot be in the future");
   const repo = await getRepository();
   // One canonical weight per day: this replaces the day's entry rather than
   // appending, matching what the weight card does.
@@ -1451,13 +1500,17 @@ async function recentWellbeing(raw?: unknown): Promise<{ days: WellbeingDay[]; v
   if (drank.length) {
     parts.push(`drank ${fmtWater(drank.reduce((s, d) => s + d.waterMl, 0) / drank.length, units)} a day`);
   }
+  // A total, so it sits outside the "on average" clause.
   const symptomCount = days.reduce((s, d) => s + d.symptoms.length, 0);
-  if (symptomCount) parts.push(plural(symptomCount, "symptom"));
+  const symptoms = symptomCount ? `${plural(symptomCount, "symptom")} in total` : "";
   return {
     days,
-    value: parts.length
-      ? `Over the last ${plural(n, "day")}, on average: ${parts.join(", ")}`
-      : `Nothing logged in the last ${plural(n, "day")}`,
+    value:
+      parts.length || symptoms
+        ? `Over the last ${plural(n, "day")}` +
+          (parts.length ? `, on average: ${parts.join(", ")}` : "") +
+          (symptoms ? `${parts.length ? "; " : ": "}${symptoms}` : "")
+        : `Nothing logged in the last ${plural(n, "day")}`,
   };
 }
 
