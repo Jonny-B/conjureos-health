@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextWaterMl } from "./JournalEntrySheet";
+import { nextFoodQuantity, nextWaterMl } from "./JournalEntrySheet";
 import { fmtWater, flOzToMl, mlToFlOz } from "../features/water";
 
 // Simulates what the sheet does when it opens: seed `amount` by parsing the
@@ -73,5 +73,20 @@ describe("editing the true stored value, not a rounding of it", () => {
 
   it("falls back to conversion for a legacy event with no stored value", () => {
     expect(nextWaterMl(8, true, "imperial", undefined)).toBe(237);
+  });
+});
+
+describe("nextFoodQuantity — an untouched servings field must not rewrite the entry", () => {
+  it("omits quantity when the user did not edit it, even with extra stored precision", () => {
+    expect(nextFoodQuantity(3, false)).toBeUndefined();
+    expect(nextFoodQuantity(1.333, false)).toBeUndefined();
+  });
+  it("writes the edited value rounded to 2 decimals", () => {
+    expect(nextFoodQuantity(2.456, true)).toBe(2.46);
+    expect(nextFoodQuantity(2, true)).toBe(2);
+  });
+  it("omits a cleared or non-positive edit", () => {
+    expect(nextFoodQuantity(undefined, true)).toBeUndefined();
+    expect(nextFoodQuantity(0, true)).toBeUndefined();
   });
 });

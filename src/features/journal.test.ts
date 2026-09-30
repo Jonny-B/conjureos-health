@@ -1,7 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { datesBetween, isEmptyDay, summarizeRange, type DayJournal } from "./journal";
+import {
+  clampPrintRange,
+  datesBetween,
+  isEmptyDay,
+  loadDayJournal,
+  MAX_PRINT_DAYS,
+  summarizeRange,
+  type DayJournal,
+} from "./journal";
 
 vi.mock("./exercise", () => ({ listCompletedWorkouts: async () => [] }));
+
+const fakeRepo = vi.hoisted(() => ({
+  listDiary: async (): Promise<unknown[]> => [],
+  listWater: async () => [],
+  listSymptoms: async () => [],
+  listSleep: async () => [],
+  listWeights: async () => [],
+}));
+vi.mock("../data/repository", () => ({ getRepository: async () => fakeRepo }));
 
 const day = (over: Partial<DayJournal> & { date: string }): DayJournal => ({
   events: [],
@@ -126,5 +143,39 @@ describe("isEmptyDay", () => {
     expect(isEmptyDay(day({ date: "2026-08-09" }))).toBe(true);
     expect(isEmptyDay(day({ date: "2026-08-09",
       events: [{ id: "w1", editable: true, at: 1, timed: true, kind: "water", label: "Water" }] }))).toBe(false);
+  });
+});
+
+describe("clampPrintRange", () => {
+  it("leaves a range within the cap alone", () => {
+    expect(clampPrintRange("2026-08-01", "2026-08-31")).toEqual({ from: "2026-08-01", clamped: false });
+  });
+  it("keeps the most recent days of an over-long range, so the newest are not the ones dropped", () => {
+    const r = clampPrintRange("2024-01-01", "2026-09-30");
+    expect(r.clamped).toBe(true);
+    const days = datesBetween(r.from, "2026-09-30");
+    expect(days).toHaveLength(MAX_PRINT_DAYS);
+    expect(days[days.length - 1]).toBe("2026-09-30");
+  });
+  it("passes a backwards or blank range through untouched", () => {
+    expect(clampPrintRange("2026-08-11", "2026-08-09")).toEqual({ from: "2026-08-11", clamped: false });
+    expect(clampPrintRange("", "2026-08-09")).toEqual({ from: "", clamped: false });
+  });
+});
+
+describe("loadDayJournal food quantity", () => {
+  it("exposes the stored servings so the editor can seed from them", async () => {
+    fakeRepo.listDiary = async () => [
+      {
+        id: "d1",
+        quantity: 3,
+        meal: "lunch",
+        loggedAt: "2026-08-09T12:00:00.000Z",
+        food: { name: "Rice", servingSize: "1 cup", perServing: { calories: 200, protein: 4, carbs: 40, fat: 1 } },
+      },
+    ];
+    const d = await loadDayJournal("2026-08-09");
+    expect(d.events[0]?.quantity).toBe(3);
+    expect(d.events[0]?.note).toBe("3× 1 cup");
   });
 });

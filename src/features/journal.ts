@@ -50,6 +50,9 @@ export interface JournalEvent {
   note?: string;
   /** Meal bucket, for food only. */
   meal?: string;
+  /** Servings, for food only: the editor seeds from this rather than a guess,
+   *  so opening an entry and saving it can't reset 3 servings to 1. */
+  quantity?: number;
   /**
    * The entry's true stored value, for kinds whose `detail` is a ROUNDED
    * rendering of it — water is stored in ml but shown in oz, and reading the
@@ -138,6 +141,7 @@ export async function loadDayJournal(date: string, units: Units = "metric"): Pro
       label: e.food.name,
       detail: `${cal} cal`,
       meal: e.meal,
+      quantity: e.quantity,
       ...(e.quantity !== 1 ? { note: `${e.quantity}× ${e.food.servingSize}` } : {}),
     });
   }
@@ -234,13 +238,28 @@ export async function loadDayJournal(date: string, units: Units = "metric"): Pro
   return day;
 }
 
+/** The most days one range load will cover. */
+export const MAX_PRINT_DAYS = 800;
+
+/**
+ * Limit a requested range to its most recent MAX_PRINT_DAYS days. `datesBetween`
+ * walks oldest-first, so an over-long range would otherwise silently lose its
+ * NEWEST days — the ones a doctor cares about. `clamped` says the start moved,
+ * so the caller can tell the user.
+ */
+export function clampPrintRange(from: string, to: string): { from: string; clamped: boolean } {
+  if (!from || !to || from > to) return { from, clamped: false };
+  const earliest = shiftDate(to, -(MAX_PRINT_DAYS - 1));
+  return from < earliest ? { from: earliest, clamped: true } : { from, clamped: false };
+}
+
 /** Every date from `from` to `to` inclusive, oldest first. */
 export function datesBetween(from: string, to: string): string[] {
   if (from > to) return [];
   const out: string[] = [];
   let d = from;
   // Bounded so a bad range can't spin: two years is far past any print job.
-  for (let i = 0; i < 800 && d <= to; i++) {
+  for (let i = 0; i < MAX_PRINT_DAYS && d <= to; i++) {
     out.push(d);
     d = shiftDate(d, 1);
   }

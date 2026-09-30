@@ -5,9 +5,10 @@
  * profile's units.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Profile, WeightEntry } from "../types";
 import { getRepository } from "../data/repository";
+import { reportSaveFailure } from "../data/saveFailure";
 import { todayISO } from "../features/diary";
 import { weightToDisplay, weightToKg, weightUnit } from "../features/units";
 import { Sparkline } from "./Sparkline";
@@ -26,11 +27,30 @@ export function pickWeightKg(weights: WeightEntry[]): number | null {
   return weights[0]?.weightKg ?? null;
 }
 
+/**
+ * Store today's weigh-in (entered in the display units). Resolves false, after
+ * telling the user, when the write fails — so the caller keeps the typed value
+ * for a retry instead of an unhandled rejection and a silent nothing.
+ */
+export async function logWeighIn(shown: number, units: Profile["units"], date: string): Promise<boolean> {
+  try {
+    const kg = weightToKg(shown, units);
+    const repo = await getRepository();
+    // Store kg to 2 decimals so a 1-decimal lb entry (0.1 lb ≈ 0.045 kg) round-trips.
+    await repo.upsertWeight({ date, weightKg: Math.round(kg * 100) / 100 });
+    return true;
+  } catch (err) {
+    reportSaveFailure("your weight", err);
+    return false;
+  }
+}
+
 /** Home-screen weigh-in card: latest weight, trend, and a quick-add field.
  *  Bump `nonce` to force a re-read after an external write (e.g. a reset). */
 export function WeightCard({ profile, nonce = 0 }: { profile: Profile | null; nonce?: number }) {
   const [weights, setWeights] = useState<WeightEntry[]>([]);
   const [input, setInput] = useState("");
+  const saving = useRef(false);
   const units = profile?.units ?? "metric";
 
   const reload = async () => {
@@ -45,14 +65,17 @@ export function WeightCard({ profile, nonce = 0 }: { profile: Profile | null; no
   }, [nonce]);
 
   const add = async () => {
+    if (saving.current) return;
     const shown = Number(input);
     if (!Number.isFinite(shown) || shown <= 0) return;
-    const kg = weightToKg(shown, units);
-    const repo = await getRepository();
-    // Store kg to 2 decimals so a 1-decimal lb entry (0.1 lb ≈ 0.045 kg) round-trips.
-    await repo.upsertWeight({ date: todayISO(), weightKg: Math.round(kg * 100) / 100 });
-    setInput("");
-    await reload();
+    saving.current = true;
+    try {
+      if (!(await logWeighIn(shown, units, todayISO()))) return;
+      setInput("");
+      await reload();
+    } finally {
+      saving.current = false;
+    }
   };
 
   const latest = weights[0];

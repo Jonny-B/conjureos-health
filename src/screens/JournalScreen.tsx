@@ -9,15 +9,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Profile } from "../types";
 import {
+  clampPrintRange,
   datesBetween,
   isEmptyDay,
   loadDayJournal,
   loadRangeJournal,
+  MAX_PRINT_DAYS,
   summarizeRange,
   type DayJournal,
   type JournalEvent,
 } from "../features/journal";
 import { shiftDate, todayISO } from "../features/diary";
+import { notifyDataChanged } from "../features/dataEvents";
 import { fmtWater } from "../features/water";
 import { formatSleep } from "../features/sleep";
 import { CoachChatModal } from "../components/CoachChatModal";
@@ -77,6 +80,9 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
   const [asking, setAsking] = useState<string | null>(null);
   // Open when "Find patterns" was pressed without a current agreement on file.
   const [consenting, setConsenting] = useState(false);
+  // Set when the agreement could not be stored, so the sheet closing is not
+  // mistaken for success.
+  const [consentError, setConsentError] = useState(false);
   const [editing, setEditing] = useState<JournalEvent | null>(null);
   // Bumped after an edit so both the day and the month grid re-read.
   const [localNonce, setLocalNonce] = useState(0);
@@ -133,6 +139,7 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
   };
 
   const askPatterns = async () => {
+    setConsentError(false);
     if (!(await hasAiJournalConsent())) {
       setConsenting(true);
       return;
@@ -171,6 +178,12 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
           </button>
         </div>
       </div>
+
+      {consentError && (
+        <div className="notice notice-error" role="alert">
+          We couldn't record your choice, so nothing was sent. Please try again.
+        </div>
+      )}
 
       <div className="cal-grid" role="grid" aria-label={`${monthLabel(cursor)} journal`}>
         {WEEKDAYS.map((w) => (
@@ -217,6 +230,7 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
             const stored = await recordAiJournalConsent(includeNotes);
             setConsenting(false);
             if (stored) runPatterns(includeNotes);
+            else setConsentError(true);
           }}
         />
       )}
@@ -229,6 +243,8 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
           onChanged={() => {
             setEditing(null);
             setLocalNonce((n) => n + 1);
+            // Tell App too, so it refreshes and rewrites the shared summary.
+            notifyDataChanged();
           }}
         />
       )}
@@ -321,11 +337,14 @@ function PrintSheet({
   const [to, setTo] = useState(defaultTo);
   const [days, setDays] = useState<DayJournal[] | null>(null);
   const [busy, setBusy] = useState(false);
+  // A long range is cut to its most recent days; say so rather than print a
+  // header that claims more than the page holds.
+  const range = clampPrintRange(from, to);
 
   const build = async () => {
     setBusy(true);
     try {
-      setDays(await loadRangeJournal(from, to, units));
+      setDays(await loadRangeJournal(range.from, to, units));
     } finally {
       setBusy(false);
     }
@@ -362,8 +381,11 @@ function PrintSheet({
         <header className="print-head">
           <h1>Health journal</h1>
           <p className="muted small">
-            {from} to {to} · {filled.length} day{filled.length === 1 ? "" : "s"} with entries
+            {range.from} to {to} · {filled.length} day{filled.length === 1 ? "" : "s"} with entries
           </p>
+          {range.clamped && (
+            <p className="muted small">Range limited to the most recent {MAX_PRINT_DAYS} days.</p>
+          )}
         </header>
 
         {busy && <p className="muted small no-print">Building…</p>}

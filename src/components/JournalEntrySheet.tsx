@@ -59,6 +59,18 @@ export function nextWaterMl(
   return next;
 }
 
+/**
+ * The servings to write for a food edit, or undefined to leave the stored value
+ * alone. Like water, an untouched field must not be re-written: the stored
+ * quantity may carry more precision than the 2-decimal field shows (1.333 from
+ * a cross-app or AI-logged entry), and rounding it on an unrelated save (only
+ * the meal changed) would alter it.
+ */
+export function nextFoodQuantity(qty: number | undefined, edited: boolean): number | undefined {
+  if (!edited || !qty || qty <= 0) return undefined;
+  return Math.round(qty * 100) / 100;
+}
+
 /** Whether `stored` (ml) is what produced the amount currently on screen. */
 function displaysAs(storedMl: number, shown: number, units: Units): boolean {
   const asShown = units === "imperial" ? mlToFlOz(storedMl) : storedMl;
@@ -91,7 +103,10 @@ export function JournalEntrySheet({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Food
-  const [qty, setQty] = useState<number | undefined>(1);
+  // Seeded from the entry's real servings; a hard-coded 1 here once reset a
+  // 3-serving entry to 1 whenever it was saved for any reason.
+  const [qty, setQty] = useState<number | undefined>(event.quantity ?? 1);
+  const [qtyEdited, setQtyEdited] = useState(false);
   const [meal, setMeal] = useState<MealType>((event.meal as MealType) ?? "snacks");
   // Water — edited in the user's own units, converted on save.
   // Prefer the entry's TRUE stored value over the rounded display string; the
@@ -121,8 +136,9 @@ export function JournalEntrySheet({
     try {
       const repo = await getRepository();
       if (event.kind === "food") {
+        const quantity = nextFoodQuantity(qty, qtyEdited);
         await repo.updateDiaryEntry(event.id, {
-          ...(qty && qty > 0 ? { quantity: Math.round(qty * 100) / 100 } : {}),
+          ...(quantity !== undefined ? { quantity } : {}),
           meal,
         });
       } else if (event.kind === "water") {
@@ -203,7 +219,10 @@ export function JournalEntrySheet({
                 <NumberField
                   className="qty-input"
                   value={qty}
-                  onChange={setQty}
+                  onChange={(v) => {
+                    setQty(v);
+                    setQtyEdited(true);
+                  }}
                   min={0.1}
                   max={99}
                   decimals={2}
