@@ -19,6 +19,7 @@ import { daySnapshot, recentSnapshots, renderDayForPrompt, renderRecentForPrompt
 import { hasAiJournalConsent } from "../aiConsent";
 import { fmtWeight } from "../units";
 import type { CoachChatItem } from "./model";
+import { hubHistory, isChatHubAvailable, listenToHub, postToHub, type HubInbound } from "../../bridge/chatHub";
 
 const CHAT_PATH = "coach-chat.json";
 
@@ -149,10 +150,95 @@ export async function coachNeedsConsent(): Promise<boolean> {
   return !(await hasAiJournalConsent());
 }
 
-/** Read the stored conversation, oldest first. Never throws. */
-export async function loadAskHistory(): Promise<CoachChatItem[]> {
+/** The app's own copy of the conversation, oldest first. Never throws. */
+async function loadLocalHistory(): Promise<CoachChatItem[]> {
   const raw = await readJson<CoachChatItem[]>(CHAT_PATH, []).catch(() => []);
   return Array.isArray(raw) ? raw : [];
+}
+
+let seeding: Promise<void> | null = null;
+
+/**
+ * Read the conversation, oldest first. Never throws.
+ *
+ * With the ConjureOS chat hub (#513) the hub's thread is the shared history,
+ * so a question typed in the Chat panel shows here too. The first time the hub
+ * thread is empty while this app already has a conversation, that
+ * conversation is copied into the hub once so both sides start from the same
+ * history. Without the hub (older shells), the app's own file is the history.
+ */
+export async function loadAskHistory(): Promise<CoachChatItem[]> {
+  const local = await loadLocalHistory();
+  if (!isChatHubAvailable()) return local;
+  const shared = await hubHistory();
+  if (shared === null) return local;
+  if (shared.length === 0 && local.length > 0) {
+    if (!seeding) {
+      seeding = (async () => {
+        for (const m of local) await postToHub(m.role, m.content);
+      })();
+    }
+    await seeding;
+    return local;
+  }
+  return shared;
+}
+
+/**
+ * Record one answered question: the app's own file always, and the hub's
+ * thread when there is one. `items` is the whole conversation including the
+ * new turn; `question`/`reply` are the new turn itself.
+ */
+export async function recordAskTurn(items: CoachChatItem[], question: string, reply: string): Promise<void> {
+  await saveAskHistory(items);
+  if (isChatHubAvailable()) {
+    await postToHub("user", question);
+    await postToHub("assistant", reply);
+  }
+}
+
+type HistoryListener = (items: CoachChatItem[]) => void;
+const listeners = new Set<HistoryListener>();
+
+/** Hear about turns that arrive from the ConjureOS Chat panel. Returns an unsubscribe. */
+export function onAskHistoryChange(fn: HistoryListener): () => void {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+  };
+}
+
+/**
+ * Answer a message the person typed in the ConjureOS Chat panel. The hub
+ * records both the message and this reply, so neither is posted again; the
+ * app's own file gets them so the in-app sheet has them on an older shell too.
+ */
+export async function answerHubMessage(m: HubInbound): Promise<string> {
+  const history = (await hubHistory(m.messageId)) ?? (await loadLocalHistory());
+  const reply = await askCoach(m.content, history);
+  const items: CoachChatItem[] = [
+    ...history,
+    { role: "user", content: m.content },
+    { role: "assistant", content: reply },
+  ];
+  await saveAskHistory(items);
+  for (const fn of listeners) fn(items);
+  return reply;
+}
+
+let listening: Promise<boolean> | null = null;
+
+/** Register with the chat hub at startup. Resolves false where there is no hub. */
+export function startCoachChatHub(): Promise<boolean> {
+  if (!listening) listening = listenToHub(answerHubMessage);
+  return listening;
+}
+
+/** Test seam. */
+export function resetCoachChatHub(): void {
+  listening = null;
+  seeding = null;
+  listeners.clear();
 }
 
 /** Persist the conversation, trimmed to the most recent MAX_STORED turns. */

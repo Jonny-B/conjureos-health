@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { askCoach, loadAskHistory, saveAskHistory } from "../features/coach/ask";
+import { askCoach, loadAskHistory, onAskHistoryChange, recordAskTurn } from "../features/coach/ask";
 import type { CoachChatItem } from "../features/coach/model";
 import { useScrollLock } from "../hooks/useScrollLock";
 import { CloseIcon } from "./icons";
@@ -43,7 +43,7 @@ export function CoachChatModal({
     const reply = await askCoach(question, base);
     const withReply: CoachChatItem[] = [...withUser, { role: "assistant", content: reply }];
     setItems(withReply);
-    await saveAskHistory(withReply);
+    await recordAskTurn(withReply, question, reply);
     busyRef.current = false;
     setBusy(false);
   };
@@ -66,6 +66,15 @@ export function CoachChatModal({
     // Mount only: re-running would re-send the opening question.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A question answered from the ConjureOS Chat panel while this sheet is open.
+  useEffect(
+    () =>
+      onAskHistoryChange((next) => {
+        if (!busyRef.current) setItems(next);
+      }),
+    [],
+  );
 
   // Keep the newest turn in view as it arrives.
   useEffect(() => {

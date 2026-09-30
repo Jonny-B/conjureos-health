@@ -3,6 +3,7 @@ import type { Goals, MealType, Plan, Profile } from "./types";
 import { DEFAULT_GOALS } from "./types";
 import { getRepository } from "./data/repository";
 import { registerActions } from "./bridge/actions";
+import { startCoachChatHub } from "./features/coach/ask";
 import { todayISO } from "./features/diary";
 import {
   archivePlan,
@@ -125,6 +126,9 @@ export function App() {
     registerActions().catch(() => {
       /* cross-app integration is non-fatal */
     });
+    // ConjureOS chat hub (#513): answer questions typed in the Chat panel.
+    // Resolves false on shells without the hub; the in-app chat is unaffected.
+    void startCoachChatHub();
     return () => {
       alive = false;
     };

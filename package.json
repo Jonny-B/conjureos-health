@@ -1,6 +1,6 @@
 {
   "name": "conjureos-fitness",
-  "version": "1.38.2",
+  "version": "1.39.0",
   "description": "Conjure Health: calorie + nutrition logging, daily targets, weight tracking, and a simple weight-loss plan for ConjureOS.",
   "type": "module",
   "license": "MIT",
@@ -19,7 +19,8 @@
       "actions.read",
       "actions.write",
       "native.location",
-      "native.health"
+      "native.health",
+      "chat"
     ],
     "actions": {
       "logFood": {
@@ -801,6 +802,11 @@
         }
       }
     },
+    "chat": {
+      "threads": "single",
+      "title": "Health coach",
+      "placeholder": "Ask about food"
+    },
     "needs": [
       {
         "id": "recipeSource",
@@ -841,10 +847,17 @@
                   "nutrition": {
                     "description": "Per-serving estimate (calories + protein/fat/carbs in grams), or null when unknown. Left unconstrained: schemaSatisfies rejects nullable union types, and providers legitimately omit/`null` nutrition, so the consumer reads it defensively rather than gating the whole match on it."
                   }
-                }
+                },
+                "required": [
+                  "slug",
+                  "title"
+                ]
               }
             }
-          }
+          },
+          "required": [
+            "recipes"
+          ]
         }
       }
     ],
@@ -869,6 +882,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@conjureos/bridge": "^0.4.0",
     "@conjureos/ui": "^1.0.3",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
