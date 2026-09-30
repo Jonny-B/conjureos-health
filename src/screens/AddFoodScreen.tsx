@@ -481,7 +481,7 @@ interface PendingPreview {
   warningNote?: string;
 }
 
-function ScanMode({ onPick }: { onPick: (food: FoodItem) => void }) {
+export function ScanMode({ onPick }: { onPick: (food: FoodItem) => void }) {
   const [manual, setManual] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -489,6 +489,9 @@ function ScanMode({ onPick }: { onPick: (food: FoodItem) => void }) {
   const [capture, setCapture] = useState<CaptureMode>(null);
   const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
   const busy = useRef(false);
+  // Bumped after a failed lookup to remount the scanner: a detection freezes
+  // the frame and stops the camera, so without a fresh mount it stays a still.
+  const [scanKey, setScanKey] = useState(0);
 
   const resolve = async (barcode: string) => {
     if (busy.current) return;
@@ -502,6 +505,9 @@ function ScanMode({ onPick }: { onPick: (food: FoodItem) => void }) {
         setStatus(null);
         setMissedBarcode(barcode);
       }
+    } catch {
+      setStatus("Couldn't look that up. Check your connection and try again.");
+      setScanKey((k) => k + 1);
     } finally {
       busy.current = false;
     }
@@ -563,6 +569,7 @@ function ScanMode({ onPick }: { onPick: (food: FoodItem) => void }) {
   return (
     <div className="mode-body scan-surface">
       <BarcodeScanner
+        key={scanKey}
         onDetected={resolve}
         onError={(m) => setStatus(m)}
         onEnterBarcode={() => setManualOpen((v) => !v)}
@@ -593,7 +600,7 @@ function ScanMode({ onPick }: { onPick: (food: FoodItem) => void }) {
 
 type AiTab = "photo" | "text";
 
-function AiMode({
+export function AiMode({
   date,
   meal,
   onLogged,
@@ -691,19 +698,40 @@ function AiMode({
     setUnreadable(false);
   };
 
+  // The writes are sequential bridge round trips, so a second tap can land
+  // before the first finishes. The ref closes that same-tick window; the state
+  // only drives the button.
+  const loggingRef = useRef(false);
+  const [logging, setLogging] = useState(false);
+
   const logAll = async () => {
-    if (!items?.length) return;
-    const repo = await getRepository();
-    const exclude = toHistory ? {} : { excludeFromQuickAdd: true };
-    if (grouped) {
-      const one = groupItems(items, groupName);
-      if (one) await repo.addDiaryEntry({ date, meal, quantity: 1, food: one, ...exclude });
-    } else {
-      for (const food of items) {
-        await repo.addDiaryEntry({ date, meal, quantity: 1, food, ...exclude });
+    if (!items?.length || loggingRef.current) return;
+    loggingRef.current = true;
+    setLogging(true);
+    setError(null);
+    // Items not yet saved. On a mid-way failure the saved ones are dropped from
+    // the list so a retry doesn't log them twice.
+    const remaining = [...items];
+    try {
+      const repo = await getRepository();
+      const exclude = toHistory ? {} : { excludeFromQuickAdd: true };
+      if (grouped) {
+        const one = groupItems(items, groupName);
+        if (one) await repo.addDiaryEntry({ date, meal, quantity: 1, food: one, ...exclude });
+      } else {
+        for (const food of items) {
+          await repo.addDiaryEntry({ date, meal, quantity: 1, food, ...exclude });
+          remaining.shift();
+        }
       }
+      onLogged();
+    } catch {
+      if (!grouped) setItems(remaining);
+      setError("Couldn't save everything. Anything not saved is still listed, so you can try again.");
+    } finally {
+      loggingRef.current = false;
+      setLogging(false);
     }
-    onLogged();
   };
 
   return (
@@ -716,6 +744,8 @@ function AiMode({
             aria-selected={tab === t}
             className={`segmented-btn${tab === t ? " active" : ""}`}
             onClick={() => {
+              // Re-tapping the active tab must not throw away a paid estimate.
+              if (t === tab) return;
               setTab(t);
               retake();
             }}
@@ -844,8 +874,10 @@ function AiMode({
               </li>
             ))}
           </ul>
-          <button className="btn primary block" onClick={logAll}>
-            {grouped
+          <button className="btn primary block" disabled={logging} onClick={logAll}>
+            {logging
+              ? "Logging…"
+              : grouped
               ? `Log “${(groupName.trim() || suggestGroupName(items)).slice(0, 30)}” to ${MEAL_LABELS[meal]}`
               : `Log ${items.length} item${items.length === 1 ? "" : "s"} to ${MEAL_LABELS[meal]}`}
           </button>
@@ -952,6 +984,16 @@ function MealItemEditor({
   );
 }
 
+/**
+ * The quantity stored for an amount of q servings. One floor and precision for
+ * every unit: a typed weight is kept to the gram, and a re-logged entry (from
+ * Recents) can already be a fraction like 0.05, so the preview's q must be what
+ * is stored. The serving field's own min (MIN_QTY) still applies to typed input.
+ */
+export function loggedQuantity(q: number): number {
+  return Math.max(0.001, Math.round(q * 1000) / 1000);
+}
+
 function NumBox({
   label,
   value,
@@ -964,14 +1006,14 @@ function NumBox({
   return (
     <label className="macro-edit plain">
       <span className="macro-edit-label">{label}</span>
-      <input
+      <NumberField
         className="macro-edit-input"
         aria-label={label}
-        inputMode="decimal"
-        type="text"
-        value={value === 0 ? "" : String(value)}
+        decimals={1}
+        min={0}
         placeholder="0"
-        onChange={(e) => onChange(Number(e.target.value.replace(/[^0-9.]/g, "")) || 0)}
+        value={value === 0 ? undefined : value}
+        onChange={(n) => onChange(n ?? 0)}
       />
     </label>
   );
@@ -1066,11 +1108,7 @@ function LogPanel({
       await repo.addDiaryEntry({
         date,
         meal,
-        // A typed weight is kept to the gram, so it gets a finer floor and
-        // precision than the serving stepper.
-        quantity: inServings
-          ? Math.max(MIN_QTY, Math.round(q * 100) / 100)
-          : Math.max(0.001, Math.round(q * 1000) / 1000),
+        quantity: loggedQuantity(q),
         food,
       });
       if (recipeSlug) await markCooked(recipeSlug);
@@ -1241,7 +1279,9 @@ function FixFlow({
       <div className="snap-miss-copy">
         <div>What's wrong with {food.name}?</div>
         <div className="muted small">
-          Tell us the right numbers and we'll use yours from now on.
+          {food.barcode
+            ? "Tell us the right numbers and we'll use yours for this log, and when you scan this barcode again."
+            : "Tell us the right numbers and we'll use yours for this log."}
         </div>
       </div>
 

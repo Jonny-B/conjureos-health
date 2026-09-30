@@ -100,7 +100,12 @@ export function BarcodeScanner({
           audio: false,
         });
         const video = videoRef.current;
-        if (!video || controller.signal.aborted) return;
+        if (!video || controller.signal.aborted) {
+          // Unmounted while getUserMedia was pending: the cleanup below ran with
+          // `stream` still null, so this just-acquired camera is ours to release.
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
         video.srcObject = stream;
         await video.play();
         setStatus("scanning");

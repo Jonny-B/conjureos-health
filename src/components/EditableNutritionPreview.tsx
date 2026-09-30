@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FoodItem, Micros } from "../types";
 import { contribute } from "../features/foods/conjureHealthDb";
+import { NumberField } from "./NumberField";
 import { AlertTriangle, CheckIcon, ChevronLeft, ChevronRight } from "./icons";
 
 /** How the numbers on screen were arrived at. "user_fix" is the user
@@ -94,9 +95,17 @@ export function EditableNutritionPreview({
 
   // The "couldn't share your edit" notice auto-advances after a beat. Track the
   // timer so unmounting (the user hits Back first) cancels it — otherwise it
-  // fires onConfirm against a dead screen and logs the food anyway.
+  // fires onConfirm against a dead screen and logs the food anyway. `mounted`
+  // covers the same Back-while-saving case for the contribute() still in flight.
   const advanceTimer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(advanceTimer.current), []);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      window.clearTimeout(advanceTimer.current);
+    };
+  }, []);
 
   const onSave = async () => {
     setSave({ phase: "saving" });
@@ -108,6 +117,7 @@ export function EditableNutritionPreview({
       aiConfidence: isFix ? undefined : aiConfidence,
       userEdited,
     });
+    if (!mounted.current) return;
     if (res.ok) {
       const merged = res.food ?? food;
       onConfirm(merged);
@@ -155,23 +165,21 @@ export function EditableNutritionPreview({
         </div>
         <div className="notice-ai-body">
           {isFix
-            ? "Copy the numbers off the nutrition label for one serving. We'll log your version from now on, and send it in so the next person who scans this gets it right."
+            ? "Copy the numbers off the nutrition label for one serving. We'll log your version this time, and send it in so the next person who scans this gets it right."
             : "Double-check the numbers before you save, especially the serving size (that is where vision models trip up most often). Anything you fix here teaches Conjure, so the next person who scans this gets it right."}
         </div>
         {warningNote && <div className="notice-ai-note muted small">{warningNote}</div>}
       </div>
 
       <div className={`calories-card${lowConfidence ? " low-confidence" : ""}`}>
-        <input
+        <NumberField
           className="estimate-calories-input"
           aria-label="Calories per serving"
-          inputMode="decimal"
-          type="text"
-          value={food.perServing.calories === 0 ? "" : String(food.perServing.calories)}
+          decimals={1}
+          min={0}
           placeholder="Tap to enter"
-          onChange={(e) =>
-            updateMacro("calories", Number(e.target.value.replace(/[^0-9.]/g, "")) || 0)
-          }
+          value={food.perServing.calories === 0 ? undefined : food.perServing.calories}
+          onChange={(n) => updateMacro("calories", n ?? 0)}
         />
         <div className="calories-card-label">calories per serving</div>
       </div>
@@ -219,17 +227,12 @@ export function EditableNutritionPreview({
         </label>
         <label className="field">
           <span>Grams</span>
-          <input
-            className="text-input"
-            inputMode="decimal"
-            type="text"
-            value={food.servingGrams ?? ""}
-            onChange={(e) =>
-              update(
-                "servingGrams",
-                Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined,
-              )
-            }
+          <NumberField
+            aria-label="Grams"
+            decimals={1}
+            min={0}
+            value={food.servingGrams}
+            onChange={(n) => update("servingGrams", n && n > 0 ? n : undefined)}
           />
         </label>
       </div>
@@ -276,7 +279,7 @@ export function EditableNutritionPreview({
 
       <div className="estimate-source muted small">
         {isFix
-          ? "Your correction. It replaces this item on your device straight away; sharing it with everyone else takes a review first."
+          ? "Your correction. It is used for this log straight away; sharing it with everyone else takes a review first."
           : isFront
             ? `Estimated from a front-of-package photo (confidence ${aiConfidence.toFixed(1)}).`
             : `Read from a nutrition-label photo (confidence ${aiConfidence.toFixed(1)}).`}
@@ -312,16 +315,14 @@ function MacroField(props: {
   return (
     <label className={`macro-edit ${props.tone}${props.full ? " full" : ""}`}>
       <span className="macro-edit-label">{props.label}</span>
-      <input
+      <NumberField
         className="macro-edit-input"
         aria-label={props.label}
-        inputMode="decimal"
-        type="text"
-        value={props.value === 0 ? "" : String(props.value)}
+        decimals={1}
+        min={0}
         placeholder="0"
-        onChange={(e) =>
-          props.onChange(Number(e.target.value.replace(/[^0-9.]/g, "")) || 0)
-        }
+        value={props.value === 0 ? undefined : props.value}
+        onChange={(n) => props.onChange(n ?? 0)}
       />
     </label>
   );
@@ -339,15 +340,13 @@ function MicroField({
   return (
     <label className={`more-nutrient-field${v != null ? " detected" : ""}`}>
       <span className="more-nutrient-field-label">{label}</span>
-      <input
-        inputMode="decimal"
-        type="text"
-        value={v ?? ""}
-        placeholder=""
-        onChange={(e) => {
-          const raw = e.target.value.replace(/[^0-9.]/g, "");
-          onChange(raw ? Number(raw) : undefined);
-        }}
+      <NumberField
+        className=""
+        aria-label={label}
+        decimals={1}
+        min={0}
+        value={v}
+        onChange={onChange}
       />
     </label>
   );
