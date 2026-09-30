@@ -7,7 +7,7 @@
  */
 
 import type { FoodItem } from "../../types";
-import { readJson, writeJsonOrThrow } from "../../bridge/vfs";
+import { readJsonStrict, writeJsonOrThrow } from "../../bridge/vfs";
 import { newId } from "../../data/id";
 import { persist } from "../../data/saveFailure";
 
@@ -32,8 +32,10 @@ export interface CustomFoodInput {
 /** Units the form offers; grams and millilitres also give a gram weight. */
 export const CUSTOM_SERVING_UNITS = ["g", "ml", "oz", "cup", "tbsp", "tsp", "piece", "slice", "serving"] as const;
 
+/** Throws when the file exists but cannot be read, so saveCustomFood never
+ *  writes back a list that is missing the foods it failed to load. */
 async function load(): Promise<CustomFoodsFile> {
-  const f = await readJson<CustomFoodsFile>(CUSTOM_FOODS_PATH, { v: 1, foods: [] });
+  const f = await readJsonStrict<CustomFoodsFile>(CUSTOM_FOODS_PATH, { v: 1, foods: [] });
   return f && Array.isArray(f.foods) ? f : { v: 1, foods: [] };
 }
 
@@ -74,14 +76,19 @@ export function toFoodItem(input: CustomFoodInput, id = newId()): FoodItem {
 /** Save a food the user entered. Resolves to the saved food, or null when the write failed (already reported). */
 export async function saveCustomFood(input: CustomFoodInput): Promise<FoodItem | null> {
   const food = toFoodItem(input);
-  const file = await load();
-  const next: CustomFoodsFile = { v: 1, foods: [food, ...file.foods] };
-  const ok = await persist("your food", writeJsonOrThrow(CUSTOM_FOODS_PATH, next));
+  const ok = await persist("your food", (async () => {
+    const file = await load();
+    await writeJsonOrThrow(CUSTOM_FOODS_PATH, { v: 1, foods: [food, ...file.foods] } satisfies CustomFoodsFile);
+  })());
   return ok ? food : null;
 }
 
 export async function listCustomFoods(): Promise<FoodItem[]> {
-  return (await load()).foods;
+  try {
+    return (await load()).foods;
+  } catch {
+    return [];
+  }
 }
 
 /** Saved foods whose name or brand contains every word of the query. */

@@ -163,8 +163,10 @@ const PLAN_ARCHIVE_PATH = "plan-archive.json";
  */
 export async function archivePlan(plan: Plan): Promise<void> {
   try {
-    const { readJson, writeJson } = await import("../../bridge/vfs");
-    const prev = await readJson<Plan[]>(PLAN_ARCHIVE_PATH, []);
+    const { readJsonStrict, writeJson } = await import("../../bridge/vfs");
+    // Strict: an unreadable archive must skip the write, not replace the
+    // history with just this plan.
+    const prev = await readJsonStrict<Plan[]>(PLAN_ARCHIVE_PATH, []);
     const next = [{ ...plan }, ...prev].slice(0, 20);
     await writeJson(PLAN_ARCHIVE_PATH, next);
   } catch {

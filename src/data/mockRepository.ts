@@ -45,7 +45,7 @@ import type {
   WorkoutSession,
 } from "../types";
 import { DEFAULT_GOALS } from "../types";
-import { readJson, vfs, writeJson } from "../bridge/vfs";
+import { readJsonStrict, vfs, writeJson } from "../bridge/vfs";
 import type {
   DayLogPatch,
   NewDiaryEntry,
@@ -162,6 +162,17 @@ async function writeMirror(store: StoreShape): Promise<boolean> {
   }
 }
 
+/** Drop the device-local copy. Only for a copy known to be stale (a write just
+ *  failed and the VFS mirror holds the newer store); removal frees quota and
+ *  never throws into the caller. */
+function removeLocal(): void {
+  try {
+    localStore()?.removeItem(LOCAL_KEY);
+  } catch {
+    /* storage disabled — nothing to remove */
+  }
+}
+
 /** Subscribe to cross-tab writes of LOCAL_KEY. The `storage` event only fires
  *  in tabs OTHER than the one that wrote, which is exactly what we want: our
  *  own writes already update `this.store` directly. Best-effort — no
@@ -271,8 +282,31 @@ function migrate(loaded: unknown): StoreShape {
 export class MockRepository implements Repository {
   readonly kind = "mock" as const;
   private store: StoreShape = structuredClone(EMPTY);
+  /** The last local write failed (quota / disabled), so localStorage holds an
+   *  OLDER document than `this.store`. While set, mutate() must build on
+   *  `this.store`, not re-read that stale copy. Recomputed by every flush(). */
+  private localDirty = false;
+  /** init() had no local copy and could not read the VFS store (timeout,
+   *  permission, corrupt), so `this.store` is a placeholder, not the user's
+   *  data. Writes must not go out until a retry reads it. */
+  private storeUnread = false;
+  private watching = false;
 
   async init(): Promise<void> {
+    // Registered on every init path (not just first run), so an idle tab's
+    // reads follow another tab's writes. Keeps the in-memory copy from going
+    // stale: the `storage` event fires in OTHER tabs whenever one of them
+    // writes our key. This only helps reads between mutations — every
+    // mutate() call below re-reads localStorage itself regardless, which is
+    // what actually prevents one tab's write from clobbering another's (see
+    // mutate()).
+    if (!this.watching) {
+      this.watching = true;
+      watchLocalStorage((fresh) => {
+        this.store = fresh;
+      });
+    }
+
     // Device-local copy wins whenever it exists: it's the authoritative store
     // and — crucially — it is NOT cloud-synced, so it can't have been reverted
     // by a stale pull or another surface's blind whole-store flush. We do NOT
@@ -287,7 +321,16 @@ export class MockRepository implements Repository {
     // First run on this device (no local copy): seed from the VFS mirror, which
     // may carry data synced from another device on install. Migrate, adopt, and
     // pin it locally so every subsequent load is device-authoritative.
-    const loaded = await readJson<unknown>(STORE_PATH, structuredClone(EMPTY));
+    let loaded: unknown;
+    try {
+      loaded = await readJsonStrict<unknown>(STORE_PATH, structuredClone(EMPTY));
+    } catch {
+      // A failed read is not a missing file. Don't adopt or pin an empty store
+      // (that would abandon the synced data and let the first flush overwrite
+      // the mirror with it); mutate() retries the read before any write.
+      this.storeUnread = true;
+      return;
+    }
     const before = (loaded as { v?: number } | null)?.v;
     this.store = migrate(loaded);
     writeLocal(this.store);
@@ -296,15 +339,26 @@ export class MockRepository implements Repository {
     // schema version), not a hardcoded old number, so the next version bump
     // doesn't leave this check silently stale again.
     if (before !== EMPTY.v) await writeJson(STORE_PATH, this.store);
+  }
 
-    // Keep the in-memory copy from going stale while this tab sits idle: the
-    // `storage` event fires in OTHER tabs whenever one of them writes our key.
-    // This only helps reads between mutations — every mutate() call below
-    // re-reads localStorage itself regardless, which is what actually
-    // prevents one tab's write from clobbering another's (see mutate()).
-    watchLocalStorage((fresh) => {
-      this.store = fresh;
-    });
+  /** Retry the store read init() could not complete. Resolves once the store
+   *  is loaded (from a local copy another tab pinned, or the VFS); throws while
+   *  it is still unreadable, so the write fails loudly instead of overwriting. */
+  private async recoverUnreadStore(): Promise<void> {
+    const local = readLocal();
+    if (local) {
+      this.store = local;
+      this.storeUnread = false;
+      return;
+    }
+    try {
+      this.store = migrate(await readJsonStrict<unknown>(STORE_PATH, structuredClone(EMPTY)));
+    } catch (err) {
+      throw new Error("MockRepository: refusing to save — the stored data could not be read.", {
+        cause: err,
+      });
+    }
+    this.storeUnread = false;
   }
 
   /**
@@ -330,7 +384,10 @@ export class MockRepository implements Repository {
    * init(): the synced mirror must never be treated as authoritative.
    */
   private async mutate<T>(fn: (s: StoreShape) => T): Promise<T> {
-    const fresh = readLocal() ?? this.store;
+    if (this.storeUnread) await this.recoverUnreadStore();
+    // A failed local write leaves localStorage OLDER than this.store; building
+    // on that stale copy would silently drop everything written since.
+    const fresh = this.localDirty ? this.store : (readLocal() ?? this.store);
     const result = fn(fresh);
     this.store = fresh;
     await this.flush();
@@ -351,7 +408,12 @@ export class MockRepository implements Repository {
   private async flush(): Promise<void> {
     this.store.updatedAt = new Date().toISOString();
     const localOk = writeLocal(this.store);
+    this.localDirty = !localOk;
     const mirrorOk = await writeMirror(this.store);
+    // The stale local copy would win on the next init() and hide everything the
+    // mirror holds since, so when the mirror has the newer store, drop it (the
+    // next init() then seeds from the mirror and re-pins it).
+    if (!localOk && mirrorOk) removeLocal();
     if (!localOk && !mirrorOk) {
       throw new Error(
         "MockRepository: failed to persist — both localStorage and the VFS mirror write failed.",

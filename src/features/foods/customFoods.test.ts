@@ -3,7 +3,13 @@ import { vfs } from "../../bridge/vfs";
 import { SAVE_FAILED_EVENT } from "../../data/saveFailure";
 import * as off from "./openFoodFacts";
 import * as usda from "./usda";
-import { CUSTOM_FOODS_PATH, customFoodProblem, saveCustomFood, searchCustomFoods } from "./customFoods";
+import {
+  CUSTOM_FOODS_PATH,
+  customFoodProblem,
+  listCustomFoods,
+  saveCustomFood,
+  searchCustomFoods,
+} from "./customFoods";
 import { searchFoods } from "./foodSearch";
 
 const base = {
@@ -64,5 +70,16 @@ describe("custom foods", () => {
     vi.spyOn(vfs, "write").mockRejectedValue(new Error("disk full"));
     expect(await saveCustomFood(base)).toBeNull();
     expect(seen).toHaveLength(1);
+  });
+
+  it("does not overwrite saved foods when the file cannot be read", async () => {
+    await saveCustomFood(base);
+    const before = await vfs.read(CUSTOM_FOODS_PATH);
+    vi.spyOn(vfs, "read").mockRejectedValue(new Error("vfs timeout"));
+    expect(await saveCustomFood({ ...base, name: "New" })).toBeNull();
+    expect(seen).toHaveLength(1);
+    expect(await listCustomFoods()).toEqual([]);
+    vi.restoreAllMocks();
+    expect(await vfs.read(CUSTOM_FOODS_PATH)).toBe(before);
   });
 });

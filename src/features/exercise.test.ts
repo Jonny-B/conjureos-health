@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 vi.mock("../bridge/health", () => ({ readWorkouts: vi.fn(async () => []) }));
 
 import { readWorkouts, type WorkoutBurn } from "../bridge/health";
+import { vfs } from "../bridge/vfs";
 import { __resetRepository, getRepository } from "../data/repository";
 import {
   exerciseCaloriesForDate,
@@ -37,7 +38,9 @@ const session = (over: Partial<WorkoutSession> = {}): WorkoutSession => ({
   ...over,
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+  // With no `window`, vfs is an in-memory store that outlives each test's repository.
+  await vfs.rm("store.json");
   __resetRepository();
   mockReadWorkouts.mockResolvedValue([]);
 });

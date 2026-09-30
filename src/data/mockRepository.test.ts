@@ -163,6 +163,125 @@ describe("MockRepository device-local persistence", () => {
   });
 });
 
+describe("MockRepository storage failures", () => {
+  let ls: Map<string, string>;
+
+  beforeEach(async () => {
+    ls = installLocalStorage();
+    await vfs.write("store.json", JSON.stringify({ v: 2 }));
+  });
+
+  const entry = (meal: "breakfast" | "lunch" | "dinner") => ({
+    date: "2026-01-05",
+    meal,
+    quantity: 1,
+    food: aFood(),
+  });
+
+  it("keeps every later change, and survives a reload, after a localStorage write fails", async () => {
+    const repo = new MockRepository();
+    await repo.init();
+    await repo.saveProfile(imperial());
+
+    // Quota fills up: from here the VFS mirror is the only copy that lands.
+    failNextLocalStorageWrites();
+    await repo.addDiaryEntry(entry("breakfast"));
+    await repo.addDiaryEntry(entry("lunch"));
+
+    // The second change must build on the first, not on the stale local copy.
+    expect(await repo.listDiary("2026-01-05")).toHaveLength(2);
+    expect(JSON.parse(await vfs.read("store.json")).diary).toHaveLength(2);
+
+    const reopened = new MockRepository();
+    await reopened.init();
+    expect(await reopened.listDiary("2026-01-05")).toHaveLength(2);
+    expect((await reopened.getProfile())?.units).toBe("imperial");
+  });
+
+  it("registers the cross-tab watcher when a local copy already exists", async () => {
+    const listeners: Array<(e: { key: string; newValue: string | null }) => void> = [];
+    const w = (globalThis as unknown as { window: Record<string, unknown> }).window;
+    w.addEventListener = (_type: string, fn: (e: { key: string; newValue: string | null }) => void) => {
+      listeners.push(fn);
+    };
+
+    const tabA = new MockRepository();
+    await tabA.init(); // first run: no local copy yet
+    await tabA.saveProfile(imperial());
+    const tabB = new MockRepository();
+    await tabB.init(); // local copy exists
+    expect(listeners).toHaveLength(2);
+
+    await tabA.addDiaryEntry(entry("dinner"));
+    expect(await tabB.listDiary("2026-01-05")).toHaveLength(0);
+    // The browser delivers the storage event to the other tab only.
+    const key = [...ls.keys()][0]!;
+    listeners[1]!({ key, newValue: ls.get(key)! });
+    expect(await tabB.listDiary("2026-01-05")).toHaveLength(1);
+  });
+
+  describe("when the VFS store cannot be read on a device with no local copy", () => {
+    let writes: Array<[string, string]>;
+    let failReads: boolean;
+    const synced = {
+      v: 3,
+      profile: null,
+      goals: null,
+      diary: [] as unknown[],
+      weights: [],
+      plan: null,
+      dayLogs: {},
+      workoutSessions: [],
+      sleep: [],
+      water: [],
+      symptoms: [],
+    };
+
+    beforeEach(() => {
+      writes = [];
+      failReads = true;
+      (globalThis as unknown as { window: Record<string, unknown> }).window.__vfs = {
+        exists: async () => true,
+        read: async () => {
+          if (failReads) throw new Error("vfs timeout");
+          const row = { ...entry("lunch"), id: "synced", loggedAt: "2026-01-05T12:00:00Z" };
+          return JSON.stringify({ ...synced, diary: [row] });
+        },
+        write: async (path: string, content: string) => void writes.push([path, content]),
+        ls: async () => [],
+        mkdir: async () => {},
+        rm: async () => {},
+      };
+    });
+
+    it("does not pin an empty store locally or write it to the mirror", async () => {
+      const repo = new MockRepository();
+      await repo.init();
+      expect(ls.size).toBe(0);
+      expect(writes).toEqual([]);
+    });
+
+    it("fails the save loudly while the store is still unreadable, without writing anything", async () => {
+      const repo = new MockRepository();
+      await repo.init();
+      await expect(repo.saveProfile(imperial())).rejects.toThrow();
+      expect(ls.size).toBe(0);
+      expect(writes).toEqual([]);
+    });
+
+    it("retries the read before the first write and keeps the synced data", async () => {
+      const repo = new MockRepository();
+      await repo.init();
+      failReads = false;
+      await repo.saveProfile(imperial());
+      expect(await repo.listDiary("2026-01-05")).toHaveLength(1);
+      const mirror = JSON.parse(writes[writes.length - 1]![1]);
+      expect(mirror.diary).toHaveLength(1);
+      expect(mirror.profile.units).toBe("imperial");
+    });
+  });
+});
+
 /** Make every subsequent `localStorage.setItem` throw, simulating a full
  *  quota or a browser with storage disabled mid-session. */
 function failNextLocalStorageWrites(): void {

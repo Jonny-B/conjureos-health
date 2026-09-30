@@ -23,7 +23,10 @@ declare global {
   }
 }
 
-const real = (): VFSBridge | undefined => window.__vfs;
+// No `window` at all (SSR, a bare test runner) means no host, like an unmounted
+// bridge: fall through to the in-memory store instead of throwing a
+// ReferenceError, which readJsonStrict would (rightly) treat as a failed read.
+const real = (): VFSBridge | undefined => (typeof window === "undefined" ? undefined : window.__vfs);
 
 /** Whether a real host filesystem is mounted. False under `npm run dev` and
  *  in tests, where `vfs` transparently falls back to an in-memory store. */
@@ -40,7 +43,7 @@ const memStore = new Map<string, string>();
  * every persistence path stays exercisable outside ConjureOS — but note that
  * fallback does NOT survive a reload. Paths are app-relative; `read` rejects
  * with an ENOENT-style error for a missing file, so prefer `readJson`, which
- * takes an explicit default.
+ * takes an explicit default (or `readJsonStrict` before a read-modify-write).
  */
 export const vfs: VFSBridge = {
   async read(path) {
@@ -91,6 +94,27 @@ export async function readJson<T>(path: string, fallback: T): Promise<T> {
   } catch {
     return fallback;
   }
+}
+
+/**
+ * Read + JSON.parse for read-modify-write callers. Unlike `readJson`, a failed
+ * read is NOT a missing file: `fallback` comes back only when the file really
+ * is absent (or empty), and a timeout, permission error or corrupt JSON throws,
+ * so the caller can abort instead of writing the fallback over data it could
+ * not read.
+ */
+export async function readJsonStrict<T>(path: string, fallback: T): Promise<T> {
+  if (!(await vfs.exists(path))) return fallback;
+  let raw: string;
+  try {
+    raw = await vfs.read(path);
+  } catch (err) {
+    // Deleted between exists() and read(): still just a missing file.
+    if (err instanceof Error && /ENOENT/i.test(err.message)) return fallback;
+    throw err;
+  }
+  if (!raw.trim()) return fallback;
+  return JSON.parse(raw) as T;
 }
 
 /** JSON write that throws when it fails, for data the user would miss. */
