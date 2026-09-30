@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { Plan, Profile } from "../../types";
 import { getRepository, __resetRepository } from "../../data/repository";
-import { commitNewPlan, decidePlanEdit, modifyPlanInPlace } from "./planService";
+import { commitNewPlan, decidePlanEdit, mergeBodyIntoProfile, modifyPlanInPlace } from "./planService";
+import {
+  hasAiJournalConsent,
+  recordAiJournalConsent,
+  withdrawAiJournalConsent,
+} from "../aiConsent";
+import { seedActivityLevel, wizardInputsValid } from "./wizardRules";
 
 // A user who filled in the cog (real body stats) BEFORE ever making a plan.
 const cogProfile: Profile = {
@@ -101,9 +107,50 @@ describe("decidePlanEdit", () => {
     // Goal text differing only by whitespace/case is NOT a change.
     expect(decidePlanEdit(base, { mode: base.mode, goalText: "  Lose weight and get better at the HALF Murph ", startDate: base.startDate })).toBe("modify");
   });
-  it("ignores goal text for legacy plans that never stored it", () => {
-    const legacy: Plan = { ...plan }; // no goalText
-    expect(decidePlanEdit(legacy, { mode: legacy.mode, goalText: "a freshly typed goal", startDate: legacy.startDate })).toBe("modify");
+  it("forks a new plan when a goal is typed on a plan that has none stored", () => {
+    const noGoal: Plan = { ...plan }; // created with the box blank (or pre-goalText)
+    expect(decidePlanEdit(noGoal, { mode: noGoal.mode, goalText: "lose 10 lb for the wedding", startDate: noGoal.startDate })).toBe("new");
+  });
+  it("still modifies in place when the goal stays blank on a plan with none stored", () => {
+    const noGoal: Plan = { ...plan };
+    expect(decidePlanEdit(noGoal, { mode: noGoal.mode, goalText: "  ", startDate: noGoal.startDate })).toBe("modify");
+  });
+});
+
+// ── Clearing the goal weight ───────────────────────────────────────────
+describe("mergeBodyIntoProfile goal weight", () => {
+  const base: Profile = { ...cogProfile, goalWeightKg: 70 };
+  it("clears the stored goal weight when the body carries the key as undefined", () => {
+    expect(mergeBodyIntoProfile(base, { weightKg: 80, goalWeightKg: undefined, direction: "maintain" }).goalWeightKg).toBeUndefined();
+  });
+  it("keeps the stored goal weight when the body did not collect it", () => {
+    expect(mergeBodyIntoProfile(base, { weightKg: 80 }).goalWeightKg).toBe(70);
+  });
+  it("replaces it when the body carries a value", () => {
+    expect(mergeBodyIntoProfile(base, { goalWeightKg: 65 }).goalWeightKg).toBe(65);
+  });
+});
+
+// ── Wizard form rules ──────────────────────────────────────────────────
+describe("wizardInputsValid", () => {
+  it("requires an age in every mode", () => {
+    expect(wizardInputsValid(true, { age: undefined, heightCm: 180, weightKg: 80 })).toBe(false);
+    expect(wizardInputsValid(false, { age: undefined })).toBe(false);
+  });
+  it("requires height and weight only when the plan tracks food", () => {
+    expect(wizardInputsValid(true, { age: 45, heightCm: 180 })).toBe(false);
+    expect(wizardInputsValid(true, { age: 45, heightCm: 180, weightKg: 80 })).toBe(true);
+    expect(wizardInputsValid(false, { age: 45 })).toBe(true);
+  });
+});
+
+describe("seedActivityLevel", () => {
+  it("shows a legacy very_active profile as the top chip", () => {
+    expect(seedActivityLevel("very_active")).toBe("active");
+  });
+  it("passes the offered levels through and defaults to moderate", () => {
+    expect(seedActivityLevel("light")).toBe("light");
+    expect(seedActivityLevel(undefined)).toBe("moderate");
   });
 });
 
@@ -169,5 +216,73 @@ describe("modifyPlanInPlace", () => {
       { currentProfile: cur, currentGoals: { calories: 0, protein: 0, carbs: 0, fat: 0 } },
     );
     expect(res.plan.targets?.dailyCalories ?? null).toBeNull();
+  });
+});
+
+// ── Writes build on the STORED profile, never App's cached copy ────────
+describe("plan writes keep AI consent changes made behind App's back", () => {
+  beforeEach(() => __resetRepository());
+  const goals = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+  const seed = async () => {
+    const repo = await getRepository();
+    await repo.saveProfile({ ...cogProfile });
+    await recordAiJournalConsent(true);
+    // What App holds in state after load.
+    return (await repo.getProfile())!;
+  };
+
+  it("modifyPlanInPlace does not reinstate a withdrawn consent", async () => {
+    const cached = await seed();
+    await withdrawAiJournalConsent();
+    await modifyPlanInPlace(plan, { units: "metric" }, {}, { currentProfile: cached, currentGoals: goals });
+    expect(await hasAiJournalConsent()).toBe(false);
+  });
+
+  it("commitNewPlan does not reinstate a withdrawn consent", async () => {
+    const cached = await seed();
+    await withdrawAiJournalConsent();
+    await commitNewPlan(plan, { body: { age: 45, heightCm: 180 }, currentProfile: cached, currentGoals: goals });
+    expect(await hasAiJournalConsent()).toBe(false);
+  });
+
+  it("commitNewPlan without a body does not reinstate a withdrawn consent", async () => {
+    const cached = await seed();
+    await withdrawAiJournalConsent();
+    await commitNewPlan(plan, { currentProfile: cached, currentGoals: goals });
+    expect(await hasAiJournalConsent()).toBe(false);
+  });
+
+  it("modifyPlanInPlace and commitNewPlan keep a consent granted after App loaded", async () => {
+    const repo = await getRepository();
+    await repo.saveProfile({ ...cogProfile });
+    const cached = (await repo.getProfile())!; // no consent yet
+    await recordAiJournalConsent(false);
+    const res = await modifyPlanInPlace(plan, { units: "metric" }, {}, { currentProfile: cached, currentGoals: goals });
+    expect(await hasAiJournalConsent()).toBe(true);
+    // The returned profile (App's next state) carries it too.
+    expect(res.profile?.aiJournalConsent).toBeDefined();
+    const res2 = await commitNewPlan(plan, { body: { age: 45, heightCm: 180 }, currentProfile: cached, currentGoals: goals });
+    expect(await hasAiJournalConsent()).toBe(true);
+    expect(res2.profile?.aiJournalConsent).toBeDefined();
+  });
+
+  it("falls back to App's profile when nothing is stored", async () => {
+    const res = await modifyPlanInPlace(plan, { weightKg: 80 }, {}, { currentProfile: cogProfile, currentGoals: goals });
+    expect(res.profile).toMatchObject({ sex: "male", heightCm: 180, weightKg: 80 });
+  });
+});
+
+// ── Units chosen before any profile exists ─────────────────────────────
+describe("commitNewPlan keeps the wizard's units when no stats are merged", () => {
+  beforeEach(() => __resetRepository());
+  it("stores imperial from a units-only body with no current profile", async () => {
+    const res = await commitNewPlan(plan, {
+      body: { units: "imperial" },
+      currentProfile: null,
+      currentGoals: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+    });
+    expect(res.profile?.units).toBe("imperial");
+    const repo = await getRepository();
+    expect((await repo.getProfile())?.units).toBe("imperial");
   });
 });

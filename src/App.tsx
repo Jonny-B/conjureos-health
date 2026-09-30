@@ -55,6 +55,9 @@ export function App() {
   const [date, setDate] = useState<string>(todayISO());
   const [goals, setGoals] = useState<Goals>(DEFAULT_GOALS);
   const [profile, setProfile] = useState<Profile | null>(null);
+  // Units picked in Settings while there is no stored profile (never fabricate
+  // one); used wherever the profile's units would be, and seeds the wizard.
+  const [pendingUnits, setPendingUnits] = useState<Profile["units"]>("metric");
   // v2: the active plan. null → show the "build your plan" banner (no longer a
   // full-screen gate; the app is usable for logging without a plan).
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -251,7 +254,7 @@ export function App() {
               setPlanWizardOpen(false);
               setPlanEditor(null);
             }}
-            units={profile?.units ?? "metric"}
+            units={profile?.units ?? pendingUnits}
             profile={profile}
           />
         </main>
@@ -319,7 +322,7 @@ export function App() {
             onSearch={() => openAdd(activeMeal, "search", "meal")}
             onAi={() => openAdd(activeMeal, "ai", "meal")}
             onMutated={() => setNonce((n) => n + 1)}
-            units={profile?.units ?? "metric"}
+            units={profile?.units ?? pendingUnits}
           />
         ) : tab === "add" ? (
           <AddFoodScreen
@@ -338,10 +341,10 @@ export function App() {
               setTab(addReturn);
             }}
             onModeChange={setAddMode}
-            units={profile?.units ?? "metric"}
+            units={profile?.units ?? pendingUnits}
           />
         ) : tab === "journal" ? (
-          <JournalScreen units={profile?.units ?? "metric"} nonce={nonce} />
+          <JournalScreen units={profile?.units ?? pendingUnits} nonce={nonce} />
         ) : tab === "plan" ? (
           <PlanScreen
             nonce={nonce}
@@ -386,6 +389,8 @@ export function App() {
         <SettingsSheet
           goals={goals}
           profile={profile}
+          pendingUnits={pendingUnits}
+          onUnitsChange={setPendingUnits}
           onClose={() => setSettingsOpen(false)}
           onSave={onSaveGoals}
           onDataCleared={onDataCleared}

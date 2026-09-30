@@ -24,6 +24,8 @@ export interface WizardBody {
   sex?: Profile["sex"];
   heightCm?: number;
   weightKg?: number;
+  /** Key absent = not collected (keep the stored goal); key present but
+   *  undefined = the user cleared it (remove the stored goal). */
   goalWeightKg?: number;
   /** Exact age (preferred); ageBand is the coarse fallback. */
   age?: number;
@@ -95,7 +97,7 @@ export function mergeBodyIntoProfile(base: Profile, b: WizardBody): Profile {
     sex: b.sex ?? base.sex,
     heightCm: b.heightCm ?? base.heightCm,
     weightKg: b.weightKg ?? base.weightKg,
-    goalWeightKg: b.goalWeightKg ?? base.goalWeightKg,
+    goalWeightKg: "goalWeightKg" in b ? b.goalWeightKg : base.goalWeightKg,
     // Prefer the exact age; fall back to the age-band's representative age.
     age: b.age ?? (b.ageBand ? AGE_FOR_BAND[b.ageBand] : base.age),
     activityLevel: b.activityLevel ?? base.activityLevel,
@@ -118,16 +120,21 @@ export async function commitNewPlan(
   const repo = await getRepository();
   await persist("your plan", repo.savePlan(plan));
 
-  let profile = ctx.currentProfile;
+  // Build on what is STORED, not App's cached copy: the AI-consent helpers write
+  // the stored profile directly, so the cache can be stale and writing it back
+  // would reinstate a withdrawn consent (or erase a fresh one).
+  const current = (await repo.getProfile()) ?? ctx.currentProfile;
+  let profile = current;
   const b = ctx.body;
   if (b && (b.heightCm != null || b.weightKg != null || b.sex != null || b.age != null)) {
-    profile = mergeBodyIntoProfile(ctx.currentProfile ?? DEFAULT_PROFILE, b);
+    profile = mergeBodyIntoProfile(current ?? DEFAULT_PROFILE, b);
   }
   // ALWAYS persist a profile once a plan exists — never leave store.json.profile
   // null. A null profile makes the cog fall back to DEFAULT_PROFILE (and older
   // code could then cement those defaults), which reads as "my stats reverted to
   // default" after a reload. Fall back to the current profile, else DEFAULT.
-  const finalProfile: Profile = profile ?? { ...DEFAULT_PROFILE };
+  // The wizard's unit choice survives even when no stats were merged.
+  const finalProfile: Profile = profile ?? { ...DEFAULT_PROFILE, units: b?.units ?? DEFAULT_PROFILE.units };
   await persist("your profile", repo.saveProfile(finalProfile));
   profile = finalProfile;
 
@@ -216,14 +223,14 @@ const normGoal = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
  * weight, activity, weekly movement days) is a tune of the same plan → modify
  * in place, keeping the plan id and goals.
  *
- * Legacy plans created before `goalText` was persisted can't be diffed on text,
- * so for those only mode/start-date fork a new plan (a freshly typed goal won't
- * surprise-archive an old plan the user is just tweaking).
+ * A plan with no stored goal text (created with the box blank, or before
+ * `goalText` was persisted) counts as an empty goal, so typing one later forks a
+ * new plan rather than being silently dropped by a modify.
  */
 export function decidePlanEdit(plan: Plan, next: PlanEditAnswers): PlanEditDecision {
   if (next.mode !== plan.mode) return "new";
   if (next.startDate !== plan.startDate) return "new";
-  if (plan.goalText != null && normGoal(next.goalText) !== normGoal(plan.goalText)) return "new";
+  if (normGoal(next.goalText) !== normGoal(plan.goalText ?? "")) return "new";
   return "modify";
 }
 
@@ -245,8 +252,12 @@ export async function modifyPlanInPlace(
   patch: { endDate?: string; durationWeeks?: number; weeklyExerciseDays?: number },
   ctx: { currentProfile: Profile | null; currentGoals: Goals },
 ): Promise<CommitResult> {
-  const profile = mergeBodyIntoProfile(ctx.currentProfile ?? DEFAULT_PROFILE, body);
   const repo = await getRepository();
+  // Merge onto the stored profile, not App's possibly stale copy (see commitNewPlan).
+  const profile = mergeBodyIntoProfile(
+    (await repo.getProfile()) ?? ctx.currentProfile ?? DEFAULT_PROFILE,
+    body,
+  );
   await persist("your profile", repo.saveProfile(profile));
 
   const targets: PlanTargets = modeTracksFood(plan.mode)

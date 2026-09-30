@@ -19,6 +19,7 @@ import type { PlanInput } from "../features/plan/model";
 import { modeTracksFood } from "../features/plan/model";
 import type { WizardBody } from "../features/plan/planService";
 import { decidePlanEdit } from "../features/plan/planService";
+import { seedActivityLevel, wizardInputsValid } from "../features/plan/wizardRules";
 
 type Step = "disclaimer" | "mode" | "safety" | "inputs" | "review";
 
@@ -98,8 +99,9 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
   // in the cog is lost or re-typed; fall back to the same defaults as before
   // when there's no profile yet.
   const [age, setAge] = useState<number | undefined>(profile?.age ?? 30);
-  const [pregnant, setPregnant] = useState(false);
-  const [cardiacFlag, setCardiacFlag] = useState(false);
+  // Edit mode keeps the flags already declared on the plan (`?.` for legacy plans).
+  const [pregnant, setPregnant] = useState(editPlan?.safety?.pregnant ?? false);
+  const [cardiacFlag, setCardiacFlag] = useState(editPlan?.safety?.cardiacFlag ?? false);
   // Step 3 (inputs)
   const [goalText, setGoalText] = useState(editPlan?.goalText ?? "");
   const [startDate, setStartDate] = useState(editPlan?.startDate ?? todayISO());
@@ -109,7 +111,7 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
   const [weightKg, setWeightKg] = useState<number | undefined>(profile?.weightKg);
   const [goalWeightKg, setGoalWeightKg] = useState<number | undefined>(profile?.goalWeightKg);
   const [sex, setSex] = useState<Sex>(profile?.sex ?? "female");
-  const [activityLevel, setActivityLevel] = useState<ActivityLevel>(profile?.activityLevel ?? "moderate");
+  const [activityLevel, setActivityLevel] = useState<ActivityLevel>(seedActivityLevel(profile?.activityLevel));
   // No lose/maintain/gain selector — the goal weight vs current weight already
   // says it. Below = lose, above = gain, blank/equal = maintain.
   const direction: GoalDirection = deriveDirection(weightKg, goalWeightKg);
@@ -203,7 +205,7 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
     if (!isModify) void runPreview();
   };
 
-  const inputsValid = tracksFood ? heightCm != null && weightKg != null : true;
+  const inputsValid = wizardInputsValid(tracksFood, { age, heightCm, weightKg });
 
   /** The body stats to reconcile into the profile on commit (shared by the
    *  new-plan and modify-in-place paths). */
@@ -211,7 +213,8 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
     sex: tracksFood ? sex : undefined,
     heightCm: tracksFood ? heightCm : undefined,
     weightKg: tracksFood ? weightKg : undefined,
-    goalWeightKg: tracksFood && direction !== "maintain" ? goalWeightKg : undefined,
+    // Key present (even undefined) = the user cleared it; absent = not collected.
+    ...(tracksFood ? { goalWeightKg } : {}),
     age,
     ageBand,
     activityLevel,

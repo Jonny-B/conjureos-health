@@ -23,18 +23,23 @@ import type { AiJournalConsent } from "../types";
 export function SettingsSheet({
   goals,
   profile,
+  pendingUnits,
+  onUnitsChange,
   onClose,
   onSave,
   onDataCleared,
 }: {
   goals: Goals;
   profile: Profile | null;
+  /** The units chosen while there is no stored profile (kept by App). */
+  pendingUnits?: Profile["units"];
+  onUnitsChange?: (units: Profile["units"]) => void;
   onClose: () => void;
   onSave: (goals: Goals, profile: Profile) => void;
   /** Fired after any history clear so screens re-read their data. */
   onDataCleared?: () => void;
 }) {
-  const [units, setUnitsState] = useState<Profile["units"]>(profile?.units ?? "metric");
+  const [units, setUnitsState] = useState<Profile["units"]>(profile?.units ?? pendingUnits ?? "metric");
   const [consent, setConsent] = useState<AiJournalConsent | undefined>(undefined);
   const [policyOpen, setPolicyOpen] = useState(false);
   useScrollLock();
@@ -49,15 +54,22 @@ export function SettingsSheet({
   // Units is a display preference — apply + persist it the instant it's tapped
   // (not only on Save, which is easy to miss), so the choice can never be lost
   // by closing the sheet. NEVER fabricate a DEFAULT profile here (that once
-  // reverted real stats); with no stored profile the choice rides the next plan
-  // edit's profile write instead.
+  // reverted real stats); with no stored profile the choice is handed to App
+  // (`onUnitsChange`), which uses it everywhere and seeds the wizard with it.
   const setUnits = async (u: Profile["units"]) => {
     if (u === units) return;
     setUnitsState(u);
-    if (!profile) return;
+    if (!profile) {
+      onUnitsChange?.(u);
+      return;
+    }
     try {
       const repo = await getRepository();
-      const next: Profile = { ...profile, units: u };
+      // Build on the STORED profile: the consent controls below write it without
+      // telling App, so the `profile` prop can be stale and would bring a
+      // withdrawn consent back.
+      const base = (await repo.getProfile()) ?? profile;
+      const next: Profile = { ...base, units: u };
       await repo.saveProfile(next);
       onSave(goals, next);
     } catch {
