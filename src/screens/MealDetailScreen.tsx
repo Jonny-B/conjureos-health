@@ -11,7 +11,8 @@ import {
 } from "../features/servingUnits";
 import { parseServingGrams } from "../features/foods/serving";
 import { MEAL_LABELS, MEAL_TYPES } from "../types";
-import { getRepository } from "../data/repository";
+import { getRepository, type Repository } from "../data/repository";
+import { persist, reportSaveFailure } from "../data/saveFailure";
 import { entryMacros, isAiEstimate } from "../features/diary";
 import { recentFoodsForMeal, type RecentFood } from "../features/recentFoods";
 import { groupEntries, suggestGroupName } from "../features/grouping";
@@ -19,6 +20,58 @@ import { BarcodeIcon, CheckIcon, DiamondIcon, EditIcon, SearchIcon, TrashIcon } 
 import { AiEstimateBadge } from "../components/AiEstimateBadge";
 import { useScrollLock } from "../hooks/useScrollLock";
 import { NumberField } from "../components/NumberField";
+
+/**
+ * Save the per-serving numbers: calories whole, the rest to one decimal.
+ * Custom foods and label parses store fractional macros (fat 0.5 g), so whole
+ * grams would silently rewrite an entry the user only renamed or moved.
+ */
+export function roundPerServing(macros: Macros): Macros {
+  const r1 = (v: number) => Math.max(0, Math.round(v * 10) / 10);
+  return {
+    ...macros,
+    calories: Math.max(0, Math.round(macros.calories)),
+    protein: r1(macros.protein),
+    carbs: r1(macros.carbs),
+    fat: r1(macros.fat),
+  };
+}
+
+/**
+ * Collapse `parts` into one group entry: add the group, then remove the parts.
+ * If a write fails part-way, undo what was done (best effort) so the meal is
+ * never left holding both the group and its parts, then rethrow.
+ */
+export async function collapseIntoGroup(
+  repo: Pick<Repository, "addDiaryEntry" | "removeDiaryEntry">,
+  date: string,
+  meal: MealType,
+  food: FoodItem,
+  parts: DiaryEntry[],
+): Promise<void> {
+  const group = await repo.addDiaryEntry({ date, meal, quantity: 1, food });
+  const removed: DiaryEntry[] = [];
+  try {
+    for (const e of parts) {
+      await repo.removeDiaryEntry(e.id);
+      removed.push(e);
+    }
+  } catch (err) {
+    try {
+      await repo.removeDiaryEntry(group.id);
+    } catch {
+      /* best effort: the original failure is what gets reported */
+    }
+    for (const e of removed) {
+      try {
+        await repo.addDiaryEntry({ date: e.date, meal: e.meal, quantity: e.quantity, food: e.food });
+      } catch {
+        /* best effort */
+      }
+    }
+    throw err;
+  }
+}
 
 interface Props {
   date: string;
@@ -63,6 +116,7 @@ export function MealDetailScreen({
   const [entries, setEntries] = useState<DiaryEntry[] | null>(null);
   // The entry currently open in the edit modal, or null.
   const [editing, setEditing] = useState<DiaryEntry | null>(null);
+  const writing = useRef(false);
   // Multi-select mode for collapsing several logged foods into one saved group.
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -83,9 +137,16 @@ export function MealDetailScreen({
   const updateQty = async (entry: DiaryEntry, delta: number) => {
     const next = Math.round((entry.quantity + delta) * 4) / 4; // 0.25 steps
     if (next < 0.25) return;
-    const repo = await getRepository();
-    await repo.updateDiaryEntry(entry.id, { quantity: next });
-    onMutated();
+    // One write at a time: a second tap while one is in flight is dropped.
+    if (writing.current) return;
+    writing.current = true;
+    try {
+      const repo = await getRepository();
+      const ok = await persist("that change", repo.updateDiaryEntry(entry.id, { quantity: next }));
+      if (ok) onMutated();
+    } finally {
+      writing.current = false;
+    }
   };
 
   const list = entries ?? [];
@@ -216,12 +277,21 @@ export function MealDetailScreen({
           onCancel={() => setNaming(false)}
           onDone={async (name: string) => {
             const food = groupEntries(selected, name);
-            if (!food) return;
-            const repo = await getRepository();
-            // Replace, not add: the parts collapse INTO the group, so the meal
-            // total is unchanged and the diary doesn't double-count.
-            await repo.addDiaryEntry({ date, meal, quantity: 1, food });
-            for (const e of selected) await repo.removeDiaryEntry(e.id);
+            if (!food || writing.current) return;
+            writing.current = true;
+            try {
+              const repo = await getRepository();
+              // Replace, not add: the parts collapse INTO the group, so the meal
+              // total is unchanged and the diary doesn't double-count.
+              await collapseIntoGroup(repo, date, meal, food, selected);
+            } catch (err) {
+              // Stay open so the same tap can be retried; a partial write was undone.
+              reportSaveFailure("that group", err);
+              onMutated();
+              return;
+            } finally {
+              writing.current = false;
+            }
             setNaming(false);
             exitSelect();
             onMutated();
@@ -515,13 +585,7 @@ function EntryEditModal({
       name: trimmed.slice(0, 80),
       servingSize: serving.trim() || entry.food.servingSize,
       ...(servingGrams ? { servingGrams: Math.round(servingGrams * 10) / 10 } : {}),
-      perServing: {
-        ...macros,
-        calories: Math.max(0, Math.round(macros.calories)),
-        protein: Math.max(0, Math.round(macros.protein)),
-        carbs: Math.max(0, Math.round(macros.carbs)),
-        fat: Math.max(0, Math.round(macros.fat)),
-      },
+      perServing: roundPerServing(macros),
     };
     if (!servingGrams) delete food.servingGrams;
     try {
