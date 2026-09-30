@@ -16,6 +16,7 @@
 import type { FoodItem, FoodSource } from "../../types";
 import { newId } from "../../data/id";
 import { parseServingGrams } from "./serving";
+import { coerceFinite } from "../num";
 
 /**
  * The nutrition block both prompts ask for, verbatim. Sharing the text is the
@@ -61,9 +62,8 @@ export function clamp01(v: unknown): number {
  *  saturating an impossible reading is how a bad upstream figure became a
  *  confident 10,000 calories once already. */
 function inRange(v: unknown, max: number): number | null {
-  if (v == null) return null;
-  const n = typeof v === "number" ? v : Number(v);
-  if (!Number.isFinite(n) || n < 0 || n > max) return null;
+  const n = coerceFinite(v);
+  if (n == null || n < 0 || n > max) return null;
   return Math.round(n * 10) / 10;
 }
 
@@ -132,7 +132,8 @@ export function buildParsedFood(
 
   // The model's figure first, then the serving label, which nearly always
   // carries the weight in words even when the field comes back empty.
-  const grams = inRange(o.servingGrams, 5000) ?? parseServingGrams(servingSize);
+  const g = inRange(o.servingGrams, 5000);
+  const grams = g != null && g > 0 ? g : parseServingGrams(servingSize);
   if (grams != null && grams > 0) food.servingGrams = grams;
 
   return food;

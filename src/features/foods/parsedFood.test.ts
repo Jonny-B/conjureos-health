@@ -105,4 +105,47 @@ describe("gates and guards", () => {
     expect(r.food.barcode).toBe("0028400759038");
     expect(r.food.id).toBe("0028400759038");
   });
+
+  it("h-foods#4: servingGrams of 0 falls back to parsing the serving label", () => {
+    // A model reply of servingGrams: 0 should trigger the parseServingGrams fallback
+    const r = label({ servingGrams: 0 })!;
+    expect(r.food.servingGrams).toBe(43);
+  });
+
+  it("h-foods#4: servingGrams of null falls back to parsing the serving label", () => {
+    const r = label({ servingGrams: null })!;
+    expect(r.food.servingGrams).toBe(43);
+  });
+
+  it("h-foods#5: blank protein string is rejected, not coerced to 0", () => {
+    // A blank string for protein should reject the entire parse
+    expect(label({ protein: "" })).toBeNull();
+  });
+
+  it("h-foods#5: blank calories string is rejected, not coerced to 0", () => {
+    // A blank string for calories should reject the entire parse
+    expect(label({ calories: "" })).toBeNull();
+  });
+
+  it("h-foods#5: false value for a macro is rejected", () => {
+    // false coerces to 0 in Number(), but should be rejected
+    expect(label({ protein: false as unknown })).toBeNull();
+  });
+
+  it("h-foods#5: array value for a macro is rejected", () => {
+    // [] coerces to 0 in Number(), but should be rejected
+    expect(label({ carbs: [] as unknown })).toBeNull();
+  });
+
+  it("h-foods#5: blank fiber becomes undefined, not 0", () => {
+    // A blank string for fiber (a micro) should leave it undefined
+    const r = label({ fiber: "" })!;
+    expect(r.food.micros?.fiber).toBeUndefined();
+  });
+
+  it("h-foods#5: false sodium becomes undefined, not 0", () => {
+    // false for sodium should leave it undefined
+    const r = label({ sodium: false as unknown })!;
+    expect(r.food.micros?.sodium).toBeUndefined();
+  });
 });
