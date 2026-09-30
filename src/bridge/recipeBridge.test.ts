@@ -197,12 +197,168 @@ describe("discover() present but empty (no provider, or cross-app disabled)", ()
     expect(discover).toHaveBeenCalledTimes(2);
   });
 
-  it("treats a discover() rejection like an empty result", async () => {
+  it("treats a discover() rejection with another code (e.g. PERMISSION_DENIED) like an empty result", async () => {
     const invoke = vi.fn();
-    installBridge({ invoke, discover: vi.fn().mockRejectedValue(new Error("boom")) });
+    const list = vi.fn();
+    installBridge({
+      invoke,
+      list,
+      discover: vi.fn().mockRejectedValue(Object.assign(new Error("no"), { code: "PERMISSION_DENIED" })),
+    });
 
     expect(await listRecipes()).toEqual([]);
+    expect(await getRecipe("lemon-orzo")).toBeNull();
     expect(invoke).not.toHaveBeenCalled();
+    expect(list).not.toHaveBeenCalled();
+    expect(getRecipeProviderMatches()).toEqual([]);
+  });
+});
+
+describe("discover() present but rejecting NOT_REGISTERED / code-less (mobile shell)", () => {
+  const LEGACY_APP = [
+    {
+      appPath: "/apps/renamed-recipes",
+      displayName: "Recipes",
+      actions: [
+        { name: "getRecipe", permission: "actions.read" },
+        { name: "listRecipes", permission: "actions.read" },
+      ],
+    },
+  ];
+
+  it("falls back to the legacy list() scan with literal action names and no normalize", async () => {
+    const invoke = vi.fn().mockImplementation(async (_p: string, action: string) =>
+      action === "getRecipe" ? { recipe: RECIPE } : { recipes: [RECIPE] },
+    );
+    const discover = vi
+      .fn()
+      .mockRejectedValue(Object.assign(new Error("nope"), { code: "NOT_REGISTERED" }));
+    installBridge({ invoke, discover, list: vi.fn().mockResolvedValue(LEGACY_APP) });
+
+    expect(await listRecipes()).toEqual([RECIPE]);
+    expect(await getRecipe("lemon-orzo")).toEqual(RECIPE);
+    expect(invoke).toHaveBeenCalledWith("/apps/renamed-recipes", "listRecipes", {
+      filter: undefined,
+      limit: 100,
+    });
+    expect(invoke).toHaveBeenCalledWith("/apps/renamed-recipes", "getRecipe", {
+      slug: "lemon-orzo",
+    });
+    for (const call of invoke.mock.calls) expect(call).toHaveLength(3); // no opts / normalize
+    expect(getRecipeProviderMatches()).toEqual([]);
+  });
+
+  it("also falls back when the rejection carries no code", async () => {
+    const invoke = vi.fn().mockResolvedValue({ recipes: [RECIPE] });
+    installBridge({
+      invoke,
+      discover: vi.fn().mockRejectedValue(new Error("boom")),
+      list: vi.fn().mockResolvedValue(LEGACY_APP),
+    });
+
+    expect(await listRecipes()).toEqual([RECIPE]);
+    expect(invoke.mock.calls[0]?.[0]).toBe("/apps/renamed-recipes");
+  });
+});
+
+describe("provider output is validated (h-bridge#7)", () => {
+  function installProvider(recipes: unknown[]) {
+    installBridge({
+      invoke: vi.fn().mockResolvedValue({ recipes }),
+      discover: vi.fn().mockResolvedValue([EXACT_MATCH]),
+    });
+  }
+
+  it("defaults missing macros to 0 and accepts numeric strings", async () => {
+    installProvider([
+      { ...RECIPE, slug: "a", nutrition: { calories: 320, protein: 22 } },
+      { ...RECIPE, slug: "b", nutrition: { calories: "320", protein: "22", carbs: "x", fat: -5 } },
+    ]);
+
+    const [a, b] = await listRecipes();
+    expect(a!.nutrition).toEqual({ calories: 320, protein: 22, fat: 0, carbs: 0 });
+    expect(b!.nutrition).toEqual({ calories: 320, protein: 22, fat: 0, carbs: 0 });
+  });
+
+  it("nulls nutrition without a valid calories value, and clamps absurd values", async () => {
+    installProvider([
+      { ...RECIPE, slug: "a", nutrition: {} },
+      { ...RECIPE, slug: "b", nutrition: { calories: Number.NaN, protein: 1 } },
+      { ...RECIPE, slug: "c", nutrition: { calories: -1 } },
+      { ...RECIPE, slug: "d", nutrition: "lots" },
+      { ...RECIPE, slug: "e", nutrition: undefined },
+      { ...RECIPE, slug: "f", nutrition: { calories: 1e9, protein: 1e9, fat: 1, carbs: 1 } },
+    ]);
+
+    const out = await listRecipes();
+    expect(out.slice(0, 5).map((r) => r.nutrition)).toEqual([null, null, null, null, null]);
+    expect(out[5]!.nutrition).toEqual({ calories: 20000, protein: 2000, fat: 1, carbs: 1 });
+  });
+
+  it("drops items without a string slug/title instead of throwing, and fills defaults", async () => {
+    installProvider([
+      { ...RECIPE, title: undefined },
+      { ...RECIPE, slug: 7 },
+      null,
+      "junk",
+      { slug: "bare", title: "Bare", servings: 0, ingredients: ["ok", 3], madeCount: -2 },
+    ]);
+
+    expect(await listRecipes()).toEqual([
+      {
+        slug: "bare",
+        title: "Bare",
+        servings: 1,
+        ingredients: ["ok"],
+        savedAt: "",
+        madeCount: 0,
+        nutrition: null,
+      },
+    ]);
+  });
+
+  it("returns [] when the provider's recipes is not an array", async () => {
+    installProvider([]);
+    installBridge({
+      invoke: vi.fn().mockResolvedValue({ recipes: { not: "an array" } }),
+      discover: vi.fn().mockResolvedValue([EXACT_MATCH]),
+    });
+    expect(await listRecipes()).toEqual([]);
+  });
+
+  it("getRecipe normalises on the discovered path", async () => {
+    installProvider([{ ...RECIPE, nutrition: { calories: 100 } }]);
+    expect((await getRecipe("lemon-orzo"))!.nutrition).toEqual({
+      calories: 100,
+      protein: 0,
+      fat: 0,
+      carbs: 0,
+    });
+  });
+
+  it("getRecipe / listRecipes normalise on the legacy path", async () => {
+    const invoke = vi.fn().mockImplementation(async (_p: string, action: string) =>
+      action === "getRecipe"
+        ? { recipe: { ...RECIPE, nutrition: { calories: 100, protein: "5" } } }
+        : { recipes: [{ ...RECIPE, title: undefined }, RECIPE] },
+    );
+    installBridge({ invoke, list: vi.fn().mockResolvedValue([]) });
+
+    expect((await getRecipe("lemon-orzo"))!.nutrition).toEqual({
+      calories: 100,
+      protein: 5,
+      fat: 0,
+      carbs: 0,
+    });
+    expect(await listRecipes()).toEqual([RECIPE]);
+  });
+
+  it("getRecipe returns null for a legacy recipe lacking a title", async () => {
+    installBridge({
+      invoke: vi.fn().mockResolvedValue({ recipe: { ...RECIPE, title: "" } }),
+      list: vi.fn().mockResolvedValue([]),
+    });
+    expect(await getRecipe("lemon-orzo")).toBeNull();
   });
 });
 

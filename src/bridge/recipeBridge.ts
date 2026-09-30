@@ -14,7 +14,8 @@
  *      normal state — no provider installed, or the user disabled cross-app
  *      connections — and degrades to "no recipes" ([] / null) quietly. It is
  *      re-checked on the next call so installing a provider mid-session works.
- *   2. **Legacy hosts** (no `discover`): the pre-45 `actions.list()` scan for
+ *   2. **Legacy hosts** (no `discover`, or `discover` rejecting
+ *      `NOT_REGISTERED` as on mobile): the pre-45 `actions.list()` scan for
  *      an app exposing `getRecipe`, invoking literal action names.
  *   3. **No bridge at all** (plain `npm run dev` outside ConjureOS): bundled
  *      mock recipes.
@@ -116,6 +117,60 @@ function actions() {
   return window.__conjureos?.actions;
 }
 
+// ── Provider output validation ───────────────────────────────────────────
+// The `recipeSource` need leaves `nutrition` unconstrained and the platform
+// does not schema-check provider output, so everything a provider returns is
+// untrusted: normalise it here so consumers (the Add screen, logRecipeMeal)
+// never see undefined / NaN / string macros or a recipe without a title.
+
+const MAX_CALORIES = 20000;
+const MAX_MACRO_G = 2000;
+
+/** A finite non-negative number, accepting numeric strings ("320"); else null. */
+function toNonNegative(v: unknown): number | null {
+  const n =
+    typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function normalizeNutrition(raw: unknown): RecipeNutrition | null {
+  if (!raw || typeof raw !== "object") return null;
+  const n = raw as Record<string, unknown>;
+  const calories = toNonNegative(n.calories);
+  if (calories === null) return null;
+  const macro = (v: unknown) => Math.min(toNonNegative(v) ?? 0, MAX_MACRO_G);
+  return {
+    calories: Math.min(calories, MAX_CALORIES),
+    protein: macro(n.protein),
+    fat: macro(n.fat),
+    carbs: macro(n.carbs),
+  };
+}
+
+/** Coerce one provider item into a {@link ListedRecipe}, or null when it has no usable slug/title. */
+function normalizeRecipe(raw: unknown): ListedRecipe | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.slug !== "string" || r.slug === "") return null;
+  if (typeof r.title !== "string" || r.title === "") return null;
+  const servings = typeof r.servings === "number" && Number.isFinite(r.servings) && r.servings > 0;
+  return {
+    slug: r.slug,
+    title: r.title,
+    servings: servings ? (r.servings as number) : 1,
+    ingredients: Array.isArray(r.ingredients)
+      ? r.ingredients.filter((i): i is string => typeof i === "string")
+      : [],
+    savedAt: typeof r.savedAt === "string" ? r.savedAt : "",
+    madeCount: typeof r.madeCount === "number" ? (toNonNegative(r.madeCount) ?? 0) : 0,
+    nutrition: normalizeNutrition(r.nutrition),
+  };
+}
+
+function normalizeList(raw: unknown): ListedRecipe[] {
+  return Array.isArray(raw) ? raw.flatMap((r) => normalizeRecipe(r) ?? []) : [];
+}
+
 /** Whether cross-app invocation exists at all. False outside ConjureOS —
  *  the read helpers then serve mock recipes so the flow stays walkable. */
 export function isRecipeBridgeAvailable(): boolean {
@@ -178,19 +233,30 @@ async function doResolve(): Promise<ResolvedProvider> {
   if (!a?.invoke) return { kind: "mock" };
 
   if (typeof a.discover === "function") {
-    let matches: ProviderMatch[] = [];
+    // Branch on the rejection, not on typeof: the mobile shell exposes
+    // discover() but rejects NOT_REGISTERED, which (like a code-less failure)
+    // means "no discovery here" and falls through to the legacy scan below.
+    // Any other code (PERMISSION_DENIED, timeout) degrades to "no provider".
+    let matches: ProviderMatch[] | null = null;
     try {
       matches = (await a.discover(NEED_ID)) ?? [];
-    } catch {
-      matches = []; // discovery failure degrades like "no provider"
+    } catch (err) {
+      const code = (err as { code?: unknown } | null)?.code;
+      if (code && code !== "NOT_REGISTERED") {
+        lastMatches = [];
+        return { kind: "none" };
+      }
     }
-    lastMatches = matches;
-    if (matches.length === 0) return { kind: "none" };
-    // Prefer the first exact structural match; otherwise take the platform's
-    // top-ranked ai-mapped provider. The full list stays available via
-    // getRecipeProviderMatches() for a future picker UI.
-    const match = matches.find((m) => m.binding === "exact") ?? matches[0]!;
-    return { kind: "discovered", match };
+    if (matches) {
+      lastMatches = matches;
+      if (matches.length === 0) return { kind: "none" };
+      // Prefer the first exact structural match; otherwise take the platform's
+      // top-ranked ai-mapped provider. The full list stays available via
+      // getRecipeProviderMatches() for a future picker UI.
+      const match = matches.find((m) => m.binding === "exact") ?? matches[0]!;
+      return { kind: "discovered", match };
+    }
+    lastMatches = [];
   }
 
   // Legacy host: resolve the installed Recipes app path by scanning for
@@ -250,13 +316,13 @@ export async function listRecipes(filter?: string): Promise<ListedRecipe[]> {
         provider.match.action,
         { filter, limit: 100 },
         { normalize: NEED_ID },
-      )) as { recipes?: ListedRecipe[] };
-      return res?.recipes ?? [];
+      )) as { recipes?: unknown };
+      return normalizeList(res?.recipes);
     }
     const res = (await a.invoke(provider.appPath, "listRecipes", { filter, limit: 100 })) as {
-      recipes?: ListedRecipe[];
+      recipes?: unknown;
     };
-    return res?.recipes ?? [];
+    return normalizeList(res?.recipes);
   } catch {
     return [];
   }
@@ -287,8 +353,8 @@ export async function getRecipe(slug: string): Promise<ListedRecipe | null> {
         provider.match.action,
         { limit: 500 },
         { normalize: NEED_ID },
-      )) as { recipes?: ListedRecipe[] };
-      return res?.recipes?.find((r) => r.slug === slug) ?? null;
+      )) as { recipes?: unknown };
+      return normalizeList(res?.recipes).find((r) => r.slug === slug) ?? null;
     } catch (err) {
       // The provider being closed is recoverable, not a real miss: surface it
       // so the caller (and ultimately the orchestrator) can open the app and
@@ -300,9 +366,9 @@ export async function getRecipe(slug: string): Promise<ListedRecipe | null> {
 
   try {
     const res = (await a.invoke(provider.appPath, "getRecipe", { slug })) as {
-      recipe?: ListedRecipe | null;
+      recipe?: unknown;
     };
-    return res?.recipe ?? null;
+    return normalizeRecipe(res?.recipe);
   } catch (err) {
     if (isTargetClosed(err)) throw new RecipesAppClosedError(provider.appPath);
     return null;
