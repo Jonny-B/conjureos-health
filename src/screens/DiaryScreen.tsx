@@ -11,6 +11,7 @@ import { AskCoachCard } from "../components/AskCoachCard";
 import { WellbeingCard } from "../components/WellbeingCard";
 import { CoachChatModal } from "../components/CoachChatModal";
 import { exerciseCaloriesForDate } from "../features/exercise";
+import { exerciseFor, type ExerciseDay } from "../features/selectedDate";
 import { planTracksCalories } from "../features/plan/model";
 
 interface Props {
@@ -45,8 +46,10 @@ export function DiaryScreen({
   onMutated,
 }: Props) {
   const [view, setView] = useState<DayView | null>(null);
-  // Exercise calories for the day — added back to the budget.
-  const [exercise, setExercise] = useState(0);
+  // Exercise calories for the day — added back to the budget. Tagged with its
+  // date so a slow read never shows the previous day's burn on the new day.
+  const [exerciseDay, setExerciseDay] = useState<ExerciseDay | null>(null);
+  const exercise = exerciseFor(exerciseDay, date);
   // The question in flight; non-null also means the chat sheet is open.
   const [asking, setAsking] = useState<string | null>(null);
 
@@ -59,7 +62,7 @@ export function DiaryScreen({
       // Exercise calories = wearable (Apple Health, etc.) + in-app sessions,
       // added together, minus any the user removed. See features/exercise.
       const burned = await exerciseCaloriesForDate(date).catch(() => 0);
-      if (alive) setExercise(burned);
+      if (alive) setExerciseDay({ date, calories: burned });
     })();
     return () => {
       alive = false;

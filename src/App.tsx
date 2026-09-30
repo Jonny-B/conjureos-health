@@ -5,6 +5,7 @@ import { getRepository } from "./data/repository";
 import { registerActions } from "./bridge/actions";
 import { readLaunchIntent } from "./bridge/intents";
 import { todayISO } from "./features/diary";
+import { msUntilNextMidnight, pinSelectedDate, resolveSelectedDate } from "./features/selectedDate";
 import { onDataChanged } from "./features/dataEvents";
 import { writeNutritionSummary } from "./features/sharedSummary";
 import {
@@ -52,7 +53,11 @@ function mealForNow(): MealType {
  */
 export function App() {
   const [tab, setTab] = useState<Tab>("diary");
-  const [date, setDate] = useState<string>(todayISO());
+  // null = following today (moves on at midnight); a string = a date the user
+  // or a deep link chose on purpose. See features/selectedDate.
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [today, setToday] = useState<string>(todayISO());
+  const date = resolveSelectedDate(selectedDate, today);
   const [goals, setGoals] = useState<Goals>(DEFAULT_GOALS);
   const [profile, setProfile] = useState<Profile | null>(null);
   // Units picked in Settings while there is no stored profile (never fabricate
@@ -120,18 +125,42 @@ export function App() {
     };
   }, []);
 
+  // Notice the local day changing while the app stays open (or returns from the
+  // background): a timer to the next midnight, re-checked on focus/visibility
+  // because timers are throttled or paused while hidden.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = () => {
+      setToday(todayISO());
+      clearTimeout(timer);
+      timer = setTimeout(refresh, msUntilNextMidnight());
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    timer = setTimeout(refresh, msUntilNextMidnight());
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+
   // A cross-app action wrote something (another app logged a food, the
   // assistant fixed a quantity): refresh whatever is on screen.
   useEffect(() => onDataChanged(() => setNonce((n) => n + 1)), []);
 
   // Keep the summary ConjureOS may read (see features/sharedSummary) current:
   // once after startup, then after each change, settling for a moment so a
-  // burst of writes rewrites it once.
+  // burst of writes rewrites it once. The plan, goals and units are App state
+  // that edits change without bumping `nonce`, and the summary reads them.
   useEffect(() => {
     if (!ready) return;
     const t = setTimeout(() => void writeNutritionSummary(), 1500);
     return () => clearTimeout(t);
-  }, [ready, nonce]);
+  }, [ready, nonce, plan, goals, profile?.units]);
 
   // The diary's rings read from the plan's targets when it tracks food, falling
   // back to the separately-stored goals otherwise.
@@ -156,7 +185,7 @@ export function App() {
     let alive = true;
     void readLaunchIntent().then((intent) => {
       if (!alive || !intent) return;
-      if (intent.date) setDate(intent.date);
+      if (intent.date) setSelectedDate(pinSelectedDate(intent.date, todayISO()));
       if (intent.kind === "addFood") {
         openAdd(intent.meal ?? mealForNow());
         // After openAdd, which clears any earlier prefill.
@@ -245,6 +274,10 @@ export function App() {
   if (ready && planWizardOpen) {
     return (
       <div className="app">
+        {/* Same child position as the notice in the main tree below, so it
+            stays mounted (and keeps its message) when the wizard closes. */}
+        {null}
+        <SaveFailedNotice />
         <main className="screen">
           <WizardScreen
             onComplete={onWizardComplete}
@@ -276,7 +309,7 @@ export function App() {
       nonce={nonce}
       plan={plan}
       profile={profile}
-      onChangeDate={setDate}
+      onChangeDate={(d) => setSelectedDate(pinSelectedDate(d, todayISO()))}
       onOpenMeal={openMeal}
       onOpenPlan={() => setTab("plan")}
       onOpenExercise={() => setTab("exercise")}
