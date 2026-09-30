@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Goals, Plan, Profile, WeightEntry } from "../types";
 import { DEFAULT_GOALS } from "../types";
 import { getRepository } from "../data/repository";
+import { persist } from "../data/saveFailure";
 import { todayISO } from "../features/diary";
 import { bmi } from "../features/goals";
 import { modeTracksFood } from "../features/plan/model";
@@ -52,13 +53,14 @@ export function PlanScreen({
       {plan && (plan.weeklyExerciseDays ?? 0) > 0 && (
         <ExerciseGoalSection target={plan.weeklyExerciseDays!} nonce={nonce} />
       )}
-      <TrendsPanel profile={profile} />
+      <TrendsPanel profile={profile} nonce={nonce} />
     </div>
   );
 }
 
 /** The plan's headline + the "Edit plan" entry point. */
 function PlanHeaderSection({ plan, onEditPlan }: { plan: Plan; onEditPlan: () => void }) {
+  const summary = planSummaryLine(plan);
   return (
     <section className="plan-section">
       <div className="section-label">
@@ -70,14 +72,26 @@ function PlanHeaderSection({ plan, onEditPlan }: { plan: Plan; onEditPlan: () =>
         </span>
       </div>
       {plan.goalText && <p className="plan-goal-text">{plan.goalText}</p>}
-      <p className="muted small">
-        {plan.targets?.dailyCalories != null
-          ? `${plan.targets.dailyCalories.toLocaleString()} cal a day`
-          : "Daily targets below"}
-        {plan.endDate ? ` · until ${plan.endDate}` : ""}
-      </p>
+      {summary && <p className="muted small">{summary}</p>}
     </section>
   );
+}
+
+/**
+ * The header's one-line summary. A plan that doesn't track food (logging_only)
+ * shows no calorie target and no "Daily targets below" (nothing renders below).
+ */
+export function planSummaryLine(plan: Plan): string {
+  const parts: string[] = [];
+  if (modeTracksFood(plan.mode)) {
+    parts.push(
+      plan.targets?.dailyCalories != null
+        ? `${plan.targets.dailyCalories.toLocaleString()} cal a day`
+        : "Daily targets below",
+    );
+  }
+  if (plan.endDate) parts.push(`until ${plan.endDate}`);
+  return parts.join(" · ");
 }
 
 // ── Daily targets (advanced manual override) ───────────────────────────
@@ -259,29 +273,45 @@ function ExerciseGoalSection({ target, nonce = 0 }: { target: number; nonce?: nu
 
 // ── Trends ─────────────────────────────────────────────────────────────
 
-function TrendsPanel({ profile }: { profile: Profile | null }) {
+/** Run a weigh-in write; on failure tell the user and resolve false. */
+export function saveWeighIn(write: () => Promise<unknown>): Promise<boolean> {
+  return persist("your weight", (async () => write())());
+}
+
+function TrendsPanel({ profile, nonce = 0 }: { profile: Profile | null; nonce?: number }) {
   const [weights, setWeights] = useState<WeightEntry[]>([]);
   const [input, setInput] = useState("");
+  const saving = useRef(false);
 
   const reload = async () => {
     const repo = await getRepository();
     setWeights(await repo.listWeights());
   };
+  // Re-read on nonce: Settings can clear weight history, another app can log one.
   useEffect(() => {
-    reload();
-  }, []);
+    void reload();
+  }, [nonce]);
 
   const units = profile?.units ?? "metric";
 
   const add = async () => {
     const shown = Number(input);
     if (!Number.isFinite(shown) || shown <= 0) return;
-    const kg = weightToKg(shown, units);
-    const repo = await getRepository();
-    // Store kg to 2 decimals so a 1-decimal lb entry (0.1 lb ≈ 0.045 kg) round-trips.
-    await repo.upsertWeight({ date: todayISO(), weightKg: Math.round(kg * 100) / 100 });
-    setInput("");
-    await reload();
+    if (saving.current) return;
+    saving.current = true;
+    try {
+      const kg = weightToKg(shown, units);
+      // Store kg to 2 decimals so a 1-decimal lb entry (0.1 lb ≈ 0.045 kg) round-trips.
+      const saved = await saveWeighIn(async () => {
+        const repo = await getRepository();
+        await repo.upsertWeight({ date: todayISO(), weightKg: Math.round(kg * 100) / 100 });
+      });
+      if (!saved) return; // keep the typed weight so the user can retry
+      setInput("");
+      await reload();
+    } finally {
+      saving.current = false;
+    }
   };
 
   // Graceful "last known weight": newest weigh-in, else the plan/profile weight;
