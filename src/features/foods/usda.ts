@@ -109,10 +109,10 @@ function toFoodItem(f: FdcFood): FoodItem | null {
 }
 
 function titleCase(s: string): string {
-  // USDA descriptions are ALL CAPS or comma-segmented; show the leading,
-  // human-readable segment in title case.
-  const head = s.split(",")[0]!.toLowerCase();
-  return head.replace(/\b\w/g, (c) => c.toUpperCase());
+  // Keep full descriptions to distinguish between variants (e.g., raw vs
+  // cooked chicken). Title-case with regex that capitalizes only after word
+  // boundaries that matter: start, whitespace, parenthesis, slash, or dash.
+  return s.trim().toLowerCase().replace(/(^|[\s(/-])([a-z])/g, (_, p, c) => p + c.toUpperCase());
 }
 
 /** Search USDA FoodData Central. Strong on whole/generic foods, weak on
