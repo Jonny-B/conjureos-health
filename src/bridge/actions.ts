@@ -37,6 +37,7 @@
  * side-effect-free; writes trigger ConjureOS's one-time per-caller grant.
  */
 
+import { healthConsentGranted } from "../features/healthConsent";
 import type { Macros, MealType, WorkoutSession } from "../types";
 import { MEAL_TYPES } from "../types";
 import { getRepository } from "../data/repository";
@@ -636,10 +637,28 @@ async function recentWellbeing(raw?: unknown): Promise<{ days: WellbeingDay[] }>
  * support registration. Keep the handler set in sync with the `conjureos.actions`
  * block in package.json — that's the schema the host validates against.
  */
+/**
+ * Every action refuses while there is no consent to collect health data on
+ * file (features/healthConsent.ts). App registers actions only after consent,
+ * but registration outlives a withdrawal mid-session, so each call checks too.
+ */
+function requireHealthConsent<H extends Record<string, (...args: never[]) => unknown>>(handlers: H): H {
+  const out: Record<string, (...args: never[]) => unknown> = {};
+  for (const [name, fn] of Object.entries(handlers)) {
+    out[name] = (...args: never[]) => {
+      if (!healthConsentGranted()) {
+        throw new Error("Conjure Health does not have permission to keep health data yet. Open Conjure Health to agree.");
+      }
+      return fn(...args);
+    };
+  }
+  return out as H;
+}
+
 export async function registerActions(): Promise<void> {
   const bridge = window.__conjureos?.actions;
   if (!bridge?.register) return; // not inside ConjureOS, or host too old
-  await bridge.register({
+  await bridge.register(requireHealthConsent({
     logFood,
     todayTotals,
     dayNutrition,
@@ -654,5 +673,5 @@ export async function registerActions(): Promise<void> {
     deleteEntry,
     dayWellbeing,
     recentWellbeing,
-  });
+  }));
 }

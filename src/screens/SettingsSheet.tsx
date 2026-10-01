@@ -37,6 +37,7 @@ export function SettingsSheet({
   onSave,
   onPlanChange,
   onDataCleared,
+  onWithdrawHealthConsent,
 }: {
   goals: Goals;
   profile: Profile | null;
@@ -47,6 +48,8 @@ export function SettingsSheet({
   onPlanChange: (plan: Plan) => void;
   /** Fired after any history clear so screens re-read their data. */
   onDataCleared?: () => void;
+  /** Withdraw consent to collect health data: App returns to the consent screen. */
+  onWithdrawHealthConsent?: () => void;
 }) {
   const [units, setUnitsState] = useState<Profile["units"]>(profile?.units ?? "metric");
   // The program sub-view (Edit workouts) is only ever entered directly via
@@ -129,8 +132,10 @@ export function SettingsSheet({
           <div className="section-label">Privacy</div>
           <div className="privacy-block">
             <p className="muted small">
-              Your journal stays on your device and in your ConjureOS account. One feature
-              sends part of it out: <strong>Find patterns</strong> on the Journal tab.
+              Your journal stays on your device and in your ConjureOS account. Building a plan
+              and logging food from a description or photo send what they need to an AI.{" "}
+              <strong>Find patterns</strong> and the food coach also send part of your journal,
+              and only with the agreement below.
             </p>
             {consentIsCurrent(consent) ? (
               <>
@@ -169,6 +174,25 @@ export function SettingsSheet({
             <button className="btn small ghost" onClick={() => setPolicyOpen(true)}>
               Consumer Health Data Privacy
             </button>
+            {onWithdrawHealthConsent && (
+              <>
+                <p className="muted small">
+                  You agreed to let this app collect and store your health data. Withdrawing stops
+                  all collection at once and takes you back to the agreement screen. To delete
+                  what is already stored, use Reset health data below first.
+                </p>
+                <button
+                  className="btn small ghost"
+                  onClick={() => {
+                    if (window.confirm("Stop this app collecting your health data? You can agree again later.")) {
+                      onWithdrawHealthConsent();
+                    }
+                  }}
+                >
+                  Withdraw consent to collect health data
+                </button>
+              </>
+            )}
           </div>
 
           {/* Reset shown inline (no expand-in-place): the sheet is bottom-anchored,

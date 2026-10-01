@@ -111,8 +111,14 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
           <h3>Your choices and rights</h3>
           <ul className="consent-list">
             <li>
-              Find patterns and the coach send nothing until you agree. The first time, you
-              are shown exactly what would be sent and can decline.
+              Conjure Health collects nothing until you agree on its first screen. You can
+              withdraw that agreement at any time in Settings, under Privacy, and collection
+              stops at once.
+            </li>
+            <li>
+              Find patterns and the coach send nothing from your journal until you agree to that
+              separately. The first time, you are shown exactly what would be sent and can
+              decline.
             </li>
             <li>
               The free-text note on a symptom is a separate choice, off unless you turn it on.
