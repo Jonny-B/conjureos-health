@@ -1,6 +1,6 @@
 {
   "name": "conjureos-fitness",
-  "version": "1.40.0",
+  "version": "1.40.1",
   "description": "Conjure Health: calorie + nutrition logging, daily targets, weight tracking, and a simple weight-loss plan for ConjureOS.",
   "type": "module",
   "license": "MIT",
@@ -860,7 +860,9 @@
       "How many calories do I have left today?",
       "I slept from 11:30 to 6:45, log that",
       "Log a 16 oz water and that I have a headache"
-    ]
+    ],
+    "editStyle": "locked",
+    "editable": false
   },
   "scripts": {
     "dev": "vite",
