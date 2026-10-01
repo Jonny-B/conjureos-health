@@ -19,14 +19,14 @@
  * would authorize nothing. Its lists must match bridge/actions.ts and
  * features/sharedSummary.ts.
  *
- * This is a plain-language policy written against how the app behaves. It is
- * not legal advice and has not been through counsel.
+ * Plain-language policy written against how the app behaves. Final copy as of
+ * 2026-10-01 (POLICY_UPDATED); keep it true when a data flow changes.
  */
 
 import { DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features/aiConsent";
 
 /** Last material revision. Shown so a reader can tell what they agreed to. */
-export const POLICY_UPDATED = "2026-09-30";
+export const POLICY_UPDATED = "2026-10-01";
 
 export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
   return (
