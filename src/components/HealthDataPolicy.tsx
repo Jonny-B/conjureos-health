@@ -154,6 +154,11 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
           <h3>Your choices and rights</h3>
           <ul className="consent-list">
             <li>
+              Conjure Health collects nothing until you agree on its first screen. You can
+              withdraw that agreement at any time in Settings, under Privacy, and collection
+              stops at once.
+            </li>
+            <li>
               Nothing from your journal goes to the AI until you agree to it. The first time
               you press Find patterns or ask the coach, you are shown exactly what would be
               sent and can decline.

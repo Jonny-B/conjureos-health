@@ -3,6 +3,8 @@ import type { Goals, MealType, Plan, Profile } from "./types";
 import { DEFAULT_GOALS } from "./types";
 import { getRepository } from "./data/repository";
 import { registerActions } from "./bridge/actions";
+import { HealthConsentGate } from "./components/HealthConsentGate";
+import { loadHealthConsent, recordHealthConsent, withdrawHealthConsent } from "./features/healthConsent";
 import { readLaunchIntent } from "./bridge/intents";
 import { todayISO } from "./features/diary";
 import { onDataChanged } from "./features/dataEvents";
@@ -59,6 +61,9 @@ export function App() {
   // full-screen gate; the app is usable for logging without a plan).
   const [plan, setPlan] = useState<Plan | null>(null);
   const [ready, setReady] = useState(false);
+  // Consent to collect health data (features/healthConsent.ts). Until it is
+  // "yes", only the consent screen renders and no action is registered.
+  const [consent, setConsent] = useState<"unknown" | "yes" | "no">("unknown");
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Plan wizard as a dismissible dialog, plus a per-session dismiss for its
   // banner (resets on reload = shows again while there's still no plan).
@@ -100,6 +105,23 @@ export function App() {
 
   useEffect(() => {
     let alive = true;
+    void loadHealthConsent().then((ok) => {
+      if (alive) setConsent(ok ? "yes" : "no");
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (consent !== "yes") return;
+    registerActions().catch(() => {
+      /* cross-app integration is non-fatal */
+    });
+  }, [consent]);
+
+  useEffect(() => {
+    let alive = true;
     (async () => {
       const repo = await getRepository();
       const [g, p, existingPlan] = await Promise.all([repo.getGoals(), repo.getProfile(), loadPlan()]);
@@ -109,9 +131,6 @@ export function App() {
       setPlan(existingPlan);
       setReady(true);
     })();
-    registerActions().catch(() => {
-      /* cross-app integration is non-fatal */
-    });
     return () => {
       alive = false;
     };
@@ -125,10 +144,10 @@ export function App() {
   // once after startup, then after each change, settling for a moment so a
   // burst of writes rewrites it once.
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || consent !== "yes") return;
     const t = setTimeout(() => void writeNutritionSummary(), 1500);
     return () => clearTimeout(t);
-  }, [ready, nonce]);
+  }, [ready, nonce, consent]);
 
   // The diary's rings read from the plan's targets when it tracks food, falling
   // back to the separately-stored goals otherwise.
@@ -236,6 +255,18 @@ export function App() {
     setPlanEditor(plan);
     setPlanWizardOpen(true);
   }, [plan]);
+
+  if (consent === "unknown") return null;
+  if (consent === "no") {
+    return (
+      <HealthConsentGate
+        onAgree={() => {
+          void recordHealthConsent();
+          setConsent("yes");
+        }}
+      />
+    );
+  }
 
   // The plan wizard, opened from the banner, owns the screen while active but is
   // fully dismissible (no longer a mandatory first-run gate).
@@ -389,6 +420,11 @@ export function App() {
           onClose={() => setSettingsOpen(false)}
           onSave={onSaveGoals}
           onDataCleared={onDataCleared}
+          onWithdrawHealthConsent={() => {
+            void withdrawHealthConsent();
+            setSettingsOpen(false);
+            setConsent("no");
+          }}
         />
       )}
     </div>

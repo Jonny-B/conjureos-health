@@ -100,6 +100,10 @@ const { parseMeal, lookupBarcode, searchFoods } = vi.hoisted(() => ({
 }));
 vi.mock("../features/naturalLanguage", () => ({ parseMeal }));
 vi.mock("../features/foods/foodSearch", () => ({ lookupBarcode, searchFoods }));
+// Consent to collect health data (features/healthConsent.ts). Granted for
+// every test except the one that checks the refusal.
+let consentGranted = true;
+vi.mock("../features/healthConsent", () => ({ healthConsentGranted: () => consentGranted }));
 
 let actions: Record<string, Handler> = {};
 
@@ -113,6 +117,7 @@ beforeEach(async () => {
   db.plan = null;
   db.profile = null;
   db.removed = [];
+  consentGranted = true;
   parseMeal.mockReset();
   lookupBarcode.mockReset();
   searchFoods.mockReset();
@@ -958,5 +963,14 @@ describe("wellbeing reads never carry the symptom note", () => {
   // guessing what the caller meant.
   it("refuses an explicit days: 0 rather than defaulting to 7", async () => {
     await expect(call("recentWellbeing", { days: 0 })).rejects.toThrow(/positive/);
+  });
+});
+
+describe("without consent to collect health data", () => {
+  it("refuses every write and read, and stores nothing", async () => {
+    consentGranted = false;
+    await expect(async () => call("logFood", { name: "apple", calories: 95 })).rejects.toThrow(/permission to keep health data/);
+    await expect(async () => call("todayTotals")).rejects.toThrow(/permission to keep health data/);
+    expect(db.diary).toHaveLength(0);
   });
 });
