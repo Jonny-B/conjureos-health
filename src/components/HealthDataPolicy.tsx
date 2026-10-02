@@ -98,6 +98,18 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
             the food, but never see who added it.
           </p>
 
+          <h3>Apple Health and Health Connect</h3>
+          <p>
+            On the ConjureOS phone app, Conjure Health can read from Apple Health (iPhone) or Health
+            Connect (Android) if you allow it. ConjureOS asks you first, then your phone shows
+            its own Health screen where you choose what to share. Conjure Health reads one kind of
+            data: your workouts and the energy they burned, to count the exercise you did on your calorie ring. It never writes anything to
+            Apple Health or Health Connect, never puts what it reads in iCloud Drive or
+            CloudKit, and never uses it for advertising, marketing or anything other than your
+            own health and fitness tracking. You can stop it at any time in your phone's Health
+            settings, or in ConjureOS under Settings, Manage apps.
+          </p>
+
           <h3>Who processes it</h3>
           <p>
             AI requests go through ConjureOS. By default they are sent to{" "}
