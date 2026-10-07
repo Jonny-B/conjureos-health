@@ -1182,6 +1182,8 @@ body {
   width: 100%;
   aspect-ratio: 3 / 4;
   max-height: 58vh;
+  /* 100vh is taller than the visible area in a phone WebView; dvh tracks it. */
+  max-height: min(58vh, 58dvh);
   background: #000;
   border-radius: var(--radius);
   overflow: hidden;
@@ -1213,7 +1215,7 @@ body {
   position: absolute;
   left: 12px;
   right: 12px;
-  bottom: 92px;
+  bottom: calc(92px + env(safe-area-inset-bottom));
   font-size: 13px;
   line-height: 1.4;
   color: #fff;
@@ -1224,7 +1226,8 @@ body {
   position: absolute;
   left: 16px;
   right: 16px;
-  bottom: 16px;
+  /* Keep the shutter clear of the home indicator at every phone size. */
+  bottom: calc(16px + env(safe-area-inset-bottom));
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1233,6 +1236,9 @@ body {
 .camera-shutter {
   width: 64px;
   height: 64px;
+  min-width: 44px;
+  min-height: 44px;
+  flex: none;
   border-radius: 50%;
   background: #fff;
   border: 4px solid var(--cui-accent, #ef4444);
@@ -1245,10 +1251,13 @@ body {
 .camera-lib-btn,
 .camera-controls-spacer {
   min-width: 64px;
+  min-height: 44px;
   font-size: 13px;
   cursor: pointer;
 }
 .camera-lib-btn {
+  display: inline-flex;
+  align-items: center;
   text-align: left;
   color: #fff;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
@@ -2121,6 +2130,7 @@ html.modal-open .screen {
   border-radius: 18px 18px 0 0;
   border: 1px solid var(--line);
   max-height: 92vh;
+  max-height: 92dvh;
   display: flex;
   flex-direction: column;
   animation: sheet-up var(--cui-duration-slow) var(--cui-ease-out);
@@ -2136,6 +2146,8 @@ html.modal-open .screen {
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
+  /* Keep Accept and the other footer buttons above the home indicator. */
+  padding-bottom: calc(14px + env(safe-area-inset-bottom));
 }
 .sheet-head h2 {
   font-size: 17px;
@@ -2148,6 +2160,7 @@ html.modal-open .screen {
 }
 .sheet-foot .btn {
   flex: 1;
+  min-height: 44px;
 }
 .sheet-body {
   padding: 4px 16px 8px;
@@ -3547,7 +3560,7 @@ input[type="date"].text-input {
 .ask-send { flex: 0 0 auto; width: auto; padding: 10px 18px; }
 .ask-hint { margin-top: 8px; }
 
-.chat-sheet { height: 88vh; }
+.chat-sheet { height: 88vh; height: 88dvh; }
 .chat-body {
   display: flex;
   flex-direction: column;

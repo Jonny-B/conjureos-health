@@ -74,7 +74,7 @@ const MODE_CARDS: { mode: PlanMode; title: string; blurb: string; recommended?: 
 
 const STAGE_LABELS: Record<PlanStage, string> = {
   calories: "Calculating your calories…",
-  workouts: "Building your workouts…",
+  workouts: COACH_AND_WORKOUTS_ENABLED ? "Building your workouts…" : "Building your plan…",
   checking: "Checking it's safe for you…",
 };
 

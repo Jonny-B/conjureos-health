@@ -52,6 +52,15 @@ describe("recentFoodsForMeal", () => {
     expect(out[0]!.lastLoggedAt).toBe("2026-07-16T09:00:00Z"); // most recent kept
   });
 
+  it("leaves out entries logged at or after excludeSince", async () => {
+    byDate[today] = [
+      entry(today, "snacks", food("Old bar", 100), 1, "2026-07-16T09:00:00Z"),
+      entry(today, "snacks", food("New bar", 100), 1, "2026-07-16T12:00:00Z"),
+    ];
+    const out = await recentFoodsForMeal("snacks", { excludeSince: "2026-07-16T10:00:00Z" });
+    expect(out.map((r) => r.food.name)).toEqual(["Old bar"]);
+  });
+
   it("keeps different quantities of the same food as distinct suggestions", async () => {
     const rx = food("RXBar", 210);
     byDate[today] = [

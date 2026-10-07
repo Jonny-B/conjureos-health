@@ -15,7 +15,7 @@ import { getRepository } from "../data/repository";
 import { searchFoods, lookupBarcode, rememberCorrection } from "../features/foods/foodSearch";
 import { parseMealWithGroup } from "../features/naturalLanguage";
 import { groupItems, suggestGroupName } from "../features/grouping";
-import { recentFoodsForMeal, type RecentFood } from "../features/recentFoods";
+import { APP_SESSION_START, recentFoodsForMeal, type RecentFood } from "../features/recentFoods";
 import { isValidBarcode } from "../features/barcode";
 import { useScrollLock } from "../hooks/useScrollLock";
 import {
@@ -222,7 +222,7 @@ function SearchMode({
   // Meal-scoped recent saved items, shown as the empty-state suggestion list.
   useEffect(() => {
     let alive = true;
-    recentFoodsForMeal(meal)
+    recentFoodsForMeal(meal, { excludeSince: APP_SESSION_START })
       .then((r) => {
         if (alive) setRecents(r);
       })
