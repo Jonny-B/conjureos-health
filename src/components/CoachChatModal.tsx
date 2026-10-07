@@ -1,5 +1,5 @@
 /**
- * The conversation this app has been having about food, as a sheet.
+ * The conversation with your health coach, as a sheet.
  *
  * Opened by asking from the home card: the new question is already in flight
  * when the sheet appears, above the whole prior history, so a question always
@@ -82,10 +82,10 @@ export function CoachChatModal({
   const empty = items !== null && items.length === 0 && !busy;
 
   return (
-    <div className="sheet-backdrop" role="dialog" aria-modal="true" aria-label="Food questions" onClick={onClose}>
+    <div className="sheet-backdrop" role="dialog" aria-modal="true" aria-label="Health coach" onClick={onClose}>
       <div className="sheet chat-sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-head">
-          <h2>Ask about food</h2>
+          <h2>Ask your health coach</h2>
           <button className="icon-btn" aria-label="Close" onClick={onClose}>
             <CloseIcon size={18} />
           </button>
@@ -95,7 +95,7 @@ export function CoachChatModal({
           {items === null && <div className="muted small">Loading…</div>}
           {empty && (
             <div className="muted small chat-empty">
-              Nothing here yet. Ask anything about food and it'll show up here.
+              Nothing here yet. Ask anything about what you have logged and it will show up here.
             </div>
           )}
           {items?.map((m, n) => (

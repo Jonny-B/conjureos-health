@@ -1,5 +1,5 @@
 /**
- * "Ask about food" — the home-screen entry point to the nutrition Q&A.
+ * "Ask your health coach" — the home-screen entry point to the nutrition Q&A.
  *
  * The rotating suggestions are the whole point of the card: an empty box with a
  * cursor teaches nobody what to type, so the placeholder cycles real questions
@@ -72,10 +72,10 @@ export function AskCoachCard({ onAsk }: { onAsk: (question: string) => void }) {
 
   return (
     <>
-      <section className="home-card ask-card" aria-label="Ask about food">
+      <section className="home-card ask-card" aria-label="Ask your health coach">
         <div className="home-card-head">
           <span className="home-card-title">
-            <CoachIcon size={16} /> Ask about food
+            <CoachIcon size={16} /> Ask your health coach
           </span>
         </div>
 
@@ -83,7 +83,7 @@ export function AskCoachCard({ onAsk }: { onAsk: (question: string) => void }) {
           <input
             ref={inputRef}
             className="text-input ask-input"
-            aria-label="Ask a question about food"
+            aria-label="Ask your health coach a question"
             value={draft}
             placeholder={suggestion}
             onFocus={() => setEngaged(true)}
@@ -104,7 +104,7 @@ export function AskCoachCard({ onAsk }: { onAsk: (question: string) => void }) {
         </div>
 
         <div className="muted small ask-hint">
-          Nutrition questions, answered. Your plan and diary stay untouched.
+          Ask about your food, your weight, your sleep or anything else you have logged. Your plan and diary stay untouched.
         </div>
       </section>
       {pending !== null && (

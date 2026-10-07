@@ -13,7 +13,7 @@ import { parseServingGrams } from "../features/foods/serving";
 import { MEAL_LABELS, MEAL_TYPES } from "../types";
 import { getRepository } from "../data/repository";
 import { entryMacros, isAiEstimate } from "../features/diary";
-import { recentFoodsForMeal, type RecentFood } from "../features/recentFoods";
+import { APP_SESSION_START, recentFoodsForMeal, type RecentFood } from "../features/recentFoods";
 import { groupEntries, suggestGroupName } from "../features/grouping";
 import { BarcodeIcon, CheckIcon, DiamondIcon, EditIcon, SearchIcon, TrashIcon } from "../components/icons";
 import { AiEstimateBadge } from "../components/AiEstimateBadge";
@@ -370,7 +370,7 @@ function MealHistory({
 
   useEffect(() => {
     let alive = true;
-    recentFoodsForMeal(meal, { days: HISTORY_DAYS, limit: HISTORY_LIMIT })
+    recentFoodsForMeal(meal, { days: HISTORY_DAYS, limit: HISTORY_LIMIT, excludeSince: APP_SESSION_START })
       .then((r) => {
         if (alive) setRecents(r);
       })

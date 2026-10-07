@@ -13,6 +13,8 @@
  */
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
+import { useScrollLock } from "../hooks/useScrollLock";
 import {
   DISCLOSURE_SAMPLE,
   DISCLOSURE_SENDS,
@@ -29,8 +31,11 @@ export function AiConsentSheet({
 }) {
   const [includeNotes, setIncludeNotes] = useState(false);
   const [busy, setBusy] = useState(false);
+  useScrollLock();
 
-  return (
+  // Portaled to <body> so no transformed or clipped ancestor can crop the sheet
+  // or hide its footer buttons on a phone.
+  return createPortal(
     <div className="sheet-backdrop" onClick={onCancel}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <header className="sheet-head">
@@ -94,6 +99,7 @@ export function AiConsentSheet({
           </button>
         </footer>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

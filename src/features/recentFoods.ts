@@ -31,7 +31,14 @@ interface Options {
   days?: number;
   /** Max suggestions returned. */
   limit?: number;
+  /** Leave out entries logged at or after this ISO time, so what you just
+   *  added reads as today's entry and never as a suggestion beside it. */
+  excludeSince?: string;
 }
+
+/** When this launch of the app began. History hides anything logged after it,
+ *  so a food you add today joins the suggestions the next time you open the app. */
+export const APP_SESSION_START: string = new Date().toISOString();
 
 /**
  * A literal signature: two entries collapse only when they'd re-log to the same
@@ -60,7 +67,7 @@ function signature(entry: DiaryEntry): string {
  */
 export async function recentFoodsForMeal(
   meal: MealType,
-  { days = 30, limit = 12 }: Options = {},
+  { days = 30, limit = 12, excludeSince }: Options = {},
 ): Promise<RecentFood[]> {
   const repo = await getRepository();
   const today = todayISO();
@@ -77,6 +84,7 @@ export async function recentFoodsForMeal(
     // Entries the user chose to keep out of history never surface here. They
     // are still in the diary; this only governs the re-log shortcuts.
     .filter((e) => e.meal === meal && !e.excludeFromQuickAdd)
+    .filter((e) => excludeSince === undefined || e.loggedAt < excludeSince)
     .sort((a, b) => (a.loggedAt < b.loggedAt ? 1 : a.loggedAt > b.loggedAt ? -1 : 0));
 
   const seen = new Set<string>();
