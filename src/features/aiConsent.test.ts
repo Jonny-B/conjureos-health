@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Profile } from "../types";
 import {
+  DISCLOSURE_COACH_SAMPLE,
+  DISCLOSURE_SAMPLE,
+  DISCLOSURE_SENDS,
   DISCLOSURE_VERSION,
+  DISCLOSURE_WITHHOLDS,
   consentIsCurrent,
   hasAiJournalConsent,
   readAiJournalConsent,
@@ -112,5 +116,49 @@ describe("withdrawal", () => {
     await recordAiJournalConsent(true);
     await withdrawAiJournalConsent();
     expect(stored).toMatchObject({ age: 40, heightCm: 180, units: "metric" });
+  });
+});
+
+describe("the disclosure wording", () => {
+  const all = [...DISCLOSURE_SENDS, ...DISCLOSURE_WITHHOLDS, DISCLOSURE_SAMPLE, DISCLOSURE_COACH_SAMPLE];
+
+  it("follows the copy rules: no em-dashes, and nothing comparing itself to an earlier version", () => {
+    for (const line of all) {
+      expect(line).not.toContain("\u2014");
+      expect(line).not.toMatch(/\bnow\b|\byet\b|no longer/i);
+    }
+  });
+
+  it("names everything the coach summary sends", () => {
+    const sends = DISCLOSURE_SENDS.join("\n");
+    for (const field of [
+      "7 days before today",
+      "how rested you felt",
+      "targets",
+      "goal weight",
+      "since your first",
+      "height, age, sex and activity level",
+      "your goal in your own words",
+      "weekly exercise target",
+      "how often each came up",
+    ]) {
+      expect(sends).toContain(field);
+    }
+  });
+
+  it("says plainly that only Find patterns sends a symptom note, and only once", () => {
+    const withholds = DISCLOSURE_WITHHOLDS.join("\n");
+    expect(withholds).toContain("Notes you type on a night's sleep");
+    expect(withholds).toContain("then Find patterns sends it once, with the question that asked for it");
+    // The coach's earlier replies go with each question (coach/ask.ts), so
+    // nothing here may promise the coach never repeats something it was told.
+    expect(withholds).not.toMatch(/coach never sends/);
+  });
+
+  it("names the conversation each question resends, and that a Find patterns range is not in it", () => {
+    const sends = DISCLOSURE_SENDS.join("\n");
+    expect(sends).toMatch(/last \d+ messages of your conversation with it, its replies included/);
+    expect(sends).toContain("sent once with that question and not with later ones");
+    expect(DISCLOSURE_WITHHOLDS.join("\n")).toContain("what its earlier replies mention");
   });
 });

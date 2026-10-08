@@ -1,5 +1,6 @@
 /**
- * "Ask your health coach" — the home-screen entry point to the nutrition Q&A.
+ * "Ask your health coach": the home-screen entry point to the health Q&A, which
+ * answers from anything the user has logged and never changes any of it.
  *
  * The rotating suggestions are the whole point of the card: an empty box with a
  * cursor teaches nobody what to type, so the placeholder cycles real questions
@@ -104,11 +105,12 @@ export function AskCoachCard({ onAsk }: { onAsk: (question: string) => void }) {
         </div>
 
         <div className="muted small ask-hint">
-          Ask about your food, your weight, your sleep or anything else you have logged. Your plan and diary stay untouched.
+          Ask about your food, water, sleep, weight or plan, or anything else you log. It reads your entries and never changes them.
         </div>
       </section>
       {pending !== null && (
         <AiConsentSheet
+          acceptLabel="Agree and ask"
           onCancel={() => setPending(null)}
           onAccept={async (includeNotes) => {
             // Persist BEFORE disclosing — same contract as JournalScreen's

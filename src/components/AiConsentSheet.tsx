@@ -1,10 +1,10 @@
 /**
- * The one-time gate in front of "Find patterns".
+ * The one-time gate in front of the health coach and "Find patterns".
  *
- * Asking the AI to read your journal sends health data to a third party, so
- * the user gets told exactly what travels before any of it does — including a
- * real sample line, because a description of a disclosure is easier to nod
- * past than the thing itself.
+ * Both send what the user logged to an AI service, which is health data going
+ * to a third party, so the user gets told exactly what travels before any of
+ * it does, including real sample lines, because a description of a disclosure
+ * is easier to nod past than the thing itself.
  *
  * Two decisions, deliberately separate: the accept, and whether free-text
  * symptom notes ride along. The second defaults to off and stays off unless
@@ -16,6 +16,7 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { useScrollLock } from "../hooks/useScrollLock";
 import {
+  DISCLOSURE_COACH_SAMPLE,
   DISCLOSURE_SAMPLE,
   DISCLOSURE_SENDS,
   DISCLOSURE_WITHHOLDS,
@@ -24,10 +25,14 @@ import {
 export function AiConsentSheet({
   onAccept,
   onCancel,
+  acceptLabel = "Agree and continue",
 }: {
   /** Called with the notes opt-in. Owner persists it, then runs the analysis. */
   onAccept: (includeNotes: boolean) => void;
   onCancel: () => void;
+  /** The accept button, named for what pressing it does from where the sheet
+   *  was opened ("Send and find patterns", "Agree and ask"). */
+  acceptLabel?: string;
 }) {
   const [includeNotes, setIncludeNotes] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -39,13 +44,13 @@ export function AiConsentSheet({
     <div className="sheet-backdrop" onClick={onCancel}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <header className="sheet-head">
-          <h2>Before the AI reads your journal</h2>
+          <h2>Before the AI reads your health data</h2>
         </header>
 
         <div className="sheet-body">
           <p className="muted small">
-            Finding patterns means sending part of your journal to an AI service outside this
-            app. It only ever happens when you ask for it, never in the background.
+            Asking your health coach or finding patterns sends part of what you log to an AI
+            service outside this app. It only happens when you ask, never in the background.
           </p>
 
           <div className="section-label">What gets sent</div>
@@ -62,8 +67,11 @@ export function AiConsentSheet({
             ))}
           </ul>
 
-          <div className="section-label">One day looks like this</div>
+          <div className="section-label">One day sent by Find patterns looks like this</div>
           <pre className="consent-sample">{DISCLOSURE_SAMPLE}</pre>
+
+          <div className="section-label">The coach's summary includes lines like these</div>
+          <pre className="consent-sample">{DISCLOSURE_COACH_SAMPLE}</pre>
 
           <label className="consent-toggle">
             <input
@@ -72,7 +80,7 @@ export function AiConsentSheet({
               onChange={(e) => setIncludeNotes(e.target.checked)}
             />
             <span>
-              Also send the notes I type on symptoms.
+              When finding patterns, also send the notes I type on symptoms.
               <span className="muted small"> Off by default. You can change this in Settings.</span>
             </span>
           </label>
@@ -95,7 +103,7 @@ export function AiConsentSheet({
               onAccept(includeNotes);
             }}
           >
-            Send and find patterns
+            {acceptLabel}
           </button>
         </footer>
       </div>

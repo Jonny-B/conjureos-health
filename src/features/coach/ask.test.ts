@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ASK_SUGGESTIONS } from "./ask";
-import { DISCLOSURE_VERSION } from "../aiConsent";
-import type { AiJournalConsent } from "../../types";
+import { ASK_SUGGESTIONS, MAX_CONTEXT_TURNS } from "./ask";
+import { DISCLOSURE_SENDS, DISCLOSURE_VERSION } from "../aiConsent";
+import { shiftDate, todayISO } from "../diary";
+import type { AiJournalConsent, Plan, Profile, SleepEntry, WeightEntry } from "../../types";
 
 const complete = vi.fn();
 const files: Record<string, string> = {};
@@ -17,7 +18,7 @@ vi.mock("../../bridge/vfs", () => ({
     files[p] = JSON.stringify(v);
   },
 }));
-const today = new Date().toISOString().slice(0, 10);
+const today = todayISO();
 const food = (name: string, cal: number, p: number) => ({
   id: name, source: "usda", name, servingSize: "1 serving",
   perServing: { calories: cal, protein: p, carbs: 10, fat: 5 },
@@ -31,40 +32,103 @@ let consent: AiJournalConsent | undefined = {
   acceptedAt: "2026-01-01T00:00:00.000Z",
   includeNotes: false,
 };
+
+// The rest of what the user has logged. Empty by default so the older tests
+// below read exactly as they did; the "widened scope" tests fill them in.
+let profileExtra: Partial<Profile> = {};
+let weights: WeightEntry[] = [];
+let plan: Plan | null = null;
+let sleepRange: SleepEntry[] = [];
+let symptomNote: string | undefined;
+// Store reads made, by method, so a test can prove no consent means no reads.
+const reads: string[] = [];
+// Every write method the Repository has. Each records itself if called.
+const writes: string[] = [];
+const WRITE_METHODS = [
+  "saveProfile", "saveGoals", "addDiaryEntry", "updateDiaryEntry", "removeDiaryEntry",
+  "saveSleep", "removeSleep", "addWater", "updateWater", "removeWater",
+  "addSymptom", "updateSymptom", "removeSymptom", "upsertWeight", "removeWeight",
+  "clearDiary", "clearWeights", "clearWorkoutHistory", "clearSleep", "clearWater", "clearSymptoms",
+  "savePlan", "clearPlan", "saveDayLog", "markCheckoff", "saveWorkoutSession", "removeWorkoutSession",
+];
+// Reads that should fail, to show one bad slice costs only its own section.
+let failing = new Set<string>();
+
 vi.mock("../../data/repository", () => ({
   getRepository: async () => ({
-    getGoals: async () => ({ calories: 2200, protein: 150, carbs: 200, fat: 70 }),
+    ...Object.fromEntries(
+      WRITE_METHODS.map((m) => [m, async () => void writes.push(m)]),
+    ),
+    getGoals: async () => {
+      if (failing.has("getGoals")) throw new Error("goals unreadable");
+      return { calories: 2200, protein: 150, carbs: 200, fat: 70 };
+    },
     getProfile: async () => ({
       units: "imperial",
       weightKg: 81,
       direction: "lose",
       aiJournalConsent: consent,
+      ...profileExtra,
     }),
-    listDiary: async (d: string) =>
-      d === today
+    listDiary: async (d: string) => {
+      if (failing.has(`listDiary:${d}`)) throw new Error("diary unreadable");
+      return d === today
         ? [
             { id: "1", date: d, meal: "breakfast", quantity: 1, loggedAt: `${d}T08:00:00Z`,
               food: food("Greek yogurt", 150, 25) },
             { id: "2", date: d, meal: "lunch", quantity: 2, loggedAt: `${d}T12:00:00Z`,
               food: food("Tortilla chips", 300, 4) },
           ]
-        : [],
+        : d >= shiftDate(today, -7) && d !== shiftDate(today, -3)
+          ? [{ id: `f${d}`, date: d, meal: "dinner", quantity: 1, loggedAt: `${d}T19:00:00Z`,
+               food: food("Lentil soup", 1650, 90) }]
+          : [];
+    },
     listWater: async () => [],
-    listSleep: async () => [],
+    listSleep: async (d: string) => sleepRange.filter((n) => n.date === d),
+    listSleepRange: async () => {
+      reads.push("listSleepRange");
+      return sleepRange;
+    },
     // A symptom on today, present regardless of consent — daySnapshot()
     // itself doesn't know about consent, askContext() is what must refuse
     // to forward it. See "personal context requires consent" below.
     listSymptoms: async (d: string) =>
-      d === today ? [{ id: "s1", label: "Heartburn", loggedAt: `${d}T21:40:00Z`, severity: 3 }] : [],
-    listWeights: async () => [],
+      d === today
+        ? [{ id: "s1", date: d, label: "Heartburn", loggedAt: `${d}T21:40:00Z`, severity: 3,
+             ...(symptomNote ? { note: symptomNote } : {}) }]
+        : [],
+    listWeights: async () => {
+      reads.push("listWeights");
+      if (failing.has("listWeights")) throw new Error("weights unreadable");
+      return weights;
+    },
+    // Not async on purpose: a backend missing this method throws before any
+    // promise exists, and that must not take the rest of the context with it.
+    getPlan: () => {
+      reads.push("getPlan");
+      if (failing.has("getPlan")) throw new TypeError("repo.getPlan is not a function");
+      return Promise.resolve(plan);
+    },
   }),
 }));
-vi.mock("../exercise", () => ({ exerciseCaloriesForDate: async () => 0 }));
+vi.mock("../exercise", async (orig) => ({
+  ...(await orig<typeof import("../exercise")>()),
+  exerciseCaloriesForDate: async () => 0,
+}));
 
 beforeEach(() => {
   complete.mockReset();
   for (const k of Object.keys(files)) delete files[k];
   consent = { version: DISCLOSURE_VERSION, acceptedAt: "2026-01-01T00:00:00.000Z", includeNotes: false };
+  profileExtra = {};
+  weights = [];
+  plan = null;
+  sleepRange = [];
+  symptomNote = undefined;
+  reads.length = 0;
+  writes.length = 0;
+  failing = new Set();
 });
 
 describe("askCoach", () => {
@@ -177,7 +241,8 @@ describe("personal context requires consent", () => {
     expect(sys).not.toContain("Greek yogurt");
     expect(sys).not.toContain("Tortilla chips");
     expect(sys).not.toContain("losing weight");
-    expect(sys).not.toContain("Weight:");
+    // 81 kg is 178.6 lb: the profile weight must not leak in any label.
+    expect(sys).not.toContain("178.6");
     expect(sys).not.toContain("Heartburn");
   });
 
@@ -225,5 +290,340 @@ describe("ASK_SUGGESTIONS", () => {
   it("are real questions, so the placeholder teaches the shape of one", () => {
     expect(ASK_SUGGESTIONS.length).toBeGreaterThan(3);
     expect(ASK_SUGGESTIONS.every((q) => q.trim().endsWith("?"))).toBe(true);
+  });
+});
+
+/**
+ * The coach answers about everything the user logs, not just food. These
+ * fill in a whole profile, weight history, plan and a night's sleep, and
+ * check each reaches the model in the user's units, only with consent, and
+ * without anything the consent wording leaves out.
+ */
+describe("widened scope", () => {
+  const night = (date: string, quality: number, note?: string): SleepEntry => ({
+    id: `n${date}`,
+    date,
+    bedAt: `${shiftDate(date, -1)}T23:00:00.000Z`,
+    wakeAt: `${date}T06:30:00.000Z`,
+    quality,
+    ...(note ? { note } : {}),
+  });
+
+  const fill = () => {
+    profileExtra = { sex: "female", age: 41, heightCm: 165, activityLevel: "light", goalWeightKg: 72 };
+    weights = [
+      { date: today, weightKg: 80.0 },
+      { date: shiftDate(today, -7), weightKg: 80.65 },
+      { date: shiftDate(today, -30), weightKg: 81.6 },
+      { date: shiftDate(today, -54), weightKg: 82.75 },
+    ];
+    plan = {
+      id: "p1",
+      mode: "eat_better",
+      durationWeeks: 4,
+      startDate: shiftDate(today, -14),
+      endDate: shiftDate(today, 13),
+      goals: [{ id: "g1", label: "Hit 140 g protein", kind: "nutrition" }],
+      goalText: "Fit into my hiking trousers by November",
+      weeklyExerciseDays: 3,
+      safety: { ageBand: "40_59", pregnant: true, cardiacFlag: true, injuries: ["knee"], activityLevel: "light" },
+      liability: { acknowledged: true, acceptedAt: "2026-01-01T00:00:00.000Z" },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      program: { workouts: [{ id: "w", workout: { id: "w", name: "Murph assessment" } as never }], benchmarks: [] },
+    };
+    sleepRange = [
+      night(shiftDate(today, -1), 2, "woke at 3am worrying about money"),
+      night(shiftDate(today, -2), 2),
+    ];
+    symptomNote = "after the argument with my boss";
+    files["coach.json"] = JSON.stringify({ notes: ["Hates burpees"], summary: "Struggles with knees" });
+  };
+
+  const systemFor = async (question = "how am I doing?") => {
+    const { askCoach } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    await askCoach(question);
+    return (complete.mock.calls[0]![0] as { system: string }).system;
+  };
+
+  it("is not told to keep to food: its scope names everything the user logs", async () => {
+    consent = undefined; // the bare prompt, with no data appended
+    const sys = await systemFor();
+    expect(sys).not.toMatch(/everyday food and nutrition questions inside a calorie-tracking app/i);
+    const scope = sys.split("SCOPE")[1]!.split("LIMITS")[0]!;
+    for (const kind of ["food", "water", "sleep", "symptoms", "exercise", "weight", "targets", "plan"]) {
+      expect(scope).toContain(kind);
+    }
+    // General food questions are still in scope.
+    expect(scope).toMatch(/everyday food and nutrition questions/);
+  });
+
+  it("sends weight trend, goal weight, body stats, plan progress and the week, in the user's units", async () => {
+    fill();
+    const sys = await systemFor();
+    expect(sys).toContain(`WEIGHT\nLatest: 176.4 lb on ${today}. 4 weigh-ins since ${shiftDate(today, -54)}.`);
+    expect(sys).toContain(`-1.4 lb since ${shiftDate(today, -7)}`);
+    expect(sys).toContain("Goal weight: 158.7 lb (17.6 lb away).");
+    expect(sys).toContain(`Age: 41. Height: 5'5". Activity: lightly active.`);
+    expect(sys).toContain("Goal in their words: Fit into my hiking trousers by November");
+    expect(sys).toContain(`${shiftDate(today, -14)} to ${shiftDate(today, 13)}, day 15 of 28.`);
+    expect(sys).toContain("Plan goals: Hit 140 g protein.");
+    expect(sys).toContain("Exercise: 0 of 3 target days this week");
+    expect(sys).toMatch(/LAST 7 DAYS \(before today\)\nFood: logged 6 of 7 days/);
+    expect(sys).toContain("rested 2.0/5");
+    // Today's weigh-in too: an imperial user never sees a kg figure.
+    expect(sys).toContain("Weighed in at 176.4 lb.");
+    expect(sys).not.toMatch(/\bkg\b/);
+  });
+
+  it("omits each section cleanly when nothing of that kind is logged", async () => {
+    const sys = await systemFor();
+    expect(sys).toContain("ABOUT THIS USER\nTODAY\n");
+    expect(sys).toContain("PROFILE\nGoal: losing weight.");
+    expect(sys).not.toMatch(/\nWEIGHT\n|\nPLAN\n|Goal weight|Plan goals|rested/);
+    // The profile's own weight is not a weigh-in and is never stated as one.
+    expect(sys).not.toContain("178.6");
+    expect(sys).not.toMatch(/undefined|NaN|\bnull\b/);
+  });
+
+  it("withholds every widened field without consent, and does not even read them", async () => {
+    fill();
+    for (const c of [undefined, { version: DISCLOSURE_VERSION - 1, acceptedAt: "2026-01-01T00:00:00.000Z", includeNotes: true }]) {
+      consent = c;
+      complete.mockReset();
+      reads.length = 0;
+      const sys = await systemFor();
+      for (const leak of ["176.4", "158.7", "hiking trousers", "day 15 of 28", "rested", "PROFILE", "LAST 7 DAYS", "Age: 41", "lb"]) {
+        expect(sys).not.toContain(leak);
+      }
+      expect(reads).toEqual([]);
+    }
+  });
+
+  it("sends them once a current agreement is on file (positive control)", async () => {
+    fill();
+    const sys = await systemFor();
+    for (const field of ["176.4 lb", "158.7 lb", "hiking trousers", "day 15 of 28", "rested 2.0/5", "PROFILE", "LAST 7 DAYS", "Age: 41"]) {
+      expect(sys).toContain(field);
+    }
+  });
+
+  it("never sends notes, the safety intake, the workout program or coach memory", async () => {
+    fill();
+    for (const includeNotes of [false, true]) {
+      consent = { version: DISCLOSURE_VERSION, acceptedAt: "2026-01-01T00:00:00.000Z", includeNotes };
+      complete.mockReset();
+      const ctx = (await systemFor()).split("ABOUT THIS USER")[1]!;
+      expect(ctx).toContain("hiking trousers"); // the context really was sent
+      expect(ctx).not.toMatch(/3am|money|argument|boss|pregnan|cardiac|knee|injur|Murph|burpees/i);
+    }
+  });
+
+  it("is read-only: writes nothing, offers no tool, and says where to make a change", async () => {
+    fill();
+    const before = JSON.stringify(files);
+    const { askCoach } = await import("./ask");
+    complete.mockResolvedValue('Done. <planchange>{"dailyCalories": 1000}</planchange>');
+    await askCoach("Lower my calorie target to 1000 and delete yesterday's dinner");
+    const req = complete.mock.calls[0]![0] as { system: string; tools?: unknown };
+    expect(writes).toEqual([]);
+    expect(JSON.stringify(files)).toBe(before);
+    expect(req.tools).toBeUndefined();
+    expect(req.system).not.toMatch(/<\w+>|planchange|<adjust|<propose/);
+    expect(req.system).toMatch(/You are read-only/);
+    expect(req.system).toMatch(/never say you did/i);
+    expect(req.system).toMatch(/Diary tab/);
+    expect(req.system).toMatch(/Edit plan on the Plan tab/);
+  });
+
+  it("keeps every medical-safety guardrail", async () => {
+    const sys = await systemFor();
+    expect(sys).toMatch(/not a doctor and never diagnose/i);
+    expect(sys).toMatch(/not medical or clinical advice/i);
+    expect(sys).toMatch(/disordered eating/);
+    expect(sys).toMatch(/doctor or dietitian/);
+    expect(sys).toMatch(/chest pain, shortness of breath or dizziness/);
+    expect(sys).toMatch(/Never suggest a calorie target below what the app already set/);
+    expect(sys).toMatch(/purging, fasting as weight control, or "earning" food with exercise/);
+    expect(sys).toMatch(/1% of body weight a week/);
+    // Exercise is in scope, and the coach is told nothing about injuries.
+    expect(sys).toMatch(/You are not told about injuries or health conditions/);
+    expect(sys).toMatch(/Never prescribe a workout, specific exercises or an\s+intensity/);
+    expect(sys).toMatch(/check\s+with a doctor or physio/);
+    // Logging-only plans and minors, and a goal weight below a healthy range.
+    expect(sys).toMatch(/tracking only, or gives an age under 18, do not suggest weight loss, a goal weight, eating\s+less or exercise/);
+    expect(sys).toMatch(/goal weight is below a healthy range, never help them toward it or say how long it\s+would take/);
+  });
+
+  it("does not deny the one streak it is sent", async () => {
+    const sys = await systemFor();
+    expect(sys).not.toMatch(/Streaks and body\s+measurements are not tracked/);
+    expect(sys).toMatch(/only streak the app keeps is the "in a row" count of days with food logged/);
+  });
+
+  /**
+   * A logging-only plan (forced by the safety intake for pregnancy, a heart
+   * condition or an under-18) used to reach the model as "Logging plan" with
+   * no meaning attached, next to a goal direction and goal weight left over
+   * from the user's earlier food plan.
+   */
+  it("tells the model a logging-only plan sets no goals, and sends none, without saying why", async () => {
+    fill();
+    plan = { ...plan!, mode: "logging_only" };
+    const ctx = (await systemFor("How has my weight changed this month?")).split("ABOUT THIS USER")[1]!;
+    expect(ctx).toContain("Logging plan");
+    expect(ctx).toContain("Tracking only: the app sets no weight, calorie-cutting or exercise goals for this user.");
+    expect(ctx).toContain("WEIGHT\nLatest: 176.4 lb");
+    expect(ctx).not.toMatch(/losing weight|Goal weight|Pace:|158\.7/);
+    // The fixture's intake is pregnant and cardiac with a knee injury.
+    expect(ctx).not.toMatch(/pregnan|cardiac|under.?18|injur|knee/i);
+  });
+
+  it("loses only the section whose read failed, and says it could not read it", async () => {
+    fill();
+    failing = new Set(["getPlan", "listWeights"]);
+    const sys = await systemFor();
+    expect(sys).toContain("Greek yogurt");
+    expect(sys).toContain("PROFILE");
+    expect(sys).toContain("LAST 7 DAYS");
+    expect(sys).not.toMatch(/\nWEIGHT\n|\nPLAN\n/);
+    // Not "no weigh-ins": the prompt reads a missing section as nothing logged.
+    expect(sys).toMatch(/\nCOULD NOT READ THIS TIME\nTheir weigh-ins, their plan\.$/);
+  });
+
+  it("writes no em-dashes into what the model reads", async () => {
+    fill();
+    const sys = await systemFor();
+    expect(sys).not.toContain("\u2014");
+  });
+});
+
+/**
+ * A read that fails leaves the same empty value as a store with nothing in
+ * it, and the prompt tells the model to say "nothing logged" for a missing
+ * section. These check a failure is named as one instead.
+ */
+describe("a failed read is not 'nothing logged'", () => {
+  const systemFor = async (question = "What should I eat with what I have left today?") => {
+    const { askCoach } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    await askCoach(question);
+    return (complete.mock.calls[0]![0] as { system: string }).system;
+  };
+
+  it("tells the model what a COULD NOT READ section means", async () => {
+    const sys = await systemFor();
+    expect(sys).toMatch(/COULD NOT READ THIS TIME failed to load for this question: say you could not read it just\s+now, never that it was not logged/);
+  });
+
+  it("keeps the whole diary when the targets cannot be read", async () => {
+    failing = new Set(["getGoals"]);
+    const sys = await systemFor();
+    // Today and the week survive: one failed goals read used to throw away
+    // all eight day snapshots.
+    expect(sys).toContain("Greek yogurt");
+    expect(sys).toMatch(/LAST 7 DAYS \(before today\)\nFood: logged 6 of 7 days/);
+    expect(sys).toContain("RECENT DAYS");
+    // No made-up targets, and no "what's left" worked out from them.
+    expect(sys).not.toMatch(/Targets:|Remaining, negative/);
+    expect(sys).toMatch(/\nCOULD NOT READ THIS TIME\nTheir daily targets\.$/);
+  });
+
+  it("never says nothing was logged today when today's diary could not be read", async () => {
+    failing = new Set([`listDiary:${today}`]);
+    const sys = await systemFor();
+    expect(sys).not.toMatch(/Nothing logged yet today|Eaten so far|Remaining, negative/);
+    expect(sys).toContain("Targets: 2200 cal");
+    expect(sys).toMatch(/\nCOULD NOT READ THIS TIME\nToday's food\.$/);
+    // The logging run is counted through yesterday, the last day it can see.
+    expect(sys).toContain("(2 in a row through yesterday)");
+  });
+
+  it("names an earlier day whose diary could not be read, and leaves it out of the count", async () => {
+    failing = new Set([`listDiary:${shiftDate(today, -2)}`]);
+    const sys = await systemFor();
+    expect(sys).toMatch(/Food: logged 5 of 6 days/);
+    expect(sys).toMatch(/\nCOULD NOT READ THIS TIME\nSome of the 7 days before today\.$/);
+  });
+
+  it("adds nothing when every read worked", async () => {
+    expect(await systemFor()).not.toMatch(/\nCOULD NOT READ THIS TIME\n/);
+  });
+});
+
+/**
+ * Find patterns opens this chat with a whole range of the journal (and any
+ * symptom notes the user opted in to) as its question. That question is saved
+ * with the rest of the conversation, which goes with every later question.
+ */
+describe("the conversation sent with a question", () => {
+  const NOTE = "after a fight with my partner";
+  const JOURNAL = [
+    `2026-09-03: 2140 cal from 9 items; 118g protein; symptoms: Headache at 14:00 (3/5) \u2014 ${NOTE}; ate: coffee, oats`,
+    "2026-09-04: 1800 cal from 6 items; 95g protein",
+  ].join("\n");
+  type Req = { messages: { role: string; content: string }[] };
+
+  it("sends a Find patterns journal once, with its own question, and never again", async () => {
+    const { askCoach, loadAskHistory, saveAskHistory, patternsQuestion } = await import("./ask");
+    const opening = patternsQuestion("2026-09-01", "2026-09-30", JOURNAL);
+    complete.mockResolvedValue("Your headaches land on busy days.");
+    await askCoach(opening, await loadAskHistory());
+    // Positive control: the run itself carries the range, note included.
+    expect((complete.mock.calls[0]![0] as Req).messages.at(-1)!.content).toContain(NOTE);
+
+    await saveAskHistory([
+      { role: "user", content: opening },
+      { role: "assistant", content: "Your headaches land on busy days." },
+    ]);
+    complete.mockClear();
+    await askCoach("Is my water on track today?", await loadAskHistory());
+    const req = complete.mock.calls[0]![0] as Req;
+    const sent = JSON.stringify(req.messages);
+    expect(sent).not.toContain(NOTE);
+    expect(sent).not.toMatch(/2026-09-0[34]:|cal from|Headache at/);
+    expect(req.messages).toHaveLength(3);
+    expect(req.messages[0]!.content).toBe(
+      "Here is my journal for 2026-09-01 to 2026-09-30. What patterns do you notice? Anything that seems to go together?" +
+        "\n\n[Their journal for 2026-09-01 to 2026-09-30 went with that question only, and is not repeated here.]",
+    );
+    expect(req.messages[1]!.content).toBe("Your headaches land on busy days.");
+    expect(req.messages[2]!.content).toBe("Is my water on track today?");
+  });
+
+  it("also leaves out the journal from a Find patterns question saved by an earlier build", async () => {
+    const { askCoach } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    const old = `Here is my journal for 2026-08-01 to 2026-08-31. What patterns do you notice \u2014 anything that seems to go together?\n\n${JOURNAL}`;
+    await askCoach("How has my sleep been this week?", [
+      { role: "user", content: old },
+      { role: "assistant", content: "ok" },
+    ]);
+    const sent = JSON.stringify((complete.mock.calls[0]![0] as Req).messages);
+    expect(sent).not.toContain(NOTE);
+    expect(sent).not.toContain("cal from");
+    expect(sent).toContain("[Their journal for 2026-08-01 to 2026-08-31 went with that question only");
+  });
+
+  it("leaves every other turn word for word, and keeps only the last few", async () => {
+    const { askCoach, patternsQuestion } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    const typed = "Here is my journal for today: eggs and toast. Is that enough protein?";
+    const reply = patternsQuestion("2026-09-01", "2026-09-30", JOURNAL); // as if the model echoed one
+    const history = [
+      ...Array.from({ length: 6 }, (_, i) => ({ role: "user" as const, content: `old ${i}` })),
+      { role: "user" as const, content: typed },
+      { role: "assistant" as const, content: reply },
+      ...Array.from({ length: 8 }, (_, i) => ({ role: "user" as const, content: `q${i}` })),
+    ];
+    await askCoach("and now?", history);
+    const msgs = (complete.mock.calls[0]![0] as Req).messages;
+    expect(msgs).toHaveLength(MAX_CONTEXT_TURNS + 1);
+    expect(msgs[0]!.content).toBe(typed);
+    expect(msgs[1]!.content).toBe(reply);
+  });
+
+  it("is the conversation the consent wording describes", () => {
+    expect(DISCLOSURE_SENDS.join("\n")).toContain(`the last ${MAX_CONTEXT_TURNS} messages of your conversation`);
   });
 });
