@@ -65,3 +65,16 @@ describe("consent to collect health data", () => {
     expect(await loadHealthConsent()).toBe(false);
   });
 });
+
+describe("the consent-to-collect wording", () => {
+  it("names the health coach the way the rest of the app does", async () => {
+    const { CONSENT_BODY } = await import("./healthConsentCopy");
+    const body = CONSENT_BODY.join("\n");
+    expect(body).not.toMatch(/food coach/i);
+    expect(body).toContain("Find patterns and your health coach ask for a separate agreement before they send anything.");
+    for (const line of CONSENT_BODY) {
+      expect(line).not.toContain("\u2014");
+      expect(line).not.toMatch(/\bnow\b|\byet\b|no longer/i);
+    }
+  });
+});

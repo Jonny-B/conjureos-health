@@ -24,6 +24,7 @@
 import { aiErrorMessage, complete, isAiAvailable, type ChatMessage } from "../../bridge/ai";
 import { readJson, writeJson } from "../../bridge/vfs";
 import { hasAiJournalConsent } from "../aiConsent";
+import { SYMPTOM_NOTE_OPEN } from "../journal";
 import { loadAskFacts, renderAskContext } from "./askSummary";
 import type { CoachChatItem } from "./model";
 
@@ -72,7 +73,7 @@ SCOPE
 - Anything they have logged (food, water, sleep, symptoms, exercise, weight trend, targets, plan progress), plus
   everyday food and nutrition questions.
 - What they have logged is summarised at the end of this prompt. USE IT: answer from their real numbers and
-  dates, and answer what to eat from what is left today.
+  dates, and, when TODAY gives their targets, answer what to eat from what is left of them.
 - Never ask them to paste in data you were given, and never claim you cannot see their diary.
 - A section missing from the summary means nothing of that kind was logged: say so and answer generally. What
   is listed under COULD NOT READ THIS TIME failed to load for this question: say you could not read it just
@@ -90,11 +91,13 @@ LIMITS
   professional; for chest pain, shortness of breath or dizziness, say to stop and seek medical help.
 - Talk about weight neutrally; never praise fast loss or eating very little. If several logged days are far
   below target or under 1200 cal (1500 for men or sex not given), or weight is falling faster than about
-  1% of body weight a week, mention it gently once and suggest a doctor or dietitian. Low days may be unlogged meals.
+  1% of body weight a week (the summary says so when it is), mention it gently once and suggest a doctor or
+  dietitian. Low days may be unlogged meals.
 - Never suggest a calorie target below what the app already set, and never encourage restriction,
   purging, fasting as weight control, or "earning" food with exercise.
 - If the summary says their goal weight is below a healthy range, never help them toward it or say how long it
-  would take. Say gently that it is worth talking over with a doctor or dietitian.
+  would take. Say gently that it is worth talking over with a doctor or dietitian. Treat a weight they name
+  themselves the same way when it is below a healthy range for their height.
 - If the summary says tracking only, or gives an age under 18, do not suggest weight loss, a goal weight, eating
   less or exercise to do. Answer from what they logged, keep the rest general, and suggest their doctor.
 - You are not told about injuries or health conditions. Never prescribe a workout, specific exercises or an
@@ -177,30 +180,59 @@ const JOURNAL_TURN = /^Here is my journal for (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2
 export function patternsQuestion(from: string, to: string, summary: string): string {
   return summary
     ? `Here is my journal for ${from} to ${to}. What patterns do you notice? Anything that seems to go together?\n\n${summary}`
-    : `I have nothing recorded for ${from} to ${to} yet. What would be worth tracking to spot patterns?`;
+    : `I have nothing recorded for ${from} to ${to}. What would be worth tracking to spot patterns?`;
+}
+
+/** Sent in place of the coach's answer to a journal that carried notes. */
+const NOTED_ANSWER =
+  "[The answer to that journal is not repeated here, because the journal carried symptom notes, which go with that question only.]";
+
+/** How a symptom note starts in a stored journal: as summarizeRange writes
+ *  it, and as builds before 1.40.4 did, after a dash. */
+const NOTE_MARKS = [SYMPTOM_NOTE_OPEN, " \u2014 "];
+
+/** Whether a stored Find patterns question carried a symptom note. */
+function journalHadNotes(content: string): boolean {
+  const head = JOURNAL_TURN.exec(content);
+  if (!head) return false;
+  const journal = content.slice(head[0].length);
+  return NOTE_MARKS.some((mark) => journal.includes(mark));
 }
 
 /**
  * The stored conversation as it goes with a new question: the last
  * MAX_CONTEXT_TURNS turns, with the journal taken out of any Find patterns
- * question among them.
+ * question among them, and the coach's answer too when that journal carried
+ * symptom notes.
  *
  * That journal is sent once, with the question that asked for it. Sent again
  * with each later question it would carry a month of data, and any symptom
  * notes, into coach questions whose consent wording (aiConsent.ts) promises
- * the 7 days before today and notes only through Find patterns; it would
- * keep doing so after notes were switched off in Settings; and it would cost
- * a month of tokens per follow-up. The question itself stays, marked, so the
- * coach's own answer to it still makes sense.
+ * the 7 days before today and notes only through Find patterns, once; it
+ * would keep doing so after notes were switched off in Settings; and it would
+ * cost a month of tokens per follow-up. The question itself stays, marked,
+ * so the coach's own answer to it still makes sense.
+ *
+ * The answer stays too, unless the journal carried notes: a pattern-finding
+ * answer quotes the journal back, and a note it quotes would go out again
+ * with every follow-up. Worked out over the whole history before the last
+ * turns are taken, since the answer can be inside them when its question is
+ * not.
  */
 export function historyForPrompt(items: CoachChatItem[]): ChatMessage[] {
-  return items.slice(-MAX_CONTEXT_TURNS).map((m) => {
-    const head = m.role === "user" ? JOURNAL_TURN.exec(m.content) : null;
-    const content = head
-      ? `${head[0].trimEnd()}\n\n[Their journal for ${head[1]} to ${head[2]} went with that question only, and is not repeated here.]`
-      : m.content;
-    return { role: m.role, content } as ChatMessage;
+  const sent = items.map((m, i): ChatMessage => {
+    if (m.role === "user") {
+      const head = JOURNAL_TURN.exec(m.content);
+      const content = head
+        ? `${head[0].trimEnd()}\n\n[Their journal for ${head[1]} to ${head[2]} went with that question only, and is not repeated here.]`
+        : m.content;
+      return { role: "user", content };
+    }
+    const asked = items[i - 1];
+    const noted = asked?.role === "user" && journalHadNotes(asked.content);
+    return { role: "assistant", content: noted ? NOTED_ANSWER : m.content };
   });
+  return sent.slice(-MAX_CONTEXT_TURNS);
 }
 
 /** Read the stored conversation, oldest first. Never throws. */

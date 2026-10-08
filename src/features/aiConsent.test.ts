@@ -11,6 +11,7 @@ import {
   readAiJournalConsent,
   recordAiJournalConsent,
   setAiJournalNotes,
+  withStoredConsent,
   withdrawAiJournalConsent,
 } from "./aiConsent";
 
@@ -116,6 +117,55 @@ describe("withdrawal", () => {
     await recordAiJournalConsent(true);
     await withdrawAiJournalConsent();
     expect(stored).toMatchObject({ age: 40, heightCm: 180, units: "metric" });
+  });
+});
+
+/**
+ * Every other profile write starts from a copy of the profile read earlier.
+ * The agreement in that copy may be out of date either way, so the one on
+ * file is what a write keeps.
+ */
+describe("a profile saved from an earlier copy", () => {
+  const agreed = (version: number, includeNotes = false) => ({
+    version,
+    acceptedAt: "2026-10-01T00:00:00.000Z",
+    includeNotes,
+  });
+
+  it("does not bring back an agreement withdrawn since the copy was read", async () => {
+    const copy: Profile = { ...base, aiJournalConsent: agreed(DISCLOSURE_VERSION, true) };
+    const next = await withStoredConsent({ ...copy, units: "imperial" });
+    expect(next.aiJournalConsent).toBeUndefined();
+    expect("aiJournalConsent" in next).toBe(false);
+    expect(next.units).toBe("imperial");
+  });
+
+  it("keeps an agreement made since the copy was read, in place of the copy's", async () => {
+    await recordAiJournalConsent(true);
+    const copy: Profile = { ...base, aiJournalConsent: agreed(DISCLOSURE_VERSION - 1) };
+    const next = await withStoredConsent(copy);
+    expect(next.aiJournalConsent).toEqual(stored!.aiJournalConsent);
+  });
+
+  it("fails closed: an unreadable profile keeps no agreement", async () => {
+    await recordAiJournalConsent(false);
+    throwOnRead = true;
+    const next = await withStoredConsent({ ...base, aiJournalConsent: agreed(DISCLOSURE_VERSION) });
+    expect(next.aiJournalConsent).toBeUndefined();
+  });
+
+  it("is how every profile write outside this module saves", () => {
+    const sources = import.meta.glob(["../**/*.ts", "../**/*.tsx", "!../**/*.test.*", "!../data/**", "!../testing/**"], {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }) as Record<string, string>;
+    const unguarded = Object.entries(sources)
+      .filter(([path]) => !path.endsWith("/aiConsent.ts"))
+      .filter(([, src]) => (src.match(/\.saveProfile\(/g) ?? []).length > (src.match(/withStoredConsent\(/g) ?? []).length)
+      .map(([path]) => path);
+    expect(Object.keys(sources).length).toBeGreaterThan(20);
+    expect(unguarded).toEqual([]);
   });
 });
 

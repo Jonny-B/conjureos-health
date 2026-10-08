@@ -130,9 +130,10 @@ describe("renderWeightForPrompt", () => {
   });
 
   it("sends a believable goal weight and drops a pounds figure sitting in the kg slot", () => {
-    expect(renderWeightForPrompt(WEIGHTS, 72, "imperial")).toContain("Goal weight: 158.7 lb (17.6 lb away).");
+    const lose = { direction: "lose" as const };
+    expect(renderWeightForPrompt(WEIGHTS, 72, "imperial", lose)).toContain("Goal weight: 158.7 lb (17.6 lb away).");
     // 160 typed as pounds while the app was metric: stored as 160 kg.
-    expect(renderWeightForPrompt(WEIGHTS, 160, "imperial")).not.toContain("Goal weight");
+    expect(renderWeightForPrompt(WEIGHTS, 160, "imperial", { direction: "gain" })).not.toContain("Goal weight");
   });
 
   /**
@@ -146,16 +147,18 @@ describe("renderWeightForPrompt", () => {
       { date: "2026-09-10", weightKg: 53.6 },
     ];
     // 165 cm and 42 kg is a BMI of about 15.4, and 42 / 52 passes the unit check.
-    const out = renderWeightForPrompt(ws, 42, "metric", { heightCm: 165 });
+    const out = renderWeightForPrompt(ws, 42, "metric", { heightCm: 165, direction: "lose" });
     expect(out).toContain("Their goal weight is below a healthy range for their height.");
     expect(out).not.toMatch(/42 kg|10\.0 kg away|Goal weight:/);
     // Their weight and its trend are still there.
     expect(out).toContain("Latest: 52 kg on 2026-10-08.");
     expect(out).toContain("Pace: about -0.4 kg a week");
     // A healthy goal for the same height is sent as before (BMI about 20.2).
-    expect(renderWeightForPrompt(ws, 55, "metric", { heightCm: 165 })).toContain("Goal weight: 55 kg (3.0 kg away).");
+    expect(renderWeightForPrompt(ws, 55, "metric", { heightCm: 165, direction: "gain" })).toContain(
+      "Goal weight: 55 kg (3.0 kg away).",
+    );
     // A height that is not believable cannot judge it either way.
-    expect(renderWeightForPrompt(ws, 42, "metric", { heightCm: 66 })).toContain("Goal weight: 42 kg");
+    expect(renderWeightForPrompt(ws, 42, "metric", { heightCm: 66, direction: "lose" })).toContain("Goal weight: 42 kg");
   });
 
   it("sends where their weight is but no goal weight or pace when tracking only", () => {
@@ -473,5 +476,167 @@ describe("no write path", () => {
     expect(summarySource).not.toMatch(/writeJson|writeFile/);
     const calls = askSource.match(/writeJson\([^,)]*/g) ?? [];
     expect(calls).toEqual(["writeJson(CHAT_PATH"]);
+  });
+});
+
+/**
+ * The safety gate in renderSummaryBlocks has to fail closed and has to reach
+ * every part of the summary: a goal left on the profile by an earlier plan, a
+ * goal restated in the plan's own words, and the targets in TODAY are each
+ * enough to coach a user the app sets no goals.
+ */
+describe("tracking only, everywhere it matters", () => {
+  const leftover = (f: AskFacts) => {
+    f.profile = { ...PROFILE, direction: "lose", goalWeightKg: 60 };
+    f.weights = [
+      { date: "2026-10-08", weightKg: 68 },
+      { date: "2026-09-20", weightKg: 69 },
+      { date: "2026-08-20", weightKg: 70 },
+    ];
+  };
+
+  it("fails closed when the plan could not be read: no goal, goal weight or pace", () => {
+    const f = sampleFacts();
+    leftover(f);
+    f.plan = null;
+    f.unreadable = ["plan"];
+    const out = renderAskContext(f);
+    expect(out).not.toMatch(/losing weight|Goal weight|60 kg|Pace:/);
+    expect(out).toContain(
+      "PLAN\nTracking only for this question: their plan could not be read, so treat them as having no weight, calorie-cutting or exercise goals.",
+    );
+    expect(out).toContain("COULD NOT READ THIS TIME\nTheir plan.");
+    // Positive control: the same facts with the plan read send the goal.
+    const read = sampleFacts();
+    leftover(read);
+    expect(renderAskContext(read)).toContain("Goal weight: 60 kg (8.0 kg away).");
+  });
+
+  it("says tracking only for an age too low to state, with or without a plan", () => {
+    for (const p of [null, plan()]) {
+      const f = sampleFacts();
+      f.profile = { ...PROFILE, age: 11 };
+      f.plan = p;
+      const out = renderAskContext(f);
+      expect(out).not.toContain("Age:");
+      expect(out).toContain("Tracking only: the app sets no weight, calorie-cutting or exercise goals for this user.");
+      expect(out).not.toMatch(/losing weight|Goal weight/);
+    }
+  });
+
+  it("sends no calorie target or what is left for a tracking-only user", () => {
+    const f = sampleFacts();
+    f.plan = plan({ mode: "logging_only" });
+    const out = renderAskContext(f);
+    expect(out).toContain("TODAY\nDate: 2026-10-08\nEaten so far: 900 cal");
+    expect(out).not.toMatch(/Targets:|Remaining, negative/);
+    // A failed targets read is not named either: they were never to be sent.
+    f.days[f.days.length - 1] = { ...f.days[f.days.length - 1]!, unreadable: ["targets"] };
+    expect(renderAskContext(f)).not.toMatch(/daily targets/);
+    // An adult on an ordinary plan still gets both.
+    expect(renderAskContext(sampleFacts())).toMatch(/Targets: 1900 cal[\s\S]*Remaining, negative means over \(1000 cal/);
+  });
+
+  it("sends no goal in their words and no plan goals for a tracking-only user", () => {
+    const f = sampleFacts();
+    f.plan = plan({
+      mode: "logging_only",
+      goalText: "lose the baby weight, about 20 lb",
+      goals: [
+        { id: "1", label: "Lose 1 lb a week", kind: "habit" },
+        { id: "2", label: "Log everything you eat", kind: "nutrition" },
+      ],
+    });
+    const out = renderAskContext(f);
+    expect(out).toContain("Tracking only: the app sets no weight");
+    expect(out).not.toMatch(/baby weight|20 lb|Lose 1 lb|Goal in their words|Plan goals/);
+  });
+
+  it("drops the goal in their words next to a goal weight below a healthy range", () => {
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, heightCm: 165, direction: "lose", goalWeightKg: 42 };
+    f.weights = [
+      { date: "2026-10-08", weightKg: 52 },
+      { date: "2026-09-10", weightKg: 53.6 },
+    ];
+    f.plan = plan({ goalText: "get down to 42 kg", goals: [{ id: "1", label: "Reach 42 kg", kind: "habit" }] });
+    const out = renderAskContext(f);
+    expect(out).toContain("Their goal weight is below a healthy range for their height.");
+    expect(out).not.toMatch(/42 kg|Goal in their words|Plan goals/);
+  });
+});
+
+describe("weight signals", () => {
+  // 55 kg down to 50.5 kg in three weeks: 1.5 kg a week, about 3% of body weight.
+  const FAST = [
+    { date: "2026-10-07", weightKg: 50.5 },
+    { date: "2026-09-30", weightKg: 52 },
+    { date: "2026-09-23", weightKg: 53.5 },
+    { date: "2026-09-16", weightKg: 55 },
+  ];
+
+  it("flags loss faster than 1% of body weight a week for every user, tracking only included", () => {
+    const teen = renderWeightForPrompt(FAST, undefined, "imperial", { trackingOnly: true });
+    expect(teen).toContain("Losing more than 1% of body weight a week since 2026-09-16.");
+    expect(teen).not.toContain("Pace:");
+    const adult = renderWeightForPrompt(FAST, undefined, "imperial");
+    expect(adult).toContain("Pace: about -3.3 lb a week since 2026-09-16.");
+    expect(adult).toContain("Losing more than 1% of body weight a week since 2026-09-16.");
+    // About 0.15% a week: no flag.
+    expect(renderWeightForPrompt(WEIGHTS, undefined, "metric")).not.toContain("1% of body weight");
+    // Through the whole summary, for a 15-year-old.
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, age: 15, units: "imperial" };
+    f.units = "imperial";
+    f.weights = FAST;
+    expect(renderAskContext(f)).toContain("Losing more than 1% of body weight a week since 2026-09-16.");
+  });
+
+  it("sends no goal weight when their plan is to maintain, whatever the profile kept", () => {
+    const ws = [
+      { date: "2026-10-08", weightKg: 68 },
+      { date: "2026-09-20", weightKg: 68.3 },
+    ];
+    const out = renderWeightForPrompt(ws, 55, "metric", { heightCm: 165, direction: "maintain" });
+    expect(out).not.toMatch(/Goal weight|55 kg|13\.0/);
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, direction: "maintain", goalWeightKg: 55 };
+    f.weights = ws;
+    expect(renderAskContext(f)).not.toMatch(/Goal weight|55 kg/);
+    // A goal they have gone past reads as reached, not as more to lose.
+    expect(renderWeightForPrompt(ws, 69, "metric", { direction: "lose" })).toContain("Goal weight: 69 kg (reached).");
+  });
+
+  it("says a goal under half their weight is below a healthy range, rather than nothing", () => {
+    const ws = [
+      { date: "2026-10-08", weightKg: 52 },
+      { date: "2026-09-10", weightKg: 53 },
+    ];
+    for (const goal of [25, 27]) {
+      expect(renderWeightForPrompt(ws, goal, "metric", { heightCm: 163, direction: "lose" })).toContain(
+        "Their goal weight is below a healthy range for their height.",
+      );
+    }
+  });
+});
+
+describe("the food-logging run", () => {
+  const eightDays = () => Array.from({ length: 8 }, (_, i) => snap(shiftDate(TODAY, -(7 - i)), 1800));
+
+  it("is a lower bound when it stops at a day whose diary could not be read", () => {
+    const days = eightDays();
+    days[3] = { ...snap(days[3]!.date, 0), unreadable: ["diary"] };
+    expect(renderWeekForPrompt({ ...sampleFacts(), days })).toContain("(at least 4 in a row through today)");
+  });
+
+  it("is a lower bound when it stops at a day whose snapshot failed", () => {
+    const days = eightDays().filter((_, i) => i !== 3);
+    expect(renderWeekForPrompt({ ...sampleFacts(), days })).toContain("(at least 4 in a row through today)");
+  });
+
+  it("is exact when it stops at a day with nothing logged", () => {
+    const days = eightDays();
+    days[3] = snap(days[3]!.date, 0);
+    expect(renderWeekForPrompt({ ...sampleFacts(), days })).toContain("(4 in a row through today)");
   });
 });

@@ -150,12 +150,20 @@ export async function recentSnapshots(days = 3, from = todayISO()): Promise<DayS
  * Deliberately states what is LEFT as well as what was eaten — the question is
  * nearly always "what should I have now", and making the model subtract is a
  * needless chance for it to get the arithmetic wrong.
+ *
+ * `targets: false` leaves out the targets and what is left of them, for a
+ * user the app sets no calorie goals (see coach/askSummary.isTrackingOnly).
  */
-export function renderDayForPrompt(s: DaySnapshot, units: Units = "metric"): string {
+export function renderDayForPrompt(
+  s: DaySnapshot,
+  units: Units = "metric",
+  opts: { targets?: boolean } = {},
+): string {
   // A part that could not be read is left out rather than shown as zero: the
   // fallback values look exactly like a day with nothing logged. The caller
   // says what was unreadable (see coach/askSummary.renderGapsForPrompt).
   const lost = new Set(s.unreadable ?? []);
+  if (opts.targets === false) lost.add("targets");
   const lines: string[] = [`Date: ${s.date}`];
   if (!lost.has("targets")) {
     lines.push(

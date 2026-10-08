@@ -31,7 +31,8 @@
  *     the field where someone eventually types the thing they would hate to
  *     send anywhere. Only Find patterns sends them, once, with the question
  *     that asked for it: the coach summary never carries a note of any kind,
- *     and later questions resend the conversation without that journal
+ *     and later questions resend the conversation without that journal, or
+ *     the coach's answer to it, which can quote a note back
  *     (coach/ask.ts historyForPrompt).
  *
  * Bump `DISCLOSURE_VERSION` whenever the wording below changes materially.
@@ -138,6 +139,32 @@ export async function readAiJournalConsent(): Promise<AiJournalConsent | undefin
   } catch {
     return undefined;
   }
+}
+
+/**
+ * `next` carrying the agreement on file instead of whatever agreement it
+ * carries. Every profile write outside this module goes through this.
+ *
+ * Those writes start from a copy of the profile read earlier (App reads it
+ * once at startup), and accepting or withdrawing here never updates that
+ * copy. Saved as it stands, the copy would put back an agreement the user
+ * withdrew, with no prompt, or replace a fresh one with older wording, so
+ * the coach re-asked after every plan edit. Only this module changes the
+ * agreement; everything else keeps the stored one.
+ *
+ * Fails CLOSED like hasAiJournalConsent: a profile that cannot be read keeps
+ * no agreement, and the next question asks again.
+ */
+export async function withStoredConsent(next: Profile): Promise<Profile> {
+  let onFile: AiJournalConsent | undefined;
+  try {
+    const repo = await getRepository();
+    onFile = (await repo.getProfile())?.aiJournalConsent;
+  } catch {
+    onFile = undefined;
+  }
+  const { aiJournalConsent: _carried, ...rest } = next;
+  return onFile ? { ...rest, aiJournalConsent: onFile } : (rest as Profile);
 }
 
 /**

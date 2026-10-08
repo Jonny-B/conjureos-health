@@ -78,3 +78,27 @@ describe("visibleHistoryItems", () => {
     expect(kinds).not.toContain("workouts");
   });
 });
+
+/**
+ * The coach thread holds questions about anything the user logs, and every
+ * Find patterns question with the journal it carried. The row that deletes it
+ * has to say so, or someone clearing their symptoms leaves copies behind.
+ */
+describe("the coach conversation row", () => {
+  it("says it holds the coach's questions, answers and the journals Find patterns sent", () => {
+    const row = HISTORY_ITEMS.find((i) => i.kind === "coachChat")!;
+    expect(row.label).toBe("Health coach conversation");
+    expect(row.desc).toBe(
+      "Your questions to the health coach, its answers, and the journals Find patterns sent with them",
+    );
+  });
+
+  it("follows the copy rules, like every row", () => {
+    for (const i of HISTORY_ITEMS) {
+      for (const text of [i.label, i.desc]) {
+        expect(text).not.toContain("—");
+        expect(text).not.toMatch(/\bnow\b|\byet\b|no longer/i);
+      }
+    }
+  });
+});

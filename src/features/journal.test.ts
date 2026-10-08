@@ -58,6 +58,12 @@ describe("summarizeRange and symptom notes", () => {
     const out = summarizeRange([withNote()], { includeNotes: true });
     expect(out).toContain("antibiotics");
   });
+
+  it("marks the note without an em-dash, since this text goes to the AI and into the chat", () => {
+    const out = summarizeRange([withNote()], { includeNotes: true });
+    expect(out).toMatch(/Heartburn at \S+ \(3\/5\) \(note: after the antibiotics\)/);
+    expect(out).not.toContain("\u2014");
+  });
 });
 
 describe("summarizeRange", () => {

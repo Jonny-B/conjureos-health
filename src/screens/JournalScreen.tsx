@@ -6,7 +6,7 @@
  * read it, and a print view for handing a stretch of it to a doctor.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Profile } from "../types";
 import {
   datesBetween,
@@ -72,7 +72,9 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
   const today = todayISO();
   const [cursor, setCursor] = useState(today); // any date in the shown month
   const [selected, setSelected] = useState<string>(today);
-  const [month, setMonth] = useState<DayJournal[] | null>(null);
+  // The month's days together with the range they were read for, so a read
+  // for a month the user has already left can never pass for the one shown.
+  const [month, setMonth] = useState<{ from: string; to: string; days: DayJournal[] } | null>(null);
   const [day, setDay] = useState<DayJournal | null>(null);
   const [printOpen, setPrintOpen] = useState(false);
   const [asking, setAsking] = useState<string | null>(null);
@@ -85,13 +87,22 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
   const from = monthStart(cursor);
   const to = monthEnd(cursor);
 
-  const loadMonth = useCallback(async () => {
-    setMonth(await loadRangeJournal(from, to, units));
-  }, [from, to, units]);
-
+  // Only the latest read may land: two quick taps on Previous month start two
+  // reads, and the older one can finish last.
   useEffect(() => {
-    void loadMonth();
-  }, [loadMonth, nonce, localNonce]);
+    let alive = true;
+    void loadRangeJournal(from, to, units)
+      .then((days) => {
+        if (alive) setMonth({ from, to, days });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [from, to, units, nonce, localNonce]);
+
+  /** The days of the month on screen, or null while they load. */
+  const shown = month && month.from === from && month.to === to ? month.days : null;
 
   useEffect(() => {
     let alive = true;
@@ -105,9 +116,9 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
 
   const byDate = useMemo(() => {
     const map = new Map<string, DayJournal>();
-    for (const d of month ?? []) map.set(d.date, d);
+    for (const d of shown ?? []) map.set(d.date, d);
     return map;
-  }, [month]);
+  }, [shown]);
 
   // Leading blanks so the 1st lands under its weekday.
   const lead = weekdayIndex(from);
@@ -121,9 +132,20 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
    * consent sheet can call it on accept without duplicating the wording.
    * Never call this without checking consent first — it is the step that
    * performs the disclosure.
+   *
+   * Sends the range on screen with that range's own days: the loaded month
+   * when it is the one shown, otherwise a read of the range made here, so the
+   * dates in the question and the days after them always match.
    */
-  const runPatterns = (includeNotes: boolean) => {
-    const days = month ?? [];
+  const runPatterns = async (includeNotes: boolean) => {
+    let days = shown;
+    if (!days) {
+      try {
+        days = await loadRangeJournal(from, to, units);
+      } catch {
+        return;
+      }
+    }
     // Built in coach/ask so later questions can leave this journal out (it
     // goes to the AI once, with this question).
     setAsking(patternsQuestion(from, to, summarizeRange(days, { includeNotes })));
@@ -135,7 +157,7 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
       return;
     }
     const consent = await readAiJournalConsent();
-    runPatterns(consent?.includeNotes === true);
+    await runPatterns(consent?.includeNotes === true);
   };
 
   return (
@@ -214,7 +236,7 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
             // agreement that survives only in memory is not a record.
             const stored = await recordAiJournalConsent(includeNotes);
             setConsenting(false);
-            if (stored) runPatterns(includeNotes);
+            if (stored) await runPatterns(includeNotes);
           }}
         />
       )}

@@ -33,6 +33,7 @@ import { advanceToNextGroup, setWorkoutDone } from "./groups";
 import { modeTracksFood } from "./model";
 import { deriveDirection, macrosForCalories, recommendGoals } from "../goals";
 import { loadMemory, summarizeMemoryForProgram } from "../coach/memory";
+import { withStoredConsent } from "../aiConsent";
 import { clamp } from "../num";
 
 /** Body stats the wizard collects, reconciled into the Profile on commit. */
@@ -112,7 +113,9 @@ export function mergeBodyIntoProfile(base: Profile, b: WizardBody): Profile {
     sex: b.sex ?? base.sex,
     heightCm: b.heightCm ?? base.heightCm,
     weightKg: b.weightKg ?? base.weightKg,
-    goalWeightKg: b.goalWeightKg ?? base.goalWeightKg,
+    // "maintain" comes with no goal weight (a blank goal means maintain), so
+    // the old one goes rather than staying beside it as a target.
+    goalWeightKg: b.direction === "maintain" ? b.goalWeightKg : b.goalWeightKg ?? base.goalWeightKg,
     // Prefer the exact age; fall back to the age-band's representative age.
     age: b.age ?? (b.ageBand ? AGE_FOR_BAND[b.ageBand] : base.age),
     activityLevel: b.activityLevel ?? base.activityLevel,
@@ -145,7 +148,8 @@ export async function commitNewPlan(
   // null. A null profile makes the cog fall back to DEFAULT_PROFILE (and older
   // code could then cement those defaults), which reads as "my stats reverted to
   // default" after a reload. Fall back to the current profile, else DEFAULT.
-  const finalProfile: Profile = profile ?? { ...DEFAULT_PROFILE };
+  // AI consent is whatever is on file, never the caller's copy of it.
+  const finalProfile: Profile = await withStoredConsent(profile ?? { ...DEFAULT_PROFILE });
   await persist("your profile", repo.saveProfile(finalProfile));
   profile = finalProfile;
 
@@ -268,7 +272,7 @@ export async function modifyPlanInPlace(
   patch: { endDate?: string; durationWeeks?: number; weeklyExerciseDays?: number },
   ctx: { currentProfile: Profile | null; currentGoals: Goals },
 ): Promise<CommitResult> {
-  const profile = mergeBodyIntoProfile(ctx.currentProfile ?? DEFAULT_PROFILE, body);
+  const profile = await withStoredConsent(mergeBodyIntoProfile(ctx.currentProfile ?? DEFAULT_PROFILE, body));
   const repo = await getRepository();
   await persist("your profile", repo.saveProfile(profile));
 
@@ -421,7 +425,11 @@ export async function applyCoachPlanChange(
 
   if (change.goalWeightKg != null && Number.isFinite(change.goalWeightKg) && profile) {
     const gw = Math.round(clamp(change.goalWeightKg, 25, 400) * 10) / 10;
-    nextProfile = { ...profile, goalWeightKg: gw, direction: deriveDirection(profile.weightKg, gw) };
+    nextProfile = await withStoredConsent({
+      ...profile,
+      goalWeightKg: gw,
+      direction: deriveDirection(profile.weightKg, gw),
+    });
     await persist("your profile", repo.saveProfile(nextProfile));
     if (modeTracksFood(plan.mode)) patch.targets = goalsToTargets(recommendGoals(nextProfile));
   }

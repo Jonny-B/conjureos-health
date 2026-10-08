@@ -12,6 +12,7 @@ import {
   consentIsCurrent,
   readAiJournalConsent,
   setAiJournalNotes,
+  withStoredConsent,
   withdrawAiJournalConsent,
 } from "../features/aiConsent";
 import type { AiJournalConsent } from "../types";
@@ -78,7 +79,9 @@ export function SettingsSheet({
     if (!profile) return;
     try {
       const repo = await getRepository();
-      const next: Profile = { ...profile, units: u };
+      // AI consent as stored, not as this copy of the profile remembers it:
+      // it may have been withdrawn (or agreed to) since the copy was read.
+      const next: Profile = await withStoredConsent({ ...profile, units: u });
       await repo.saveProfile(next);
       onSave(goals, next);
     } catch {

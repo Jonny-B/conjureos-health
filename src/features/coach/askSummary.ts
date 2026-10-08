@@ -21,9 +21,13 @@
  * Safety is applied here as well as in the prompt. For a user the app sets no
  * weight, calorie or exercise goals (a logging-only plan, which the safety
  * intake forces for under-18s, pregnancy and heart conditions, or an age
- * under 18) the goal direction, goal weight and weekly pace are left out,
- * and a goal weight below a healthy range for their height is never sent as
- * a target. The reason a plan is logging-only is never sent.
+ * under 18) the summary says "Tracking only" and leaves out the goal
+ * direction, goal weight, weekly pace, today's targets and what is left of
+ * them, and the plan's goals in any words. A plan that could not be read is
+ * treated the same way, since it may be a logging-only one. A goal weight
+ * below a healthy range for their height is never sent as a target, and
+ * weight falling faster than 1% of body weight a week is said outright, for
+ * everyone. The reason a plan is logging-only is never sent.
  *
  * What may appear here is bounded by the AI consent wording in
  * features/aiConsent.ts (DISCLOSURE_SENDS). A new field means new wording
@@ -71,6 +75,18 @@ const MAX_SYMPTOM_LABELS = 5;
 
 /** Below this BMI a goal weight is not sent as a target (WHO underweight). */
 const MIN_GOAL_BMI = 18.5;
+
+/** Weekly loss, as a share of body weight, past which it is called out. */
+const FAST_LOSS_SHARE = 0.01;
+
+/** The line the prompt's tracking-only rule keys on. */
+const TRACKING_ONLY = "Tracking only: the app sets no weight, calorie-cutting or exercise goals for this user.";
+
+/** The same rule, when the plan that would say so could not be read. */
+const TRACKING_UNREAD =
+  "Tracking only for this question: their plan could not be read, so treat them as having no weight, calorie-cutting or exercise goals.";
+
+const GOAL_TOO_LOW = "Their goal weight is below a healthy range for their height.";
 
 /** Heights outside this range are treated as a typo, in PROFILE and for BMI. */
 const MIN_HEIGHT_CM = 120;
@@ -159,6 +175,33 @@ export async function loadAskFacts(today = todayISO()): Promise<AskFacts> {
 export function isTrackingOnly(plan: Plan | null, profile: Profile | null): boolean {
   if (plan?.mode === "logging_only") return true;
   return !!profile && Number.isFinite(profile.age) && profile.age < 18;
+}
+
+/**
+ * How the summary treats this user's goals. Fails closed: a plan that could
+ * not be read may be a logging-only one, so it counts as tracking only. One
+ * cautious answer to an adult costs far less than counting a pregnant user
+ * down to a goal weight left over from an earlier plan.
+ */
+function goalsFor(f: AskFacts): { trackingOnly: boolean; planUnread: boolean } {
+  const planUnread = !f.plan && (f.unreadable ?? []).includes("plan");
+  return { trackingOnly: planUnread || isTrackingOnly(f.plan, f.profile), planUnread };
+}
+
+/**
+ * The goal weight as their plan means it, or undefined. Only with a lose or
+ * gain direction: a blank goal in the wizard means maintain, and a profile
+ * from before that rule kept the old number beside it.
+ */
+function activeGoalKg(goalWeightKg: number | undefined, direction: Profile["direction"] | undefined) {
+  if (direction !== "lose" && direction !== "gain") return undefined;
+  return goalWeightKg && Number.isFinite(goalWeightKg) && goalWeightKg > 0 ? goalWeightKg : undefined;
+}
+
+/** Whether a goal weight is below a healthy range for a believable height. */
+export function goalBelowHealthyRange(goalWeightKg: number | undefined, heightCm: number | undefined): boolean {
+  if (!goalWeightKg || !Number.isFinite(goalWeightKg) || goalWeightKg <= 0 || !heightKnown(heightCm)) return false;
+  return bmi({ heightCm, weightKg: goalWeightKg } as Profile) < MIN_GOAL_BMI;
 }
 
 // ── Small formatting helpers ──────────────────────────────────────────
@@ -250,28 +293,35 @@ export function renderProfileForPrompt(
  * the first weigh-in, and the goal weight. Every change names the date it is
  * measured from, so the model never has to guess what "this week" meant.
  *
- * The goal weight is only sent next to a real weigh-in and only when it is
- * within reach of it: it is typed into the same unit-sensitive field as the
- * profile weight, so a goal of "160" entered as pounds while the app was in
- * metric reads as 160 kg, and the coach should not be told that is the goal.
- * Nor is it sent when it is below a healthy weight for their height: the
- * coach is told that instead, so it can say so rather than count down to it.
+ * The goal weight is only sent for a lose or gain direction (see
+ * activeGoalKg), next to a real weigh-in, and only when it is within reach
+ * of it: it is typed into the same unit-sensitive field as the profile
+ * weight, so a goal of "160" entered as pounds while the app was in metric
+ * reads as 160 kg, and the coach should not be told that is the goal. Nor is
+ * it sent when it is below a healthy weight for their height, however far
+ * below: the coach is told that instead, so it can say so rather than count
+ * down to it.
  *
- * With `trackingOnly` (see isTrackingOnly) neither the goal weight nor the
- * weekly pace is sent, only where their weight is and how it has changed.
+ * Loss faster than 1% of body weight a week is said outright, for every
+ * user, because the prompt's guardrail depends on it and the model can get
+ * the arithmetic wrong. With `trackingOnly` (see isTrackingOnly) neither the
+ * goal weight nor the weekly pace is sent, only where their weight is, how
+ * it has changed, and that warning.
  */
 export function renderWeightForPrompt(
   entries: WeightEntry[],
   goalWeightKg: number | undefined,
   units: Units,
-  opts: { heightCm?: number; trackingOnly?: boolean } = {},
+  opts: { heightCm?: number; direction?: Profile["direction"]; trackingOnly?: boolean } = {},
 ): string {
+  const goal = opts.trackingOnly ? undefined : activeGoalKg(goalWeightKg, opts.direction);
+  const goalTooLow = goalBelowHealthyRange(goal, opts.heightCm);
   const ws = entries
     .filter((w) => w && typeof w.date === "string" && Number.isFinite(w.weightKg) && w.weightKg > 0)
     .slice()
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
   const latest = ws[0];
-  if (!latest) return "";
+  if (!latest) return goalTooLow ? `WEIGHT\n${GOAL_TOO_LOW}` : "";
   const first = ws[ws.length - 1]!;
   const lines: string[] = [];
 
@@ -304,25 +354,26 @@ export function renderWeightForPrompt(
     // working it out from two dates is arithmetic the model can get wrong.
     const base = oldestWithin(WEIGHT_WINDOWS[WEIGHT_WINDOWS.length - 1]!);
     const span = base ? daysBetween(base.date, latest.date) : 0;
-    if (base && span >= 14 && !opts.trackingOnly) {
+    if (base && span >= 14) {
       const perWeek = ((latest.weightKg - base.weightKg) / span) * 7;
-      lines.push(`Pace: about ${fmtWeightChange(perWeek, units)} a week since ${base.date}.`);
+      if (!opts.trackingOnly) lines.push(`Pace: about ${fmtWeightChange(perWeek, units)} a week since ${base.date}.`);
+      // A safety signal, not a goal: sent whatever the plan is.
+      if (-perWeek > latest.weightKg * FAST_LOSS_SHARE) {
+        lines.push(`Losing more than 1% of body weight a week since ${base.date}.`);
+      }
     }
   }
 
-  if (!opts.trackingOnly && goalWeightKg && Number.isFinite(goalWeightKg) && goalWeightKg > 0) {
-    const ratio = goalWeightKg / latest.weightKg;
+  if (goalTooLow) {
+    lines.push(GOAL_TOO_LOW);
+  } else if (goal !== undefined) {
+    const ratio = goal / latest.weightKg;
     if (ratio >= 0.5 && ratio <= 1.6) {
-      const tooLow =
-        heightKnown(opts.heightCm) &&
-        bmi({ heightCm: opts.heightCm, weightKg: goalWeightKg } as Profile) < MIN_GOAL_BMI;
-      if (tooLow) {
-        lines.push("Their goal weight is below a healthy range for their height.");
-      } else {
-        const gap = weightToDisplay(Math.abs(latest.weightKg - goalWeightKg), units);
-        const away = gap === 0 ? "reached" : `${gap.toFixed(1)} ${weightUnit(units)} away`;
-        lines.push(`Goal weight: ${fmtWeight(goalWeightKg, units)} (${away}).`);
-      }
+      // Gone past it in the direction they were heading counts as reached.
+      const reached = opts.direction === "lose" ? latest.weightKg <= goal : latest.weightKg >= goal;
+      const gap = weightToDisplay(Math.abs(latest.weightKg - goal), units);
+      const away = reached || gap === 0 ? "reached" : `${gap.toFixed(1)} ${weightUnit(units)} away`;
+      lines.push(`Goal weight: ${fmtWeight(goal, units)} (${away}).`);
     }
   }
 
@@ -342,9 +393,26 @@ export function renderWeightForPrompt(
  * described as something to do. A logging-only plan says what that means for
  * the coach, and never why the plan is one: the safety intake that decided it
  * stays on the device.
+ *
+ * With `trackingOnly` (see isTrackingOnly) the tracking-only line is sent
+ * whatever the plan is, and with no plan at all, since an age too young to
+ * state in PROFILE would otherwise reach the model as nothing. With
+ * `planUnread` it says the plan could not be read and to treat it the same
+ * way. Tracking only, or beside a goal weight below a healthy range
+ * (`goalTooLow`), neither their goal in their own words nor the plan's goals
+ * are sent: either can name the weight the rest of the summary leaves out.
  */
-export function renderPlanForPrompt(plan: Plan | null, today: string, days: DaySnapshot[]): string {
-  if (!plan || !plan.startDate || !plan.endDate) return "";
+export function renderPlanForPrompt(
+  plan: Plan | null,
+  today: string,
+  days: DaySnapshot[],
+  opts: { trackingOnly?: boolean; planUnread?: boolean; goalTooLow?: boolean } = {},
+): string {
+  const tracking = !!opts.trackingOnly || plan?.mode === "logging_only";
+  if (!plan || !plan.startDate || !plan.endDate) {
+    if (opts.planUnread) return `PLAN\n${TRACKING_UNREAD}`;
+    return tracking ? `PLAN\n${TRACKING_ONLY}` : "";
+  }
   const lines: string[] = [];
 
   const total = daysBetween(plan.startDate, plan.endDate) + 1;
@@ -357,16 +425,15 @@ export function renderPlanForPrompt(plan: Plan | null, today: string, days: DayS
   lines.push(
     `${planModeLabel(plan)} plan, ${plan.startDate} to ${plan.endDate}${where ? `, ${where}` : ""}.`,
   );
-  if (plan.mode === "logging_only") {
-    lines.push("Tracking only: the app sets no weight, calorie-cutting or exercise goals for this user.");
-  }
+  if (tracking) lines.push(TRACKING_ONLY);
+  const goalsSent = !tracking && !opts.goalTooLow;
 
-  if (plan.goalText && plan.goalText.trim()) {
+  if (goalsSent && plan.goalText && plan.goalText.trim()) {
     lines.push(`Goal in their words: ${clip(plan.goalText, MAX_GOAL_TEXT)}`);
   }
 
   const stored = Array.isArray(plan.goals) ? plan.goals.filter(Boolean) : [];
-  const goals = visiblePlanGoals({ ...plan, goals: stored }).filter(
+  const goals = (goalsSent ? visiblePlanGoals({ ...plan, goals: stored }) : []).filter(
     (g) => typeof g.label === "string" && g.label.trim(),
   );
   if (goals.length) {
@@ -396,7 +463,8 @@ export function renderPlanForPrompt(plan: Plan | null, today: string, days: DayS
  * oldest first. Returns the count, the day it ends on in words, and whether
  * it reached the start of the window, in which case the real run may be
  * longer than we can see. A day whose snapshot or diary could not be read
- * ends the run: it is named under COULD NOT READ instead.
+ * ends the run too, and for the same reason the count is then only a lower
+ * bound: the day is named under COULD NOT READ, and the run may go on past it.
  */
 function foodRun(days: DaySnapshot[], today: string): { n: number; through: string; capped: boolean } {
   let i = days.length - 1;
@@ -410,7 +478,10 @@ function foodRun(days: DaySnapshot[], today: string): { n: number; through: stri
     expected = shiftDate(expected, -1);
     i--;
   }
-  return { n, through, capped: n > 0 && i < 0 };
+  // Stopped at a day that is missing (its snapshot failed) or unread, not at
+  // one with nothing logged.
+  const stoppedOnUnknown = i >= 0 && (days[i]!.date !== expected || !diaryRead(days[i]!));
+  return { n, through, capped: n > 0 && (i < 0 || stoppedOnUnknown) };
 }
 
 /**
@@ -538,8 +609,12 @@ export function renderGapsForPrompt(f: AskFacts): string {
     if (w && !words.includes(w)) words.push(w);
   };
   const gaps = new Set(f.unreadable ?? []);
+  // Targets are not sent to a tracking-only user, so losing them is no gap.
+  const { trackingOnly } = goalsFor(f);
   if (gaps.has("today")) note(GAP_WORDS.today);
-  for (const part of f.days.find((d) => d.date === f.today)?.unreadable ?? []) note(TODAY_PART_WORDS[part]);
+  for (const part of f.days.find((d) => d.date === f.today)?.unreadable ?? []) {
+    if (!(trackingOnly && part === "targets")) note(TODAY_PART_WORDS[part]);
+  }
   // Earlier days feed LAST 7 DAYS, which uses neither the targets nor the
   // day's weigh-in.
   const earlierLost = f.days.some(
@@ -557,16 +632,19 @@ export function renderGapsForPrompt(f: AskFacts): string {
 /** PROFILE, WEIGHT, PLAN and LAST 7 DAYS, in that order, each only when it
  *  has something to say. Split out so its size can be held to a budget. */
 export function renderSummaryBlocks(f: AskFacts): string {
-  const trackingOnly = isTrackingOnly(f.plan, f.profile);
+  const { trackingOnly, planUnread } = goalsFor(f);
+  const p = f.profile;
+  const goalTooLow = !trackingOnly && goalBelowHealthyRange(activeGoalKg(p?.goalWeightKg, p?.direction), p?.heightCm);
   return [
-    section(() => renderProfileForPrompt(f.profile, f.units, { trackingOnly })),
+    section(() => renderProfileForPrompt(p, f.units, { trackingOnly })),
     section(() =>
-      renderWeightForPrompt(f.weights, f.profile?.goalWeightKg, f.units, {
-        heightCm: f.profile?.heightCm,
+      renderWeightForPrompt(f.weights, p?.goalWeightKg, f.units, {
+        heightCm: p?.heightCm,
+        direction: p?.direction,
         trackingOnly,
       }),
     ),
-    section(() => renderPlanForPrompt(f.plan, f.today, f.days)),
+    section(() => renderPlanForPrompt(f.plan, f.today, f.days, { trackingOnly, planUnread, goalTooLow })),
     section(() => renderWeekForPrompt(f)),
   ]
     .filter(Boolean)
@@ -574,14 +652,17 @@ export function renderSummaryBlocks(f: AskFacts): string {
 }
 
 /** The whole ABOUT THIS USER block, ending with what could not be read.
- *  Empty string when nothing was read and nothing is known to have failed. */
+ *  Empty string when nothing was read and nothing is known to have failed.
+ *  TODAY carries no targets, and so nothing "left", for a tracking-only
+ *  user: those can be a deficit left over from an earlier plan. */
 export function renderAskContext(f: AskFacts): string {
   const today = f.days.find((d) => d.date === f.today);
+  const { trackingOnly } = goalsFor(f);
   const prior = section(() =>
     renderRecentForPrompt(f.days.filter((d) => d.date < f.today).slice(-RECENT_DAYS)),
   );
   return [
-    today ? section(() => `TODAY\n${renderDayForPrompt(today, f.units)}`) : "",
+    today ? section(() => `TODAY\n${renderDayForPrompt(today, f.units, { targets: !trackingOnly })}`) : "",
     renderSummaryBlocks(f),
     prior ? `RECENT DAYS\n${prior}` : "",
     section(() => renderGapsForPrompt(f)),

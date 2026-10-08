@@ -264,6 +264,13 @@ export function isEmptyDay(day: DayJournal): boolean {
 }
 
 /**
+ * What opens the note typed on a symptom in summarizeRange's output, and
+ * appears nowhere else in it, so coach/ask.ts can tell a journal that carried
+ * notes from one that did not.
+ */
+export const SYMPTOM_NOTE_OPEN = " (note: ";
+
+/**
  * Compact the range into something an AI can read in a prompt.
  *
  * One line per day with the day's shape, plus the timed detail for symptoms —
@@ -310,7 +317,7 @@ export function summarizeRange(
           // scale, and the most useful half of a symptom for pattern-finding.
           // `note` is the free-text field, and is held back unless opted in.
           const severity = s.detail ? ` (${s.detail})` : "";
-          const note = includeNotes && s.note ? ` — ${s.note}` : "";
+          const note = includeNotes && s.note ? `${SYMPTOM_NOTE_OPEN}${s.note})` : "";
           return `${s.label} at ${t}${severity}${note}`;
         })
         .join(", ");

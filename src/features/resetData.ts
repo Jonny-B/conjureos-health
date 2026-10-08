@@ -37,7 +37,11 @@ export const HISTORY_ITEMS: { kind: HistoryKind; label: string; desc: string }[]
   { kind: "sleep", label: "Sleep", desc: "Every night you've recorded" },
   { kind: "water", label: "Water", desc: "Every drink you've logged" },
   { kind: "symptoms", label: "Symptoms", desc: "Everything under \u201cHow you felt\u201d" },
-  { kind: "coachChat", label: "Food questions", desc: "Everything you've asked about food, and the answers" },
+  {
+    kind: "coachChat",
+    label: "Health coach conversation",
+    desc: "Your questions to the health coach, its answers, and the journals Find patterns sent with them",
+  },
   { kind: "coach", label: "Coach memory", desc: "What the coach remembers about you" },
   {
     kind: "plan",
@@ -78,7 +82,8 @@ export async function clearHistory(kind: HistoryKind): Promise<void> {
       await repo.clearSymptoms().catch(() => {});
       return;
     case "coachChat":
-      // The Q&A thread behind the home screen's ask box.
+      // The health coach's thread: the home screen's ask box and Find
+      // patterns, which saves each question with the journal it sent.
       await rm("coach-chat.json");
       return;
     case "coach":
@@ -96,8 +101,9 @@ export async function clearHistory(kind: HistoryKind): Promise<void> {
       // The trainer's memory is a narrative ABOUT the plan, so it goes with
       // it — and while the coach is paused its own row is hidden, making this
       // the only way to reach the stale text. The chat thread is deliberately
-      // NOT cleared here: those are the user's own food questions, they have
-      // their own row in Settings, and they outlive any one plan.
+      // NOT cleared here: those are the user's own questions to the health
+      // coach, they have their own row in Settings, and they outlive any one
+      // plan.
       if (!COACH_AND_WORKOUTS_ENABLED) await rm("coach.json");
       return;
   }

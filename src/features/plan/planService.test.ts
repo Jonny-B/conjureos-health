@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { Plan, Profile, WorkoutProgram } from "../../types";
 import { getRepository, __resetRepository } from "../../data/repository";
-import { applyCoachPlanChange, commitNewPlan, decidePlanEdit, modifyPlanInPlace } from "./planService";
+import {
+  applyCoachPlanChange,
+  commitNewPlan,
+  decidePlanEdit,
+  mergeBodyIntoProfile,
+  modifyPlanInPlace,
+} from "./planService";
+import { DISCLOSURE_VERSION } from "../aiConsent";
 import { macrosForCalories, recommendGoals } from "../goals";
 
 // A user who filled in the cog (real body stats) BEFORE ever making a plan.
@@ -212,5 +219,62 @@ describe("applyCoachPlanChange", () => {
   it("returns null when nothing valid is provided", async () => {
     const res = await applyCoachPlanChange(plan, cogProfile, goals, { summary: "noop" });
     expect(res).toBeNull();
+  });
+});
+
+// ── AI consent rides along, it is never decided here ───────────────────
+/**
+ * App caches the profile once at startup, and agreeing to or withdrawing AI
+ * consent writes the stored profile without touching that copy. A plan write
+ * that saved the copy wholesale put its old agreement back: a withdrawn one
+ * came back with no prompt, and a fresh one was replaced by stale wording.
+ */
+describe("a plan write never decides AI consent", () => {
+  beforeEach(() => __resetRepository());
+  const agreed = (version: number) => ({ version, acceptedAt: "2026-10-01T00:00:00Z", includeNotes: false });
+  const zero = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+
+  it("keeps an agreement made since the cached profile was read", async () => {
+    const repo = await getRepository();
+    await repo.saveProfile({ ...cogProfile, aiJournalConsent: agreed(DISCLOSURE_VERSION) });
+    const cached: Profile = { ...cogProfile, aiJournalConsent: agreed(DISCLOSURE_VERSION - 1) };
+    const res = await modifyPlanInPlace(plan, { age: 45 }, {}, { currentProfile: cached, currentGoals: zero });
+    expect((await repo.getProfile())?.aiJournalConsent?.version).toBe(DISCLOSURE_VERSION);
+    expect(res.profile?.aiJournalConsent?.version).toBe(DISCLOSURE_VERSION);
+  });
+
+  it("never brings back an agreement withdrawn since the cached profile was read", async () => {
+    const repo = await getRepository();
+    await repo.saveProfile({ ...cogProfile });
+    const cached: Profile = { ...cogProfile, aiJournalConsent: agreed(DISCLOSURE_VERSION) };
+
+    const created = await commitNewPlan(plan, { body: { age: 45 }, currentProfile: cached, currentGoals: zero });
+    expect(created.profile?.aiJournalConsent).toBeUndefined();
+    expect((await repo.getProfile())?.aiJournalConsent).toBeUndefined();
+
+    const modified = await modifyPlanInPlace(plan, { age: 45 }, {}, { currentProfile: cached, currentGoals: zero });
+    expect(modified.profile?.aiJournalConsent).toBeUndefined();
+    expect((await repo.getProfile())?.aiJournalConsent).toBeUndefined();
+
+    const coached = await applyCoachPlanChange(plan, cached, zero, { summary: "Goal 80 kg", goalWeightKg: 80 });
+    expect(coached?.profile?.aiJournalConsent).toBeUndefined();
+    expect((await repo.getProfile())?.aiJournalConsent).toBeUndefined();
+  });
+});
+
+describe("mergeBodyIntoProfile", () => {
+  /**
+   * A blank goal weight in the wizard means maintain, and the wizard sends no
+   * goal with it. Keeping the old one left "maintain" next to a goal the user
+   * cleared, which the next edit then filled back in as a weight-loss plan.
+   */
+  it("drops the old goal weight when the plan is to maintain", () => {
+    const p = mergeBodyIntoProfile({ ...cogProfile, goalWeightKg: 55 }, { direction: "maintain", weightKg: 68 });
+    expect(p.direction).toBe("maintain");
+    expect(p.goalWeightKg).toBeUndefined();
+  });
+
+  it("keeps it when the wizard says nothing about direction", () => {
+    expect(mergeBodyIntoProfile(cogProfile, { age: 45 }).goalWeightKg).toBe(78);
   });
 });
