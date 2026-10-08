@@ -316,9 +316,12 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
   const inputsValid = tracksFood ? heightCm != null && weightKg != null : true;
 
   /** The body stats to reconcile into the profile on commit (shared by the
-   *  new-plan and modify-in-place paths). */
+   *  new-plan and modify-in-place paths). Sex is asked on every plan, so it
+   *  is kept for every plan: left out, a first plan stores DEFAULT_PROFILE's,
+   *  and the health coach states that as theirs and sets its under-eating
+   *  floor by it. Height and weight are asked only when the plan tracks food. */
   const buildBody = (): WizardBody => ({
-    sex: tracksFood ? sex : undefined,
+    sex,
     heightCm: tracksFood ? heightCm : undefined,
     weightKg: tracksFood ? weightKg : undefined,
     goalWeightKg: tracksFood && direction !== "maintain" ? goalWeightKg : undefined,

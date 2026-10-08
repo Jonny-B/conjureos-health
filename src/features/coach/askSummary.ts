@@ -24,7 +24,8 @@
  * under 18) the summary says "Tracking only" and leaves out the goal
  * direction, goal weight, weekly pace, today's targets and what is left of
  * them, and the plan's goals in any words, its weekly exercise target
- * included. A read that could have changed that answer and failed is
+ * included, as well as a height and activity level the plan never asked
+ * them for. A read that could have changed that answer and failed is
  * treated the same way, and named: a plan that could not be read may be a
  * logging-only one, a profile may give an age under 18 and holds the height
  * the healthy-range check needs, and weigh-ins are the other half of that
@@ -33,10 +34,11 @@
  * Below a healthy range for their height (see gateFor) is worked out here
  * too, never left to the model. A goal weight they would have to lose weight
  * to reach is never sent as a target, and a current weight below the range
- * is said outright. Either one, unless they are set to gain, also leaves out
- * the goal direction, today's targets and the plan's goals, since those are
- * the deficit that leads there. Weight falling faster than 1% of body weight
- * a week is said outright, for everyone, from whatever earlier weigh-in can
+ * is said outright, judged from the profile's weight when no weigh-in is
+ * logged. Either one, unless they are set to gain, also leaves out the goal
+ * direction, today's targets and the plan's goals, since those are the
+ * deficit that leads there. Weight falling faster than 1% of body weight a
+ * week is said outright, for everyone, from whatever earlier weigh-in can
  * show it.
  *
  * What may appear here is bounded by the AI consent wording in
@@ -217,13 +219,16 @@ export function isTrackingOnly(plan: Plan | null, profile: Profile | null): bool
  *
  * `goalsWithheld` (no goal direction, targets, what is left of them, or plan
  * goals) is tracking only, a goal weight they would have to lose weight to
- * reach below a healthy range (goalTooLow), or a latest weigh-in below that
- * range unless they are set to gain. The targets are the deficit set to get
- * there, and SCOPE answers "what should I eat" from what is left of them.
- * Someone gaining back to a healthy weight keeps them, because their targets
- * aim up. The weigh-in is never judged for a tracking-only user: adult ranges
- * do not hold under 18 or in pregnancy, and the tracking-only rule already
- * rules out weight-loss help.
+ * reach below a healthy range (goalTooLow), or a current weight below that
+ * range unless they are set to gain. The current weight is the latest
+ * weigh-in, or with none the profile's (currentWeightKg), since a plan just
+ * built has no weigh-in and was built from that weight: a weigh-in read that
+ * worked and found none must not be the one case that lets this through. The
+ * targets are the deficit set to get there, and SCOPE answers "what should I
+ * eat" from what is left of them. Someone gaining back to a healthy weight
+ * keeps them, because their targets aim up. The weight is never judged for a
+ * tracking-only user: adult ranges do not hold under 18 or in pregnancy, and
+ * the tracking-only rule already rules out weight-loss help.
  */
 function gateFor(f: AskFacts): { trackingOnly: boolean; unread: string; goalsWithheld: boolean } {
   const gaps = f.unreadable ?? [];
@@ -241,7 +246,7 @@ function gateFor(f: AskFacts): { trackingOnly: boolean; unread: string; goalsWit
   if (trackingOnly) return { trackingOnly, unread, goalsWithheld: true };
   const latestKg = ws[0]?.weightKg;
   const goal = activeGoalKg(p?.goalWeightKg, p?.direction);
-  const underweight = belowHealthyRange(latestKg, p?.heightCm);
+  const underweight = belowHealthyRange(currentWeightKg(ws, p?.weightKg), p?.heightCm);
   return {
     trackingOnly,
     unread,
@@ -280,6 +285,18 @@ function goalTooLow(
 ): boolean {
   if (goalKg === undefined || !belowHealthyRange(goalKg, heightCm)) return false;
   return direction !== "gain" || (latestKg !== undefined && latestKg > goalKg);
+}
+
+/**
+ * The weight the healthy-range check goes by: the latest usable weigh-in, or,
+ * with none, the profile's weight, which is what the plan wizard keeps (it
+ * logs no weigh-in) and what their targets were worked out from. Judged,
+ * never sent: that field can hold a pounds figure in the kilogram slot (see
+ * renderProfileForPrompt), which reads heavier, so a wrong one is far likelier
+ * to miss a weight below the range than to invent one.
+ */
+function currentWeightKg(ws: WeightEntry[], profileWeightKg: number | undefined): number | undefined {
+  return ws[0]?.weightKg ?? profileWeightKg;
 }
 
 /** Weigh-ins that can be used, newest first, whatever order the store keeps. */
@@ -347,19 +364,28 @@ const ACTIVITY_WORDS: Record<Profile["activityLevel"], string> = {
  * Goal direction and the body stats the plan was built from. Body weight is
  * NOT taken from the profile: that field can hold a pounds figure in the
  * kilogram slot (see components/WeightCard), so the WEIGHT section uses real
- * weigh-ins instead. Out-of-range age and height are dropped for the same
- * reason: a wrong number stated as fact is worse than no number.
+ * weigh-ins instead, and judges the profile's weight against a healthy range
+ * only when there are none, without sending it. Out-of-range age and height
+ * are dropped for the same reason: a wrong number stated as fact is worse
+ * than no number.
  *
  * No goal direction with `goalsWithheld` (see gateFor): for a tracking-only
  * user it can be left over from an earlier plan, since a logging-only plan
  * does not set one, and "Goal: losing weight" next to a pregnancy, a
  * 15-year-old or a weight below a healthy range invites the coaching the
  * safety gate exists to prevent.
+ *
+ * No height or activity with `trackingOnly` (see isTrackingOnly): a
+ * logging-only plan never asks height, and a first plan merges onto
+ * DEFAULT_PROFILE, so the height on file is that default's 170 cm rather than
+ * theirs; the activity level can be one worked out from a training-days
+ * question they were never shown. Nothing the coach does for them needs
+ * either. Sex and age are asked on every plan.
  */
 export function renderProfileForPrompt(
   p: Profile | null,
   units: Units,
-  opts: { goalsWithheld?: boolean } = {},
+  opts: { goalsWithheld?: boolean; trackingOnly?: boolean } = {},
 ): string {
   if (!p) return "";
   const bits: string[] = [];
@@ -368,8 +394,10 @@ export function renderProfileForPrompt(
   }
   if (p.sex === "female" || p.sex === "male") bits.push(`Sex: ${p.sex}.`);
   if (Number.isFinite(p.age) && p.age >= 13 && p.age <= 110) bits.push(`Age: ${Math.round(p.age)}.`);
-  if (heightKnown(p.heightCm)) bits.push(`Height: ${fmtHeight(p.heightCm, units)}.`);
-  if (p.activityLevel && ACTIVITY_WORDS[p.activityLevel]) bits.push(`Activity: ${ACTIVITY_WORDS[p.activityLevel]}.`);
+  if (!opts.trackingOnly) {
+    if (heightKnown(p.heightCm)) bits.push(`Height: ${fmtHeight(p.heightCm, units)}.`);
+    if (p.activityLevel && ACTIVITY_WORDS[p.activityLevel]) bits.push(`Activity: ${ACTIVITY_WORDS[p.activityLevel]}.`);
+  }
   return bits.length ? `PROFILE\n${bits.join(" ")}` : "";
 }
 
@@ -389,12 +417,14 @@ export function renderProfileForPrompt(
  * have to lose weight to reach it (see goalTooLow), however far below: the
  * coach is told that instead, so it can say so rather than count down to it.
  *
- * A latest weigh-in below a healthy range is said outright, whatever their
+ * A current weight below a healthy range is said outright, whatever their
  * goal, and so is loss faster than 1% of body weight a week, for every user:
  * the prompt's guardrails depend on both and the model can get the
- * arithmetic wrong. The prompt reads no 1% line as no fast loss, so it is
- * worked out from any weigh-in a week or more back that can show one, not
- * only from one inside the last month. With `trackingOnly` (see
+ * arithmetic wrong. The current weight is the latest weigh-in, or with none
+ * `profileWeightKg` (see currentWeightKg), which is judged but never sent.
+ * The prompt reads no 1% line as no fast loss, so it is worked out from
+ * every weigh-in a week or more back, not only from the one the pace is
+ * measured from. With `trackingOnly` (see
  * isTrackingOnly) neither the goal weight, the weekly pace nor the
  * healthy-range line is sent (adult ranges do not hold under 18 or in
  * pregnancy), only where their weight is, how it has changed, and the 1%
@@ -404,13 +434,25 @@ export function renderWeightForPrompt(
   entries: WeightEntry[],
   goalWeightKg: number | undefined,
   units: Units,
-  opts: { heightCm?: number; direction?: Profile["direction"]; trackingOnly?: boolean } = {},
+  opts: {
+    heightCm?: number;
+    direction?: Profile["direction"];
+    trackingOnly?: boolean;
+    /** The profile's weight, judged (never sent) when no weigh-in is logged. */
+    profileWeightKg?: number;
+  } = {},
 ): string {
   const goal = opts.trackingOnly ? undefined : activeGoalKg(goalWeightKg, opts.direction);
   const ws = weighIns(entries);
   const latest = ws[0];
   const tooLow = goalTooLow(goal, opts.heightCm, opts.direction, latest?.weightKg);
-  if (!latest) return tooLow ? `WEIGHT\n${GOAL_TOO_LOW}` : "";
+  // A safety signal like the 1% line, sent whatever their goal.
+  const weightTooLow =
+    !opts.trackingOnly && belowHealthyRange(currentWeightKg(ws, opts.profileWeightKg), opts.heightCm);
+  if (!latest) {
+    const lines = [...(weightTooLow ? [WEIGHT_TOO_LOW] : []), ...(tooLow ? [GOAL_TOO_LOW] : [])];
+    return lines.length ? `WEIGHT\n${lines.join("\n")}` : "";
+  }
   const first = ws[ws.length - 1]!;
   const lines: string[] = [];
 
@@ -449,22 +491,24 @@ export function renderWeightForPrompt(
     if (base && !opts.trackingOnly) {
       lines.push(`Pace: about ${fmtWeightChange(perWeek, units)} a week since ${base.date}.`);
     }
-    // A safety signal, not a goal: sent whatever the plan is. Over the pace,
-    // or, when the last month has nothing a fortnight back, over the week or
-    // more since the oldest weigh-in in it, so neither sparse nor recent
-    // weigh-ins hide a fast loss. The prompt reads no line as no fast loss.
-    const short = month && back(month) >= SHORT_MIN_DAYS && back(month) < PACE_MIN_DAYS ? month : undefined;
-    const fastSince =
-      base && -perWeek > latest.weightKg * FAST_LOSS_SHARE
-        ? base
-        : short && short.weightKg - latest.weightKg > latest.weightKg * SHORT_LOSS_SHARE
-          ? short
-          : undefined;
+    // A safety signal, not a goal: sent whatever the plan is. Checked against
+    // every earlier weigh-in a week or more back, the pace's own first, then
+    // the newest: a fortnight or more back by the weekly pace from it, 7 to
+    // 13 days back by the 2% loss that is that pace. So neither sparse
+    // weigh-ins nor a slower one in between hide a fast loss, and weighing
+    // in more often never makes the line less likely. The prompt reads no
+    // line as no fast loss.
+    const fastFrom = (w: WeightEntry | undefined) => {
+      const days = w ? back(w) : 0;
+      const lost = w ? w.weightKg - latest.weightKg : 0;
+      if (days >= PACE_MIN_DAYS) return (lost / days) * 7 > latest.weightKg * FAST_LOSS_SHARE;
+      return days >= SHORT_MIN_DAYS && lost > latest.weightKg * SHORT_LOSS_SHARE;
+    };
+    const fastSince = [base, ...ws].find(fastFrom);
     if (fastSince) lines.push(`Losing more than 1% of body weight a week since ${fastSince.date}.`);
   }
 
-  // A safety signal like the 1% line, sent whatever their goal.
-  if (!opts.trackingOnly && belowHealthyRange(latest.weightKg, opts.heightCm)) lines.push(WEIGHT_TOO_LOW);
+  if (weightTooLow) lines.push(WEIGHT_TOO_LOW);
 
   if (tooLow) {
     lines.push(GOAL_TOO_LOW);
@@ -743,12 +787,13 @@ export function renderSummaryBlocks(f: AskFacts): string {
   const { trackingOnly, unread, goalsWithheld } = gateFor(f);
   const p = f.profile;
   return [
-    section(() => renderProfileForPrompt(p, f.units, { goalsWithheld })),
+    section(() => renderProfileForPrompt(p, f.units, { goalsWithheld, trackingOnly })),
     section(() =>
       renderWeightForPrompt(f.weights, p?.goalWeightKg, f.units, {
         heightCm: p?.heightCm,
         direction: p?.direction,
         trackingOnly,
+        profileWeightKg: p?.weightKg,
       }),
     ),
     section(() => renderPlanForPrompt(f.plan, f.today, f.days, { trackingOnly, unread, goalsWithheld })),

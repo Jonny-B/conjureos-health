@@ -190,6 +190,22 @@ describe("renderProfileForPrompt", () => {
       `PROFILE\nSex: female. Age: 15. Height: 165 cm. Activity: lightly active.`,
     );
   });
+
+  /**
+   * A logging-only plan never asks height, and a first plan merges onto
+   * DEFAULT_PROFILE, so the 170 cm on file is that default's. Nothing the
+   * coach does for a tracking-only user needs height or activity.
+   */
+  it("states no height or activity for a tracking-only user", () => {
+    expect(
+      renderProfileForPrompt({ ...PROFILE, age: 15 }, "metric", { goalsWithheld: true, trackingOnly: true }),
+    ).toBe("PROFILE\nSex: female. Age: 15.");
+    const f = sampleFacts();
+    f.plan = plan({ mode: "logging_only" });
+    const out = renderAskContext(f);
+    expect(out).toContain("PROFILE\nSex: female. Age: 41.");
+    expect(out).not.toMatch(/Height:|Activity:/);
+  });
 });
 
 describe("isTrackingOnly", () => {
@@ -744,6 +760,37 @@ describe("a weight below a healthy range", () => {
     expect(renderWeightForPrompt(ws, undefined, "metric", { heightCm: 66 })).not.toContain("healthy range");
   });
 
+  /**
+   * The plan wizard keeps the weight it built the plan from on the profile
+   * and logs no weigh-in, so a user who has just made a plan has none. 170 cm
+   * and 47 kg is a BMI of about 16.3. With a blank goal the plan is to
+   * maintain, so no goal weight is there to catch it either.
+   */
+  it("judges the weight their plan was built from when no weigh-in is logged, and never sends it", () => {
+    const fresh = (weightKg: number): AskFacts => {
+      const f = sampleFacts();
+      f.profile = { ...PROFILE, age: 24, heightCm: 170, weightKg, direction: "maintain", goalWeightKg: undefined };
+      f.weights = [];
+      return f;
+    };
+    const out = renderAskContext(fresh(47));
+    expect(out).toContain("WEIGHT\nTheir current weight is below a healthy range for their height.");
+    expect(out).not.toMatch(/Targets:|Remaining, negative|Goal: maintaining/);
+    expect(out).not.toMatch(/\b47\b/);
+    // A healthy weight on the profile adds nothing.
+    const healthy = renderAskContext(fresh(60));
+    expect(healthy).not.toContain("WEIGHT");
+    expect(healthy).toMatch(/Targets: 1900 cal/);
+    // A weigh-in, once there is one, is what counts.
+    const weighed = fresh(47);
+    weighed.weights = [{ date: TODAY, weightKg: 60 }];
+    expect(renderAskContext(weighed)).not.toContain("healthy range");
+    // And the tracking-only rule still covers a tracking-only user.
+    const teen = fresh(47);
+    teen.profile = { ...teen.profile!, age: 15 };
+    expect(renderAskContext(teen)).not.toContain("healthy range");
+  });
+
   it("leaves it to the tracking-only rule, since adult ranges do not hold under 18 or in pregnancy", () => {
     const ws = at(47, 47.6);
     expect(renderWeightForPrompt(ws, undefined, "metric", { heightCm: 165, trackingOnly: true })).not.toContain(
@@ -807,6 +854,33 @@ describe("fast loss, however the weigh-ins are spaced", () => {
       { date: "2026-06-01", weightKg: 63 },
     ];
     expect(renderWeightForPrompt(ws, 55, "metric", LOSE)).toContain(FAST_LINE("2026-09-28"));
+  });
+
+  /**
+   * A weigh-in in between must not hide it: weighing in more often should
+   * never make the warning less likely.
+   */
+  it("flags a fast week or fortnight when a slower weigh-in inside the month came before it", () => {
+    // 3 kg in the last 7 days (4.3%), averaged by one 29 days back to 0.5 kg a week.
+    const week = [
+      { date: "2026-10-08", weightKg: 70 },
+      { date: "2026-10-01", weightKg: 73 },
+      { date: "2026-09-09", weightKg: 72 },
+    ];
+    const out = renderWeightForPrompt(week, undefined, "metric", LOSE);
+    expect(out).toContain("Pace: about -0.5 kg a week since 2026-09-09.");
+    expect(out).toContain(FAST_LINE("2026-10-01"));
+    // 2.5 kg in 12 days (3.3%), averaged by one 20 days back to 0.7 kg a week.
+    const fortnight = [
+      { date: "2026-10-08", weightKg: 76 },
+      { date: "2026-09-26", weightKg: 78.5 },
+      { date: "2026-09-18", weightKg: 78 },
+    ];
+    expect(renderWeightForPrompt(fortnight, undefined, "metric", LOSE)).toContain(FAST_LINE("2026-09-26"));
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, age: 25, direction: "lose", goalWeightKg: 70 };
+    f.weights = fortnight;
+    expect(renderAskContext(f)).toContain(FAST_LINE("2026-09-26"));
   });
 
   it("leaves ordinary changes over the same spans alone, and a few days too short to tell", () => {

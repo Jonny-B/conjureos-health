@@ -267,6 +267,33 @@ describe("personal context requires consent", () => {
     expect(reply).toContain("crackers");
   });
 
+  /**
+   * The stored conversation is what they logged too: the coach's earlier
+   * answers quote their weigh-ins, symptoms and meals. A sheet left open
+   * while consent is withdrawn (in Settings, or in another tab) still asks
+   * its follow-ups through here.
+   */
+  it("sends none of the stored conversation either, since its answers quote what they logged", async () => {
+    consent = undefined;
+    const { askCoach, answerItem } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    await askCoach("and now?", [
+      { role: "user", content: "How has my weight changed?" },
+      answerItem("You went from 92.4 kg to 88.1 kg, and logged migraines 4 times at 4/5."),
+    ]);
+    const req = complete.mock.calls[0]![0] as { system: string; messages: { role: string; content: string }[] };
+    expect(req.system).toContain("NO USER DATA");
+    expect(req.messages).toEqual([{ role: "user", content: "and now?" }]);
+    // Positive control: with an agreement on file the same call sends both turns.
+    consent = { version: DISCLOSURE_VERSION, acceptedAt: "2026-01-01T00:00:00.000Z", includeNotes: false };
+    complete.mockClear();
+    await askCoach("and now?", [
+      { role: "user", content: "How has my weight changed?" },
+      answerItem("You went from 92.4 kg to 88.1 kg."),
+    ]);
+    expect((complete.mock.calls[0]![0] as { messages: unknown[] }).messages).toHaveLength(3);
+  });
+
   it("sends the symptom label once a current agreement is on file (positive control)", async () => {
     // Guards against the negative-only assertions above passing for the
     // wrong reason (e.g. a typo breaking the whole context block).
@@ -602,18 +629,21 @@ describe("a failed read is not 'nothing logged'", () => {
  */
 describe("the conversation sent with a question", () => {
   const NOTE = "after a fight with my partner";
+  /** A journal with a note, as builds before 1.40.4 wrote one. */
   const JOURNAL = [
     `2026-09-03: 2140 cal from 9 items; 118g protein; symptoms: Headache at 14:00 (3/5) \u2014 ${NOTE}; ate: coffee, oats`,
     "2026-09-04: 1800 cal from 6 items; 95g protein",
   ].join("\n");
+  /** The same journal as summarizeRange writes it. */
+  const JOURNAL_NOW = JOURNAL.replace(` \u2014 ${NOTE}`, ` (note: ${NOTE})`);
   type Req = { messages: { role: string; content: string }[] };
   /** A Find patterns question with a noted journal, as builds before 1.40.4 stored it. */
   const patternsQuestion0 = () =>
     `Here is my journal for 2026-08-01 to 2026-08-31. What patterns do you notice \u2014 anything that seems to go together?\n\n${JOURNAL}`;
 
   it("sends a Find patterns journal once, with its own question, and never again", async () => {
-    const { askCoach, loadAskHistory, saveAskHistory, patternsQuestion } = await import("./ask");
-    const opening = patternsQuestion("2026-09-01", "2026-09-30", JOURNAL);
+    const { answerItem, askCoach, loadAskHistory, saveAskHistory, patternsQuestion } = await import("./ask");
+    const opening = patternsQuestion("2026-09-01", "2026-09-30", JOURNAL_NOW);
     complete.mockResolvedValue("Your headaches land on busy days.");
     await askCoach(opening, await loadAskHistory());
     // Positive control: the run itself carries the range, note included.
@@ -621,7 +651,7 @@ describe("the conversation sent with a question", () => {
 
     await saveAskHistory([
       { role: "user", content: opening },
-      { role: "assistant", content: "Your headaches land on busy days." },
+      answerItem("Your headaches land on busy days."),
     ]);
     complete.mockClear();
     await askCoach("Is my water on track today?", await loadAskHistory());
@@ -655,14 +685,14 @@ describe("the conversation sent with a question", () => {
   });
 
   it("leaves every other turn word for word, and keeps only the last few", async () => {
-    const { askCoach, patternsQuestion } = await import("./ask");
+    const { answerItem, askCoach, patternsQuestion } = await import("./ask");
     complete.mockResolvedValue("ok");
     const typed = "Here is my journal for today: eggs and toast. Is that enough protein?";
     const reply = patternsQuestion("2026-09-01", "2026-09-30", JOURNAL); // as if the model echoed one
     const history = [
       ...Array.from({ length: 6 }, (_, i) => ({ role: "user" as const, content: `old ${i}` })),
       { role: "user" as const, content: typed },
-      { role: "assistant" as const, content: reply },
+      answerItem(reply),
       ...Array.from({ length: 8 }, (_, i) => ({ role: "user" as const, content: `q${i}` })),
     ];
     await askCoach("and now?", history);
@@ -678,28 +708,28 @@ describe("the conversation sent with a question", () => {
    * to a journal that carried one does not travel with later questions either.
    */
   it("does not resend the answer to a journal that carried a symptom note", async () => {
-    const { askCoach, patternsQuestion } = await import("./ask");
+    const { answerItem, askCoach, patternsQuestion } = await import("./ask");
     complete.mockResolvedValue("ok");
     const quoted = `On the 3rd you noted '${NOTE}', and the headache came two hours later.`;
     await askCoach("How was my sleep?", [
-      { role: "user", content: patternsQuestion("2026-09-01", "2026-09-30", JOURNAL) },
-      { role: "assistant", content: quoted },
+      { role: "user", content: patternsQuestion("2026-09-01", "2026-09-30", JOURNAL_NOW) },
+      answerItem(quoted),
     ]);
     const msgs = (complete.mock.calls[0]![0] as Req).messages;
     expect(JSON.stringify(msgs)).not.toContain(NOTE);
     expect(msgs[1]!.role).toBe("assistant");
     expect(msgs[1]!.content).toBe(
-      "[The answer to that journal is not repeated here, because the journal carried symptom notes, which go with that question only.]",
+      "[The answer to that journal is not repeated here. Like the journal, it went with that question only.]",
     );
   });
 
   it("does so even when the journal's own question has fallen out of the window", async () => {
-    const { askCoach, patternsQuestion } = await import("./ask");
+    const { answerItem, askCoach, patternsQuestion } = await import("./ask");
     complete.mockResolvedValue("ok");
     const quoted = `You wrote '${NOTE}' on the 3rd.`;
     const history = [
-      { role: "user" as const, content: patternsQuestion("2026-09-01", "2026-09-30", JOURNAL) },
-      { role: "assistant" as const, content: quoted },
+      { role: "user" as const, content: patternsQuestion("2026-09-01", "2026-09-30", JOURNAL_NOW) },
+      answerItem(quoted),
       ...Array.from({ length: MAX_CONTEXT_TURNS - 1 }, (_, i) => ({ role: "user" as const, content: `q${i}` })),
     ];
     await askCoach("and now?", history);
@@ -709,7 +739,7 @@ describe("the conversation sent with a question", () => {
   });
 
   it("knows a note in a journal this build wrote, as well as one an earlier build wrote", async () => {
-    const { askCoach, patternsQuestion } = await import("./ask");
+    const { answerItem, askCoach, patternsQuestion } = await import("./ask");
     const { summarizeRange } = await import("../journal");
     complete.mockResolvedValue("ok");
     const journal = summarizeRange(
@@ -724,9 +754,12 @@ describe("the conversation sent with a question", () => {
       { includeNotes: true },
     );
     expect(journal).toContain(NOTE);
+    // The note as JOURNAL_NOW carries it, so the tests above use the real shape.
+    expect(journal).toContain(` (note: ${NOTE})`);
+    expect(JOURNAL_NOW).toContain(` (note: ${NOTE})`);
     await askCoach("How was my sleep?", [
       { role: "user", content: patternsQuestion("2026-09-01", "2026-09-30", journal) },
-      { role: "assistant", content: `You noted '${NOTE}'.` },
+      answerItem(`You noted '${NOTE}'.`),
     ]);
     expect(JSON.stringify((complete.mock.calls[0]![0] as Req).messages)).not.toContain(NOTE);
   });
@@ -784,12 +817,12 @@ describe("the conversation sent with a question", () => {
   });
 
   it("keeps the answer to a journal without notes, so a follow-up still makes sense", async () => {
-    const { askCoach, patternsQuestion } = await import("./ask");
+    const { answerItem, askCoach, patternsQuestion } = await import("./ask");
     complete.mockResolvedValue("ok");
     const plain = "2026-09-03: 2140 cal from 9 items; symptoms: Headache at 14:00 (3/5); ate: coffee";
     await askCoach("Why do you think that is?", [
       { role: "user", content: patternsQuestion("2026-09-01", "2026-09-30", plain) },
-      { role: "assistant", content: "Your headaches land on days with coffee." },
+      answerItem("Your headaches land on days with coffee."),
     ]);
     const msgs = (complete.mock.calls[0]![0] as Req).messages;
     expect(msgs[1]!.content).toBe("Your headaches land on days with coffee.");
@@ -800,6 +833,72 @@ describe("the conversation sent with a question", () => {
     const q = patternsQuestion("2026-10-01", "2026-10-31", "");
     expect(q).toBe("I have nothing recorded for 2026-10-01 to 2026-10-31. What would be worth tracking to spot patterns?");
     expect(q).not.toMatch(/\byet\b|\bnow\b|no longer|\u2014/i);
+  });
+
+  /**
+   * The file keeps the last 40 items, so the journal an earlier build's
+   * answers came after is trimmed off well before they are, by this build or
+   * by the earlier one. Whether such an answer is resent cannot hang on that
+   * journal still being in the file.
+   */
+  it("keeps an earlier build's answers out once the journal before them is trimmed off", async () => {
+    const { answerItem, historyForPrompt, loadAskHistory, saveAskHistory } = await import("./ask");
+    const legacy = [
+      { role: "user" as const, content: patternsQuestion0() },
+      { role: "assistant" as const, content: `Your headaches follow "${NOTE}".` },
+      ...Array.from({ length: 19 }, (_, i) => [
+        { role: "user" as const, content: `legacy question ${i}` },
+        { role: "assistant" as const, content: `legacy answer ${i}: ${NOTE} again` },
+      ]).flat(),
+    ];
+    expect(legacy).toHaveLength(40);
+    files["coach-chat.json"] = JSON.stringify(legacy);
+    // As stored, with the journal still first: none of them goes.
+    expect(JSON.stringify(historyForPrompt(await loadAskHistory()))).not.toContain(NOTE);
+
+    // One new exchange, saved the way the coach sheet saves it.
+    await saveAskHistory([
+      ...(await loadAskHistory()),
+      { role: "user", content: "What should I eat?" },
+      answerItem("Soup would fit."),
+    ]);
+    const after = await loadAskHistory();
+    expect(after).toHaveLength(40);
+    expect(after.some((m) => m.content.startsWith("Here is my journal"))).toBe(false);
+    const sent = historyForPrompt(after);
+    expect(JSON.stringify(sent)).not.toContain(NOTE);
+    // The questions stay, and so does this build's answer.
+    expect(sent.at(-4)!.content).toBe("legacy question 18");
+    expect(sent.at(-1)!.content).toBe("Soup would fit.");
+  });
+
+  /**
+   * An em-dash opened a note only in builds before 1.40.4, whose question had
+   * one as well. In this build's journal one can only be part of a food or
+   * symptom name (smart punctuation turns "--" into one), and the answer to
+   * a journal without notes is kept.
+   */
+  it("does not read a dash in a food's name as a note in this build's journal", async () => {
+    const { answerItem, askCoach, patternsQuestion } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    const plain = "2026-09-03: 2140 cal from 9 items; symptoms: Heartburn at 21:40 (3/5); ate: Burrito bowl \u2014 chicken";
+    await askCoach("Which day was that?", [
+      { role: "user", content: patternsQuestion("2026-09-01", "2026-09-30", plain) },
+      answerItem("Heartburn came after the burrito bowl on the 3rd."),
+    ]);
+    const msgs = (complete.mock.calls[0]![0] as Req).messages;
+    expect(msgs[1]!.content).toBe("Heartburn came after the burrito bowl on the 3rd.");
+  });
+
+  it("never tells the model as fact that a journal it leaves out carried notes", async () => {
+    const { historyForPrompt } = await import("./ask");
+    // An earlier build's journal with a dash in it: a note, or a food's name.
+    const sent = historyForPrompt([
+      { role: "user", content: patternsQuestion0() },
+      { role: "assistant", content: `You noted "${NOTE}".` },
+    ]);
+    expect(sent[1]!.content).toMatch(/^\[/);
+    expect(sent[1]!.content).not.toMatch(/carried symptom notes|journal with symptom notes/);
   });
 
   it("is the conversation the consent wording describes", () => {

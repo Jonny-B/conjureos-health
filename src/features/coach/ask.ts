@@ -19,7 +19,8 @@
  * conversation started here is still there when the trainer comes back. The
  * last MAX_CONTEXT_TURNS turns of it go with each question, except the journal
  * a Find patterns question carried and any answer that can quote its notes
- * (see redactHistory, which the coach screen sends its history through too).
+ * (see redactHistory, which the coach screen sends its history through too),
+ * and none of it without consent.
  */
 
 import { aiErrorMessage, complete, isAiAvailable, type ChatMessage } from "../../bridge/ai";
@@ -139,9 +140,11 @@ Their logged data could not be read for this question. Answer generally, and say
  * the home screen's "Ask your health coach" card, and whatever calls it next)
  * goes through askCoach, so gating here, instead of in each caller, is what
  * makes it impossible for a future caller to route around consent by
- * forgetting to check it. No consent, no context, and nothing is even read:
- * not a trimmed-down context, because deciding what is "safe enough" to leak
- * without asking is the same mistake with extra steps. Fails CLOSED like
+ * forgetting to check it. No consent, no context, and nothing is even read
+ * (askCoach sends no stored conversation either, since its answers quote
+ * what they logged): not a trimmed-down context, because deciding what is
+ * "safe enough" to leak without asking is the same mistake with extra
+ * steps. Fails CLOSED like
  * `hasAiJournalConsent` itself: any failure to confirm consent is treated as
  * no consent.
  *
@@ -180,6 +183,9 @@ export async function coachNeedsConsent(): Promise<boolean> {
  */
 const JOURNAL_TURN = /^Here is my journal for (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})\.[^\n]*\n\n/;
 
+/** What a Find patterns question asks, after the sentence naming the range. */
+const PATTERNS_ASK = "What patterns do you notice? Anything that seems to go together?";
+
 /**
  * The question "Find patterns" asks, with the journal for the range (from
  * journal.summarizeRange) after it. Built here so historyForPrompt can find
@@ -187,29 +193,38 @@ const JOURNAL_TURN = /^Here is my journal for (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2
  */
 export function patternsQuestion(from: string, to: string, summary: string): string {
   return summary
-    ? `Here is my journal for ${from} to ${to}. What patterns do you notice? Anything that seems to go together?\n\n${summary}`
+    ? `Here is my journal for ${from} to ${to}. ${PATTERNS_ASK}\n\n${summary}`
     : `I have nothing recorded for ${from} to ${to}. What would be worth tracking to spot patterns?`;
 }
 
-/** Sent in place of the coach's answer to a journal that carried notes. */
-const NOTED_ANSWER =
-  "[The answer to that journal is not repeated here, because the journal carried symptom notes, which go with that question only.]";
+/** Sent in place of the coach's answer to a journal that carried notes. It
+ *  gives no reason: the check below can be wrong about an earlier build's
+ *  journal, and the model must never tell a user their notes were sent when
+ *  they may not have been. */
+const NOTED_ANSWER = "[The answer to that journal is not repeated here. Like the journal, it went with that question only.]";
 
-/** Sent in place of a later answer that was given with such a journal still
- *  in the conversation (see redactHistory). */
-const NOTED_LATER_ANSWER =
-  "[This answer is not repeated here, because it was given while a journal with symptom notes was still in the conversation, and those notes go with that journal's question only.]";
+/** Sent in place of an answer stored by a build before 1.40.4 (see
+ *  redactHistory). */
+const EARLIER_ANSWER = "[This answer is from an earlier version of the app, and is not repeated here.]";
 
-/** How a symptom note starts in a stored journal: as summarizeRange writes
- *  it, and as builds before 1.40.4 did, after a dash. */
-const NOTE_MARKS = [SYMPTOM_NOTE_OPEN, " \u2014 "];
-
-/** Whether a stored Find patterns question carried a symptom note. */
+/**
+ * Whether a stored Find patterns question carried a symptom note.
+ * summarizeRange opens one with SYMPTOM_NOTE_OPEN. Builds before 1.40.4
+ * opened one with a spaced em-dash, and asked a question with a dash in it
+ * too, so a dash counts only in a question that is not this build's: in this
+ * build's journal a dash can only be part of a food or symptom name (smart
+ * punctuation turns "--" into one), and reading it as a note would hide the
+ * answer to a journal that carried none. Any wording but this build's counts
+ * as earlier, so a journal from a build this check has not seen is treated
+ * the careful way.
+ */
 function journalHadNotes(content: string): boolean {
   const head = JOURNAL_TURN.exec(content);
   if (!head) return false;
   const journal = content.slice(head[0].length);
-  return NOTE_MARKS.some((mark) => journal.includes(mark));
+  if (journal.includes(SYMPTOM_NOTE_OPEN)) return true;
+  const thisBuild = head[0] === `Here is my journal for ${head[1]} to ${head[2]}. ${PATTERNS_ASK}\n\n`;
+  return !thisBuild && journal.includes(" \u2014 ");
 }
 
 /**
@@ -239,19 +254,21 @@ export function answerItem(reply: string): CoachChatItem {
  *
  * The answer stays too, unless the journal carried notes: a pattern-finding
  * answer quotes the journal back, and a note it quotes would go out again
- * with every follow-up. So does every later answer without the answerItem
- * mark, once a journal with notes is in the conversation: builds before
- * 1.40.4 resent the recent conversation word for word, journal included, so
- * any answer they gave after it can quote a note, or quote an answer that
- * did. Answers given since are asked without it, and are kept.
+ * with every follow-up.
+ *
+ * Every answer without the answerItem mark is left out as well, journal or
+ * no journal. Builds before 1.40.4 resent the recent conversation word for
+ * word, journal included, so any answer they gave can quote a note, or quote
+ * an answer that did. Which ones did cannot be told from the file: the
+ * journal they followed is trimmed off the front (MAX_STORED) long before
+ * they are, by this build or by the one that wrote them. Answers given
+ * since are asked without it, carry the mark, and are kept.
  */
 export function redactHistory(items: CoachChatItem[]): CoachChatItem[] {
-  let notedEarlier = false;
   return items.map((m, i): CoachChatItem => {
     if (m.role === "user") {
       const head = JOURNAL_TURN.exec(m.content);
       if (!head) return m;
-      if (journalHadNotes(m.content)) notedEarlier = true;
       return {
         ...m,
         content: `${head[0].trimEnd()}\n\n[Their journal for ${head[1]} to ${head[2]} went with that question only, and is not repeated here.]`,
@@ -259,7 +276,7 @@ export function redactHistory(items: CoachChatItem[]): CoachChatItem[] {
     }
     const asked = items[i - 1];
     if (asked?.role === "user" && journalHadNotes(asked.content)) return { ...m, content: NOTED_ANSWER };
-    if (notedEarlier && !m.redactedHistory) return { ...m, content: NOTED_LATER_ANSWER };
+    if (!m.redactedHistory) return { ...m, content: EARLIER_ANSWER };
     return m;
   });
 }
@@ -309,7 +326,11 @@ export async function askCoach(question: string, history: CoachChatItem[] = []):
       : ctx
         ? `${SYSTEM}\n\nABOUT THIS USER\n${ctx}`
         : `${SYSTEM}\n\n${UNREADABLE_NOTE}`;
-  const messages: ChatMessage[] = [...historyForPrompt(history), { role: "user", content: q }];
+  // No consent, no conversation either: the coach's earlier answers quote
+  // what they logged (their weigh-ins, symptoms, meals), and a sheet left
+  // open while consent is withdrawn still asks its follow-ups through here.
+  const prior = ctx === null ? [] : historyForPrompt(history);
+  const messages: ChatMessage[] = [...prior, { role: "user", content: q }];
 
   try {
     const reply = await complete({

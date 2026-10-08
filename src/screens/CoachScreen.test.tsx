@@ -77,7 +77,7 @@ describe("the trainer's conversation", () => {
   it("sends everything else as it was stored", async () => {
     stored = [
       { role: "user", content: "Can I swap Monday's run?" },
-      { role: "assistant", content: "Sure, Tuesday works." },
+      { role: "assistant", content: "Sure, Tuesday works.", redactedHistory: true },
     ];
     const { CoachScreen } = await import("./CoachScreen");
     await runtime.render(CoachScreen, { onPlanChange: () => {}, initialPrompt: "Here is my journal for today: eggs." });
