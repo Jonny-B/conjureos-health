@@ -95,7 +95,7 @@ export function CoachChatModal({
           {items === null && <div className="muted small">Loading…</div>}
           {empty && (
             <div className="muted small chat-empty">
-              Nothing here yet. Ask anything about what you have logged and it will show up here.
+              Ask about anything you log, from meals and water to sleep, weight and your plan. Your questions and answers show up here.
             </div>
           )}
           {items?.map((m, n) => (

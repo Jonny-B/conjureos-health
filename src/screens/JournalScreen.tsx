@@ -209,6 +209,7 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
       {printOpen && <PrintSheet defaultFrom={from} defaultTo={to} units={units} onClose={() => setPrintOpen(false)} />}
       {consenting && (
         <AiConsentSheet
+          acceptLabel="Send and find patterns"
           onCancel={() => setConsenting(false)}
           onAccept={async (includeNotes) => {
             // Persist BEFORE disclosing. If the profile can't be written we

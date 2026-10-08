@@ -19,6 +19,7 @@ import { buildDayView, shiftDate, todayISO } from "./diary";
 import { exerciseCaloriesForDate } from "./exercise";
 import { formatSleep, sleepMinutes } from "./sleep";
 import { fmtWater, totalMl } from "./water";
+import { fmtWeight } from "./units";
 import type { Profile } from "../types";
 
 type Units = Profile["units"];
@@ -171,7 +172,9 @@ export function renderDayForPrompt(s: DaySnapshot, units: Units = "metric"): str
         .join(", ")}.`,
     );
   }
-  if (s.weightKg) lines.push(`Weighed in at ${s.weightKg.toFixed(1)} kg.`);
+  // In the user's units, like every other weight the coach is shown: handing
+  // the model kg here and lb in the weight summary invites it to mix them.
+  if (s.weightKg) lines.push(`Weighed in at ${fmtWeight(s.weightKg, units)}.`);
   return lines.join("\n");
 }
 

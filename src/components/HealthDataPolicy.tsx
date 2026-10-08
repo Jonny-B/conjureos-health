@@ -14,13 +14,13 @@
  * agreement covers new wording.
  *
  * Plain-language policy written against how the app behaves. Final copy as of
- * 2026-10-01 (POLICY_UPDATED); keep it true when a data flow changes.
+ * POLICY_UPDATED; keep it true when a data flow changes.
  */
 
 import { DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features/aiConsent";
 
 /** Last material revision. Shown so a reader can tell what they agreed to. */
-export const POLICY_UPDATED = "2026-10-01";
+export const POLICY_UPDATED = "2026-10-08";
 
 export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
   return (
@@ -75,8 +75,9 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
               it.
             </li>
             <li>
-              <strong>Find patterns</strong> and <strong>asking the coach</strong> send parts of
-              your journal, and ask for your agreement first. They send:
+              <strong>Find patterns</strong> and <strong>asking your health coach</strong> send
+              parts of what you log, including a summary of your weight history and your plan,
+              and ask for your agreement first. They send:
             </li>
           </ul>
           <ul className="consent-list">
@@ -128,12 +129,13 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
               stops at once.
             </li>
             <li>
-              Find patterns and the coach send nothing from your journal until you agree to that
-              separately. The first time, you are shown exactly what would be sent and can
+              Find patterns and your health coach send nothing you have logged until you agree to
+              that separately. The first time, you are shown exactly what would be sent and can
               decline.
             </li>
             <li>
-              The free-text note on a symptom is a separate choice, off unless you turn it on.
+              The free-text note on a symptom is a separate choice, off unless you turn it on,
+              and only Find patterns sends it.
             </li>
             <li>
               You can withdraw that agreement at any time in Settings, under Privacy. Future
