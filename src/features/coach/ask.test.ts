@@ -78,9 +78,12 @@ vi.mock("../../data/repository", () => ({
       if (failing.has("getGoals")) throw new Error("goals unreadable");
       return { calories: 2200, protein: 150, carbs: 200, fat: 70 };
     },
+    // A plan always stores a height, and the summary withholds the goals
+    // without a believable one (askSummary.ts gateFor).
     getProfile: async () => ({
       units: "imperial",
       weightKg: 81,
+      heightCm: 170,
       direction: "lose",
       aiJournalConsent: consent,
       ...profileExtra,
@@ -973,6 +976,38 @@ describe("the conversation sent with a question", () => {
     expect(sent[0]!.content.split("\n\n")[1]).toMatch(/^\[.*\]$/);
     expect(sent[1]!.content).toMatch(/^\[.*\]$/);
     expect(sent[2]!.content).toMatch(/^\[.*\]$/);
+  });
+
+  /**
+   * Review round 7. Most answers stored before 1.40.4 are plain food Q&A
+   * from the old card, with no journal and no dates, and every one of them
+   * goes as the earlier-answer placeholder. Asked about one, the coach must
+   * not send the user to Find patterns "for those dates".
+   */
+  it("gives the Find patterns advice for a journal placeholder only, not for an earlier answer", async () => {
+    const { askCoach, historyForPrompt, patternsQuestion } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    await askCoach("How much protein is in the yogurt you suggested?");
+    const sys = (complete.mock.calls[0]![0] as { system: string }).system;
+    const rules = sys.split("SCOPE")[1]!.split("LIMITS")[0]!.split(/\n- /);
+    const earlier = rules.filter((r) => /earlier version of the app/.test(r));
+    const journal = rules.filter((r) => /\[square brackets\]/.test(r) && !/earlier version of the app/.test(r));
+    expect(earlier).toHaveLength(1);
+    expect(earlier[0]).not.toMatch(/Find patterns|those dates|journal/i);
+    expect(journal).toHaveLength(1);
+    expect(journal[0]).toMatch(/journal/);
+    expect(journal[0]).toMatch(/Find patterns\s+again/);
+    // Each placeholder carries the words its rule keys on.
+    const sent = historyForPrompt([
+      { role: "user", content: "What's a filling snack under 200 calories?" },
+      { role: "assistant", content: "Greek yogurt with berries." },
+      { role: "user", content: patternsQuestion("2026-09-01", "2026-09-30", `2026-09-03: 900 cal (note: ${NOTE})`) },
+      { role: "assistant", content: "Heartburn came up on 5 evenings." },
+    ]);
+    expect(sent[1]!.content).toMatch(/^\[.*earlier version of the app.*\]$/);
+    expect(sent[1]!.content).not.toMatch(/journal/i);
+    expect(sent[2]!.content.split("\n\n")[1]).toMatch(/^\[.*journal.*\]$/);
+    expect(sent[3]!.content).toMatch(/^\[.*journal.*\]$/);
   });
 
   it("is the conversation the consent wording describes", () => {

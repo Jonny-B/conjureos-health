@@ -87,9 +87,12 @@ SCOPE
   answer generally.
 - What is listed under COULD NOT READ THIS TIME failed to load for this question: say you could not read it this
   time, never that it was not logged.
-- Text in [square brackets] in the conversation stands for a journal or an earlier answer you are not shown this
-  time. Asked about it, say you cannot see that journal for this question and suggest running Find patterns
-  again for those dates. Never say nothing was logged then.
+- Text in [square brackets] in the conversation that names a journal stands for that journal, or the answer to
+  it, which you are not shown this time. Asked about it, say you cannot see that journal for this question and
+  suggest running Find patterns again for those dates. Never say nothing was logged then.
+- Text in [square brackets] saying an answer is from an earlier version of the app stands for that answer, which
+  you are not shown this time. Asked about it, say you cannot see that earlier answer for this question and ask
+  what they would like to know. Suggest nothing to run again for it.
 - The only streak the app keeps is the "in a row" count of days with food logged; do not invent any other.
   Body measurements are not tracked. Water is shown against a 2 litre (64 oz) rule of thumb.
 - A question that is odd, vague or a joke still gets a straight, good-humoured answer. Do not lecture.
@@ -116,6 +119,9 @@ LIMITS
 - If the summary says their current weight is below a healthy range, never help them lose weight or eat
   less, whatever they ask. Helping them gain weight or eat enough is fine. Say gently, once, that it is worth
   talking over with a doctor or dietitian.
+- If the summary says whether a weight is healthy for them cannot be checked, never help them lose weight, eat
+  less or reach a lower weight, whatever they ask. Helping them gain weight or eat enough is fine. Say gently,
+  once, that the height in Edit plan on the Plan tab is worth checking.
 - If the summary says tracking only, or gives an age under 18, do not suggest weight loss, a goal weight, eating
   less or exercise to do, and do not tell them to drink more or less, since a doctor may have set how much they
   drink. Answer from what they logged, keep the rest general, and suggest their doctor.
@@ -210,11 +216,16 @@ export function patternsQuestion(from: string, to: string, summary: string): str
 /** Sent in place of the coach's answer to a journal that carried notes. It
  *  gives no reason: the check below can be wrong about an earlier build's
  *  journal, and the model must never tell a user their notes were sent when
- *  they may not have been. */
+ *  they may not have been. It names the journal, which is what SYSTEM's
+ *  rule for running Find patterns again keys on. */
 const NOTED_ANSWER = "[The answer to that journal is not repeated here. Like the journal, it went with that question only.]";
 
 /** Sent in place of an answer stored by a build before 1.40.4 (see
- *  redactHistory). */
+ *  redactHistory). Most of those are plain food questions from the old card,
+ *  with no journal and no dates, so it names no journal, and SYSTEM keys its
+ *  own rule for it on "an earlier version of the app": the journal rule's
+ *  advice to run Find patterns again would send them to an unrelated
+ *  feature. */
 const EARLIER_ANSWER = "[This answer is from an earlier version of the app, and is not repeated here.]";
 
 /**

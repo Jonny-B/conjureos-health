@@ -454,7 +454,10 @@ describe("renderAskContext", () => {
       sleep: [],
       unreadable: ["today", "earlier", "weight"],
     });
-    expect(out).toBe("COULD NOT READ THIS TIME\nToday's diary, some of the 7 days before today, their weigh-ins.");
+    expect(out).toBe(
+      "PLAN\nTracking only: they have no current plan, so the app sets them no weight, calorie-cutting or exercise goals.\n\n" +
+        "COULD NOT READ THIS TIME\nToday's diary, some of the 7 days before today, their weigh-ins.",
+    );
   });
 
   it("leaves out every section that has nothing in it", () => {
@@ -468,7 +471,9 @@ describe("renderAskContext", () => {
       sleep: [],
     });
     expect(out).toMatch(/^TODAY\n/);
-    expect(out).not.toMatch(/PROFILE|WEIGHT|PLAN|LAST 7 DAYS|RECENT DAYS/);
+    expect(out).not.toMatch(/PROFILE|WEIGHT|LAST 7 DAYS|RECENT DAYS/);
+    // No plan says so, rather than reading as a plan with nothing in it.
+    expect(out).toMatch(/\n\nPLAN\nTracking only: they have no current plan, [^\n]*$/);
     expect(out).not.toMatch(/undefined|NaN|null/);
     // The model repeats this line back, so it keeps to the copy rules.
     expect(out).toContain("Nothing logged today so far.");
@@ -775,6 +780,8 @@ describe("a weight below a healthy range", () => {
       const f = sampleFacts();
       f.profile = { ...PROFILE, age: 24, heightCm: 170, weightKg, direction: "maintain", goalWeightKg: undefined };
       f.weights = [];
+      // Made by this build, which records when the profile was saved.
+      f.plan = plan({ bodySavedAt: "2026-09-24T00:00:00Z" });
       return f;
     };
     const out = renderAskContext(fresh(47));
@@ -970,14 +977,20 @@ describe("a read the healthy-range check needs, failing", () => {
     gain.weights = [];
     gain.unreadable = ["weight"];
     expect(renderAskContext(gain)).toMatch(/Targets: 1900 cal[\s\S]*Remaining, negative means over/);
-    // No height to check a weigh-in against, so the check was never possible.
+  });
+
+  it("leaves a profile with no height to the height rule, not the weigh-ins", () => {
+    // No height to check a weigh-in against: the height itself withholds the
+    // goals (see "a height on file that cannot be right"), and says why.
     const tall = underweight();
     tall.profile = { ...tall.profile!, heightCm: undefined as unknown as number };
     tall.weights = [];
     tall.unreadable = ["weight"];
     const out = renderAskContext(tall);
-    expect(out).toMatch(/Targets: 1900 cal/);
+    expect(out).not.toMatch(GOALS);
+    expect(out).toContain("No usable height is on file for them, so whether a weight is healthy for them cannot be checked.");
     expect(out).not.toContain("Tracking only");
+    expect(out).toContain("COULD NOT READ THIS TIME\nTheir weigh-ins.");
   });
 });
 
@@ -992,7 +1005,8 @@ describe("a plan built after the latest weigh-in", () => {
     const direction = goalWeightKg === undefined ? "maintain" : goalWeightKg > weightKg ? "gain" : "lose";
     f.profile = { ...PROFILE, age: 30, heightCm: 170, weightKg, goalWeightKg, direction };
     f.weights = [{ date: "2026-03-01", weightKg: 56 }];
-    f.plan = plan({ createdAt: "2026-10-01T12:00:00Z", startDate: "2026-10-01" });
+    // Made by this build, which records when the profile was saved.
+    f.plan = plan({ createdAt: "2026-10-01T12:00:00Z", startDate: "2026-10-01", bodySavedAt: "2026-10-01T12:00:00Z" });
     return f;
   };
 
@@ -1363,5 +1377,148 @@ describe("a weight named in words", () => {
     f.plan = plan({ goalText: "Get down to ninety pounds before the meet" });
     const out = renderAskContext(f);
     expect(out).not.toMatch(/ninety|Goal in their words/);
+  });
+});
+
+/**
+ * Review round 7. A user who has never built a plan has no profile either,
+ * and can log and ask the coach from the first day. They have never been
+ * through the safety intake, so less is known about them than about a user
+ * whose plan was deleted: the summary treats them as tracking only too, and
+ * DEFAULT_GOALS, which getGoals falls back to, never go as their targets.
+ */
+describe("a user who has never built a plan", () => {
+  const newcomer = (): AskFacts => ({
+    today: TODAY,
+    units: "metric",
+    profile: null,
+    weights: [
+      { date: "2026-10-08", weightKg: 47 },
+      { date: "2026-09-10", weightKg: 50 },
+    ],
+    plan: null,
+    days: [
+      snap(TODAY, 2400, {
+        targets: { calories: 2000, protein: 120, carbs: 200, fat: 67 },
+        remaining: { calories: -400, protein: -26, carbs: 48, fat: -13 },
+      }),
+    ],
+    sleep: [],
+  });
+
+  it("says tracking only, with no targets, what is left of them, or pace", () => {
+    const out = renderAskContext(newcomer());
+    expect(out).toContain(
+      "PLAN\nTracking only: they have no current plan, so the app sets them no weight, calorie-cutting or exercise goals.",
+    );
+    expect(out).not.toMatch(/Targets:|Remaining, negative|Pace:/);
+    expect(out).toContain("Eaten so far: 2400 cal");
+    expect(out).toContain("Latest: 47 kg on 2026-10-08.");
+    expect(out).not.toContain("COULD NOT READ");
+  });
+});
+
+/**
+ * Review round 7. The healthy-range check needs a believable height, and the
+ * plan wizard can store one that is not: its metric field clamps anything
+ * shorter to 90 cm (a height typed in metres, feet or inches), and its
+ * imperial fields take any feet from 0 to 9. With no height to judge by, a
+ * goal weight and a deficit toward it go nowhere unchecked. 47 kg at 160 cm
+ * is a BMI of about 18.4, and a goal of 40 kg about 15.6.
+ */
+describe("a height on file that cannot be right", () => {
+  const typo = (heightCm: number, direction: Profile["direction"], goalWeightKg: number | undefined): AskFacts => {
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, sex: "female", age: 24, heightCm, weightKg: 50, direction, goalWeightKg };
+    f.weights = [
+      { date: "2026-10-08", weightKg: 47 },
+      { date: "2026-09-10", weightKg: 50 },
+    ];
+    const targets = { calories: 1200, protein: 90, carbs: 120, fat: 40 };
+    f.days = f.days.map((d) => ({ ...d, targets }));
+    f.days[f.days.length - 1] = snap(TODAY, 600, {
+      targets,
+      remaining: { calories: 600, protein: 0, carbs: 0, fat: 0 },
+    });
+    f.plan = plan({ goalText: "get lean", weeklyExerciseDays: 4 });
+    return f;
+  };
+  const UNCHECKED = "No usable height is on file for them, so whether a weight is healthy for them cannot be checked.";
+
+  it("judges a believable one, as before", () => {
+    const out = renderAskContext(typo(160, "lose", 40));
+    expect(out).toContain("Their goal weight is below a healthy range for their height.");
+    expect(out).not.toMatch(/Targets:|Goal weight:/);
+    expect(out).not.toContain(UNCHECKED);
+  });
+
+  it("sends no goal weight, goal direction, targets or plan goals to someone set to lose", () => {
+    for (const heightCm of [90, 250]) {
+      const out = renderAskContext(typo(heightCm, "lose", 40));
+      expect(out, String(heightCm)).toContain(UNCHECKED);
+      expect(out, String(heightCm)).not.toMatch(
+        /Goal: losing weight|Goal weight:|Targets:|Remaining, negative|get lean|target days|Height:/,
+      );
+      expect(out, String(heightCm)).toContain("Eaten so far: 600 cal");
+    }
+  });
+
+  it("sends nothing to cut toward to someone set to maintain", () => {
+    const out = renderAskContext(typo(90, "maintain", undefined));
+    expect(out).toContain(UNCHECKED);
+    expect(out).not.toMatch(/Goal: maintaining|Targets:|Remaining, negative/);
+  });
+
+  it("keeps what aims up for someone set to gain, and says the height cannot be used", () => {
+    const out = renderAskContext(typo(90, "gain", 55));
+    expect(out).toContain(UNCHECKED);
+    expect(out).toContain("Goal: gaining weight.");
+    expect(out).toContain("Goal weight: 55 kg (8.0 kg away).");
+    expect(out).toMatch(/Targets: 1200 cal[\s\S]*Remaining, negative means over/);
+    // Gone past a gain goal: getting back to it means losing.
+    const past = renderAskContext(typo(90, "gain", 45));
+    expect(past).not.toMatch(/Goal weight:|Targets:|Goal: gaining weight/);
+  });
+
+  it("leaves a tracking-only user to the tracking-only rule", () => {
+    const f = typo(90, "lose", 40);
+    f.profile = { ...f.profile!, age: 15 };
+    const out = renderAskContext(f);
+    expect(out).not.toContain(UNCHECKED);
+    expect(out).toContain("Tracking only");
+  });
+});
+
+/**
+ * Review round 7. Builds before 1.40.4 edited a plan in place without
+ * recording when (Plan.bodySavedAt), keeping its createdAt while saving the
+ * weight typed into the edit. So a plan without bodySavedAt cannot say when
+ * the profile's weight was saved, and the profile's weight is judged beside
+ * the weigh-ins. 165 cm: 47 kg is a BMI of about 17.3, the 58 kg weigh-in 21.3.
+ */
+describe("a plan from an earlier build, edited in place", () => {
+  const edited = (stamp?: string): AskFacts => {
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, age: 30, heightCm: 165, weightKg: 47, direction: "maintain", goalWeightKg: undefined };
+    f.weights = [{ date: "2026-09-10", weightKg: 58 }];
+    f.plan = plan({
+      createdAt: "2026-09-01T12:00:00Z",
+      startDate: "2026-09-01",
+      ...(stamp ? { bodySavedAt: stamp } : {}),
+    });
+    return f;
+  };
+
+  it("judges the profile's weight, since the plan cannot say when it was saved", () => {
+    const out = renderAskContext(edited());
+    expect(out).toContain("Their current weight is below a healthy range for their height.");
+    expect(out).not.toMatch(/Targets:|Remaining, negative|Goal: maintaining/);
+    expect(out).not.toMatch(/\b47\b/);
+  });
+
+  it("goes by a newer weigh-in when this build says when the profile was saved", () => {
+    const out = renderAskContext(edited("2026-09-01T12:00:00Z"));
+    expect(out).not.toContain("healthy range");
+    expect(out).toMatch(/Targets: 1900 cal/);
   });
 });

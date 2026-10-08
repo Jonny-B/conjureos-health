@@ -21,7 +21,7 @@
  * Safety is applied here as well as in the prompt. For a user the app sets no
  * weight, calorie or exercise goals (a logging-only plan, which the safety
  * intake forces for under-18s, pregnancy and heart conditions, a legacy
- * get_fit plan, a profile left with no plan, or an age under 18) the summary says
+ * get_fit plan, no plan at all, or an age under 18) the summary says
  * "Tracking only" and leaves out the goal
  * direction, goal weight, weekly pace, today's targets and what is left of
  * them, and the plan's goals in any words, its weekly exercise target
@@ -39,15 +39,18 @@
  * be newer than the latest weigh-in (see profileWeightToJudge). Either one,
  * unless they are set to gain, also leaves out the goal direction, today's
  * targets and the plan's goals, since those are the deficit that leads
- * there. Goal text and plan goals that name a weight are never sent, since
- * only the numeric goal weight is checked. Weight falling faster than 1% of
- * body weight a week is said outright, for everyone, from whatever earlier
- * weigh-in can show it.
+ * there. With no believable height to judge by, neither can be checked: the
+ * coach is told so, and the same things are left out unless they are set to
+ * gain toward a goal above where they are. Goal text and plan goals that
+ * name a weight are never sent, since only the numeric goal weight is
+ * checked. Weight falling faster than 1% of body weight a week is said
+ * outright, for everyone, from whatever earlier weigh-in can show it.
  *
- * A profile with no plan is one whose plan was deleted: its goal direction
- * and goal weight, and the stored daily targets, are what that plan left
- * behind, and the plan may have been a logging-only one, so the user is
- * treated as tracking only (see gateFor).
+ * No plan is a deleted plan or one never built. A deleted plan leaves its
+ * goal direction, goal weight and stored daily targets behind on the
+ * profile, and may have been a logging-only one; a user who never built one
+ * has no profile, DEFAULT_GOALS as targets and no safety intake at all. Both
+ * are treated as tracking only (see gateFor).
  *
  * A daily calorie target under the app's own floor (kcalFloor), which only
  * the Plan tab's manual override can set, is not sent as a target either,
@@ -134,6 +137,9 @@ const GOAL_TOO_LOW = "Their goal weight is below a healthy range for their heigh
 
 /** The line the prompt's current-weight rule keys on. */
 const WEIGHT_TOO_LOW = "Their current weight is below a healthy range for their height.";
+
+/** The line the prompt's unusable-height rule keys on (see gateFor). */
+const HEIGHT_UNUSABLE = "No usable height is on file for them, so whether a weight is healthy for them cannot be checked.";
 
 /** Heights outside this range are treated as a typo, in PROFILE and for BMI. */
 const MIN_HEIGHT_CM = 120;
@@ -257,8 +263,9 @@ function sexToGoBy(f: AskFacts): Profile["sex"] | undefined {
  *     and goal direction the healthy-range check needs;
  *   - their weigh-ins, when the profile has a height to check one against and
  *     they are not set to gain, since the weigh-in is the other half of that
- *     check. Set to gain, or with no believable height, a weigh-in could not
- *     have withheld anything, so its failed read withholds nothing either.
+ *     check. Set to gain, a weigh-in could not have withheld anything, so its
+ *     failed read withholds nothing either; with no believable height, the
+ *     height already withholds what it could have (`heightUnusable`, below).
  *
  * `goalsWithheld` (no goal direction, targets, what is left of them, or plan
  * goals) is tracking only, a goal weight they would have to
@@ -274,33 +281,48 @@ function sexToGoBy(f: AskFacts): Profile["sex"] | undefined {
  * tracking-only user: adult ranges do not hold under 18 or in pregnancy, and
  * the tracking-only rule already rules out weight-loss help.
  *
- * A deleted plan is a profile with no plan, from a plan read that worked.
- * Only a plan sets the profile's goal direction and goal weight and the
- * stored daily targets, and deleting the plan keeps all three, so they are
- * the deleted plan's: possibly a deficit set before a pregnancy the deleted
- * plan knew about. None of them go as goals: `direction` is undefined then,
- * for every check here and for WEIGHT. The plan itself may have been a
- * logging-only one, which never asked height, so the height the healthy-range
- * check needs can be DEFAULT_PROFILE's, and nothing is left to say whether a
- * pregnancy or a heart condition made it one. So a deleted plan is tracking
- * only, like an unread one, and `noPlan` says why (unless an age under 18
- * already makes them tracking only).
+ * A height on file that is missing or not believable (heightKnown) is
+ * `heightUnusable`: neither check can be made, and both fail closed, the way
+ * an unread profile does. The plan wizard can store one: its metric field
+ * clamps anything under 90 cm to 90 (a height typed in metres, feet or
+ * inches), and its imperial fields take any feet from 0 to 9. So unless they
+ * are set to gain toward a goal above where they are, the goals are withheld,
+ * and WEIGHT says the height cannot be used (HEIGHT_UNUSABLE) and leaves out
+ * a goal weight they would have to lose weight to reach.
+ *
+ * No plan, from a plan read that worked, is a deleted plan or one never
+ * built. Only a plan writes a profile and sets its goal direction, goal
+ * weight and the stored daily targets, and deleting the plan keeps all
+ * three, so they are the deleted plan's: possibly a deficit set before a
+ * pregnancy the deleted plan knew about. None of them go as goals:
+ * `direction` is undefined then, for every check here and for WEIGHT. The
+ * plan itself may have been a logging-only one, which never asked height, so
+ * the height the healthy-range check needs can be DEFAULT_PROFILE's, and
+ * nothing is left to say whether a pregnancy or a heart condition made it
+ * one. A user who never built a plan has no profile at all, and the daily
+ * targets are DEFAULT_GOALS, set for nobody; they were never asked their
+ * age, or whether they are pregnant or have a heart condition, so even less
+ * is known about them. Either way they are tracking only, like an unread
+ * plan, and `noPlan` says why (unless an age under 18 already makes them
+ * tracking only).
  */
 function gateFor(f: AskFacts): {
   trackingOnly: boolean;
   unread: string;
   goalsWithheld: boolean;
-  /** The goal direction to go by: the profile's, or undefined for a deleted plan. */
+  /** The goal direction to go by: the profile's, or undefined with no plan. */
   direction: Profile["direction"] | undefined;
   /** The profile's weight, when it is judged beside the weigh-ins (profileWeightToJudge). */
   profileWeightKg: number | undefined;
   /** No plan, from a plan read that worked, for an adult (see NO_PLAN). */
   noPlan: boolean;
+  /** Not tracking only, and no believable height to judge a weight by. */
+  heightUnusable: boolean;
 } {
   const gaps = f.unreadable ?? [];
   const p = f.profile;
   const known = isTrackingOnly(f.plan, p);
-  const planGone = !!p && !f.plan && !gaps.includes("plan");
+  const planGone = !f.plan && !gaps.includes("plan");
   const direction = planGone ? undefined : p?.direction;
   const lost: string[] = [];
   if (!f.plan && gaps.includes("plan")) lost.push("their plan");
@@ -321,17 +343,23 @@ function gateFor(f: AskFacts): {
   const trackingOnly = known || planGone || !!unread;
   const noPlan = planGone && !known;
   const profileWeightKg = profileWeightToJudge(f, ws);
-  if (trackingOnly) return { trackingOnly, unread, goalsWithheld: true, direction, profileWeightKg, noPlan };
+  if (trackingOnly) {
+    return { trackingOnly, unread, goalsWithheld: true, direction, profileWeightKg, noPlan, heightUnusable: false };
+  }
   const nowKg = currentWeightKg(ws, profileWeightKg);
   const goal = activeGoalKg(p?.goalWeightKg, direction);
   const underweight = belowHealthyRange(nowKg, p?.heightCm);
+  const heightUnusable = !heightKnown(p?.heightCm);
+  const unchecked = heightUnusable && (direction !== "gain" || reachedByLosing(goal, direction, nowKg));
   return {
     trackingOnly,
     unread,
-    goalsWithheld: goalTooLow(goal, p?.heightCm, direction, nowKg) || (underweight && direction !== "gain"),
+    goalsWithheld:
+      goalTooLow(goal, p?.heightCm, direction, nowKg) || (underweight && direction !== "gain") || unchecked,
     direction,
     profileWeightKg,
     noPlan,
+    heightUnusable,
   };
 }
 
@@ -352,11 +380,23 @@ export function belowHealthyRange(weightKg: number | undefined, heightCm: number
 }
 
 /**
+ * Whether reaching a goal weight (from activeGoalKg) means losing weight:
+ * they are set to lose, or have already gone past it.
+ */
+function reachedByLosing(
+  goalKg: number | undefined,
+  direction: Profile["direction"] | undefined,
+  nowKg: number | undefined,
+): goalKg is number {
+  if (goalKg === undefined) return false;
+  return direction !== "gain" || (nowKg !== undefined && nowKg > goalKg);
+}
+
+/**
  * Whether a goal weight (from activeGoalKg) is one the coach must never help
- * them toward: below a healthy range, and reached by losing weight, because
- * they are set to lose or have already gone past it. Gaining toward one is
- * getting back to a healthier weight, which the coach should help with;
- * WEIGHT_TOO_LOW carries the warning for that.
+ * them toward: below a healthy range, and reached by losing weight. Gaining
+ * toward one is getting back to a healthier weight, which the coach should
+ * help with; WEIGHT_TOO_LOW carries the warning for that.
  */
 function goalTooLow(
   goalKg: number | undefined,
@@ -364,8 +404,7 @@ function goalTooLow(
   direction: Profile["direction"] | undefined,
   nowKg: number | undefined,
 ): boolean {
-  if (goalKg === undefined || !belowHealthyRange(goalKg, heightCm)) return false;
-  return direction !== "gain" || (nowKg !== undefined && nowKg > goalKg);
+  return reachedByLosing(goalKg, direction, nowKg) && belowHealthyRange(goalKg, heightCm);
 }
 
 /**
@@ -374,21 +413,25 @@ function goalTooLow(
  * The plan wizard keeps the weight it built the plan from on the profile and
  * logs no weigh-in, so a plan saved on or after the latest weigh-in's date was
  * saved with a weight at least as new; with no weigh-in at all, the profile's
- * is the only one. Saved is the later of when it was made and when an edit
- * that kept it last saved the profile (bodySavedAt): such an edit keeps the
- * creation time, and saves whatever weight was typed into it. A plan with no
- * usable time, or no plan (deleted, see gateFor), cannot say which is newer,
- * so the profile's counts then too.
+ * is the only one. Saved is when the plan says the wizard's answers last went
+ * onto the profile (bodySavedAt), or its creation time if that is later. Only
+ * bodySavedAt can say it: an edit in place keeps the creation time and saves
+ * whatever weight was typed into it, and builds before 1.40.4 made such edits
+ * without recording when. So a plan with no usable bodySavedAt (from those
+ * builds, or made with no body answers), or no plan (see gateFor), cannot say
+ * which is newer, and the profile's counts then too. It is judged only where
+ * it is the lower (currentWeightKg), so an older one can only make the
+ * answer more careful.
  */
 function profileWeightToJudge(f: AskFacts, ws: WeightEntry[]): number | undefined {
   const kg = f.profile?.weightKg;
   const latest = ws[0];
   if (!latest) return kg;
-  const saved = [f.plan?.createdAt, f.plan?.bodySavedAt]
-    .map((t) => Date.parse(t ?? ""))
-    .filter((t) => Number.isFinite(t));
-  if (!saved.length) return kg;
-  return todayISO(new Date(Math.max(...saved))) >= latest.date ? kg : undefined;
+  const bodySaved = Date.parse(f.plan?.bodySavedAt ?? "");
+  if (!Number.isFinite(bodySaved)) return kg;
+  const created = Date.parse(f.plan?.createdAt ?? "");
+  const saved = Number.isFinite(created) ? Math.max(created, bodySaved) : bodySaved;
+  return todayISO(new Date(saved)) >= latest.date ? kg : undefined;
 }
 
 /**
@@ -531,6 +574,9 @@ export function renderProfileForPrompt(
  * it sent when it is below a healthy weight for their height and they would
  * have to lose weight to reach it (see goalTooLow), however far below: the
  * coach is told that instead, so it can say so rather than count down to it.
+ * With `heightUnusable` (see gateFor) that cannot be checked, so the coach is
+ * told so (HEIGHT_UNUSABLE), and a goal they would have to lose weight to
+ * reach is not sent.
  *
  * A current weight below a healthy range is said outright, whatever their
  * goal, and so is loss faster than 1% of body weight a week, for every user:
@@ -559,17 +605,27 @@ export function renderWeightForPrompt(
     /** The profile's weight, judged (never sent) beside the latest weigh-in.
      *  Pass it only when it can be newer (see profileWeightToJudge). */
     profileWeightKg?: number;
+    /** No believable height to judge a weight by (see gateFor). */
+    heightUnusable?: boolean;
   } = {},
 ): string {
-  const goal = opts.trackingOnly ? undefined : activeGoalKg(goalWeightKg, opts.direction);
   const ws = weighIns(entries);
   const latest = ws[0];
   const nowKg = currentWeightKg(ws, opts.profileWeightKg);
+  const unusable = !opts.trackingOnly && !!opts.heightUnusable;
+  const wanted = opts.trackingOnly ? undefined : activeGoalKg(goalWeightKg, opts.direction);
+  // With no height to check it by, a goal they would have to lose weight to
+  // reach is not sent at all.
+  const goal = unusable && reachedByLosing(wanted, opts.direction, nowKg) ? undefined : wanted;
   const tooLow = goalTooLow(goal, opts.heightCm, opts.direction, nowKg);
   // A safety signal like the 1% line, sent whatever their goal.
   const weightTooLow = !opts.trackingOnly && belowHealthyRange(nowKg, opts.heightCm);
   if (!latest) {
-    const lines = [...(weightTooLow ? [WEIGHT_TOO_LOW] : []), ...(tooLow ? [GOAL_TOO_LOW] : [])];
+    const lines = [
+      ...(unusable ? [HEIGHT_UNUSABLE] : []),
+      ...(weightTooLow ? [WEIGHT_TOO_LOW] : []),
+      ...(tooLow ? [GOAL_TOO_LOW] : []),
+    ];
     return lines.length ? `WEIGHT\n${lines.join("\n")}` : "";
   }
   const first = ws[ws.length - 1]!;
@@ -627,6 +683,7 @@ export function renderWeightForPrompt(
     if (fastSince) lines.push(`Losing more than 1% of body weight a week since ${fastSince.date}.`);
   }
 
+  if (unusable) lines.push(HEIGHT_UNUSABLE);
   if (weightTooLow) lines.push(WEIGHT_TOO_LOW);
 
   if (tooLow) {
@@ -974,7 +1031,7 @@ export function renderGapsForPrompt(f: AskFacts): string {
 /** PROFILE, WEIGHT, PLAN and LAST 7 DAYS, in that order, each only when it
  *  has something to say. Split out so its size can be held to a budget. */
 export function renderSummaryBlocks(f: AskFacts): string {
-  const { trackingOnly, unread, goalsWithheld, direction, profileWeightKg, noPlan } = gateFor(f);
+  const { trackingOnly, unread, goalsWithheld, direction, profileWeightKg, noPlan, heightUnusable } = gateFor(f);
   const p = f.profile;
   const sexUnknown = sexToGoBy(f) === undefined;
   return [
@@ -982,10 +1039,11 @@ export function renderSummaryBlocks(f: AskFacts): string {
     section(() =>
       renderWeightForPrompt(f.weights, p?.goalWeightKg, f.units, {
         heightCm: p?.heightCm,
-        // Undefined for a deleted plan, which takes its goal weight with it.
+        // Undefined with no plan: a deleted one takes its goal weight with it.
         direction,
         trackingOnly,
         profileWeightKg,
+        heightUnusable,
       }),
     ),
     section(() => renderPlanForPrompt(f.plan, f.today, f.days, { trackingOnly, unread, goalsWithheld, noPlan })),
