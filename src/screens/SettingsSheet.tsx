@@ -170,8 +170,8 @@ export function SettingsSheet({
               </>
             ) : (
               <p className="muted small">
-                Nothing is sent. You will be asked, and shown exactly what would go, the first
-                time you use Find patterns or ask your health coach.
+                Nothing is sent. Before Find patterns or your health coach sends anything, you
+                will be asked and shown exactly what would go.
               </p>
             )}
             <button className="btn small ghost" onClick={() => setPolicyOpen(true)}>

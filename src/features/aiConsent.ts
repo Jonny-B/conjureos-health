@@ -32,8 +32,8 @@
  *     send anywhere. Only Find patterns sends them, once, with the question
  *     that asked for it: the coach summary never carries a note of any kind,
  *     and later questions resend the conversation without that journal, or
- *     the coach's answer to it, which can quote a note back
- *     (coach/ask.ts historyForPrompt).
+ *     any answer of the coach's that can quote a note back
+ *     (coach/ask.ts redactHistory).
  *
  * Bump `DISCLOSURE_VERSION` whenever the wording below changes materially.
  * Consent to old wording is not consent to new wording, and a bump re-asks.

@@ -18,7 +18,8 @@
  * History shares `coach-chat.json` with the full coach screen, so a
  * conversation started here is still there when the trainer comes back. The
  * last MAX_CONTEXT_TURNS turns of it go with each question, except the journal
- * a Find patterns question carried (see historyForPrompt).
+ * a Find patterns question carried and any answer that can quote its notes
+ * (see redactHistory, which the coach screen sends its history through too).
  */
 
 import { aiErrorMessage, complete, isAiAvailable, type ChatMessage } from "../../bridge/ai";
@@ -93,8 +94,9 @@ LIMITS
   professional; for chest pain, shortness of breath or dizziness, say to stop and seek medical help.
 - Talk about weight neutrally; never praise fast loss or eating very little. If several logged days are far
   below target or under 1200 cal (1500 for men or sex not given), or weight is falling faster than about
-  1% of body weight a week (the summary says so when it is), mention it gently once and suggest a doctor or
-  dietitian. Low days may be unlogged meals.
+  1% of body weight a week (the summary says so when its weigh-ins can show it; with too few to tell, judge
+  from the dated changes), mention it gently once and suggest a doctor or dietitian. Low days may be
+  unlogged meals.
 - Never suggest a calorie target below what the app already set, and never encourage restriction,
   purging, fasting as weight control, or "earning" food with exercise.
 - If the summary says their goal weight is below a healthy range, never help them toward it or say how long it
@@ -104,7 +106,8 @@ LIMITS
   less, whatever they ask. Helping them gain weight or eat enough is fine. Say gently, once, that it is worth
   talking over with a doctor or dietitian.
 - If the summary says tracking only, or gives an age under 18, do not suggest weight loss, a goal weight, eating
-  less or exercise to do. Answer from what they logged, keep the rest general, and suggest their doctor.
+  less or exercise to do, and do not tell them to drink more or less, since a doctor may have set how much they
+  drink. Answer from what they logged, keep the rest general, and suggest their doctor.
 - You are not told about injuries or health conditions. Never prescribe a workout, specific exercises or an
   intensity. For exercise ideas keep to general, gentle movement, and say to work around any injury and check
   with a doctor or physio first.
@@ -192,6 +195,11 @@ export function patternsQuestion(from: string, to: string, summary: string): str
 const NOTED_ANSWER =
   "[The answer to that journal is not repeated here, because the journal carried symptom notes, which go with that question only.]";
 
+/** Sent in place of a later answer that was given with such a journal still
+ *  in the conversation (see redactHistory). */
+const NOTED_LATER_ANSWER =
+  "[This answer is not repeated here, because it was given while a journal with symptom notes was still in the conversation, and those notes go with that journal's question only.]";
+
 /** How a symptom note starts in a stored journal: as summarizeRange writes
  *  it, and as builds before 1.40.4 did, after a dash. */
 const NOTE_MARKS = [SYMPTOM_NOTE_OPEN, " \u2014 "];
@@ -205,10 +213,21 @@ function journalHadNotes(content: string): boolean {
 }
 
 /**
- * The stored conversation as it goes with a new question: the last
- * MAX_CONTEXT_TURNS turns, with the journal taken out of any Find patterns
- * question among them, and the coach's answer too when that journal carried
- * symptom notes.
+ * How an answer from askCoach is stored: marked as asked with the
+ * conversation as redactHistory leaves it, so no journal and no note from an
+ * earlier question went with it, and a later question can resend it whole.
+ * CoachChatModal stores every answer through this, and so does the trainer's
+ * CoachScreen, whose history goes through redactHistory too.
+ */
+export function answerItem(reply: string): CoachChatItem {
+  return { role: "assistant", content: reply, redactedHistory: true };
+}
+
+/**
+ * The stored conversation as it may go to the AI again, one item for each
+ * stored one and in the same order: the journal taken out of any Find
+ * patterns question, and an answer left out when it can quote a symptom
+ * note. Anything else on an item (a trainer's proposal) is kept.
  *
  * That journal is sent once, with the question that asked for it. Sent again
  * with each later question it would carry a month of data, and any symptom
@@ -220,24 +239,41 @@ function journalHadNotes(content: string): boolean {
  *
  * The answer stays too, unless the journal carried notes: a pattern-finding
  * answer quotes the journal back, and a note it quotes would go out again
- * with every follow-up. Worked out over the whole history before the last
- * turns are taken, since the answer can be inside them when its question is
- * not.
+ * with every follow-up. So does every later answer without the answerItem
+ * mark, once a journal with notes is in the conversation: builds before
+ * 1.40.4 resent the recent conversation word for word, journal included, so
+ * any answer they gave after it can quote a note, or quote an answer that
+ * did. Answers given since are asked without it, and are kept.
  */
-export function historyForPrompt(items: CoachChatItem[]): ChatMessage[] {
-  const sent = items.map((m, i): ChatMessage => {
+export function redactHistory(items: CoachChatItem[]): CoachChatItem[] {
+  let notedEarlier = false;
+  return items.map((m, i): CoachChatItem => {
     if (m.role === "user") {
       const head = JOURNAL_TURN.exec(m.content);
-      const content = head
-        ? `${head[0].trimEnd()}\n\n[Their journal for ${head[1]} to ${head[2]} went with that question only, and is not repeated here.]`
-        : m.content;
-      return { role: "user", content };
+      if (!head) return m;
+      if (journalHadNotes(m.content)) notedEarlier = true;
+      return {
+        ...m,
+        content: `${head[0].trimEnd()}\n\n[Their journal for ${head[1]} to ${head[2]} went with that question only, and is not repeated here.]`,
+      };
     }
     const asked = items[i - 1];
-    const noted = asked?.role === "user" && journalHadNotes(asked.content);
-    return { role: "assistant", content: noted ? NOTED_ANSWER : m.content };
+    if (asked?.role === "user" && journalHadNotes(asked.content)) return { ...m, content: NOTED_ANSWER };
+    if (notedEarlier && !m.redactedHistory) return { ...m, content: NOTED_LATER_ANSWER };
+    return m;
   });
-  return sent.slice(-MAX_CONTEXT_TURNS);
+}
+
+/**
+ * The stored conversation as it goes with a new question: the last
+ * MAX_CONTEXT_TURNS turns of redactHistory. Worked out over the whole history
+ * before the last turns are taken, since an answer can be inside them when
+ * the journal it could quote is not.
+ */
+export function historyForPrompt(items: CoachChatItem[]): ChatMessage[] {
+  return redactHistory(items)
+    .slice(-MAX_CONTEXT_TURNS)
+    .map(({ role, content }) => ({ role, content }));
 }
 
 /** Read the stored conversation, oldest first. Never throws. */

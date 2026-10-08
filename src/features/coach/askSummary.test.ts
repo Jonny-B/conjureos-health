@@ -764,3 +764,141 @@ describe("a weight below a healthy range", () => {
     }
   });
 });
+
+/**
+ * The prompt reads a missing 1% line as "not losing too fast", so the line is
+ * worked out from whatever earlier weigh-in can carry it, not only from one a
+ * fortnight to a month back. 165 cm throughout, so no weight here is below a
+ * healthy range and the 1% line is the only signal.
+ */
+describe("fast loss, however the weigh-ins are spaced", () => {
+  const LOSE = { heightCm: 165, direction: "lose" as const };
+  const FAST_LINE = (since: string) => `Losing more than 1% of body weight a week since ${since}.`;
+
+  it("flags it from two weigh-ins under a fortnight apart", () => {
+    // 5 kg in 13 days: about 2.7 kg, or 4.9% of body weight, a week.
+    const ws = [
+      { date: "2026-10-08", weightKg: 55 },
+      { date: "2026-09-25", weightKg: 60 },
+    ];
+    expect(renderWeightForPrompt(ws, 52, "metric", LOSE)).toContain(FAST_LINE("2026-09-25"));
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, age: 25, direction: "lose", goalWeightKg: 52 };
+    f.weights = ws;
+    expect(renderAskContext(f)).toContain(FAST_LINE("2026-09-25"));
+  });
+
+  it("flags it, and gives a pace, from weigh-ins more than a month apart", () => {
+    // 8 kg in 37 days: about 1.5 kg, or 2.8% of body weight, a week.
+    const ws = [
+      { date: "2026-10-08", weightKg: 54 },
+      { date: "2026-09-01", weightKg: 62 },
+    ];
+    const out = renderWeightForPrompt(ws, 52, "metric", LOSE);
+    expect(out).toContain("Pace: about -1.5 kg a week since 2026-09-01.");
+    expect(out).toContain(FAST_LINE("2026-09-01"));
+  });
+
+  it("flags a fast fortnight even when a slow month or more came before it", () => {
+    // 2.6 kg in the last 10 days, after months of almost nothing.
+    const ws = [
+      { date: "2026-10-08", weightKg: 60 },
+      { date: "2026-09-28", weightKg: 62.6 },
+      { date: "2026-06-01", weightKg: 63 },
+    ];
+    expect(renderWeightForPrompt(ws, 55, "metric", LOSE)).toContain(FAST_LINE("2026-09-28"));
+  });
+
+  it("leaves ordinary changes over the same spans alone, and a few days too short to tell", () => {
+    const quiet = [
+      // 0.5 kg in 13 days.
+      [{ date: "2026-10-08", weightKg: 60 }, { date: "2026-09-25", weightKg: 60.5 }],
+      // 1 kg in 37 days.
+      [{ date: "2026-10-08", weightKg: 61 }, { date: "2026-09-01", weightKg: 62 }],
+      // 2 kg in 3 days is water as often as not.
+      [{ date: "2026-10-08", weightKg: 58 }, { date: "2026-10-05", weightKg: 60 }],
+    ];
+    for (const ws of quiet) {
+      expect(renderWeightForPrompt(ws, 55, "metric", LOSE), ws[1]!.date).not.toContain("1% of body weight");
+    }
+    expect(renderWeightForPrompt(quiet[1]!, 55, "metric", LOSE)).toContain("Pace: about -0.2 kg a week since 2026-09-01.");
+  });
+});
+
+/**
+ * The healthy-range check needs a weigh-in and a height. When a read that
+ * would have given one fails, the summary cannot tell whether the targets are
+ * a deficit toward a weight below that range, so it fails closed the way it
+ * does for an unread plan, and says why.
+ */
+describe("a read the healthy-range check needs, failing", () => {
+  // 170 cm: 52 kg is a BMI of 18.0, under the range; the 55 kg goal is 19.0.
+  const underweight = (): AskFacts => {
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, heightCm: 170, direction: "lose", goalWeightKg: 55 };
+    f.weights = [
+      { date: "2026-10-08", weightKg: 52 },
+      { date: "2026-09-10", weightKg: 52.4 },
+    ];
+    f.plan = plan({ goalText: "get down to 50 kg", goals: [{ id: "1", label: "Get down to 50 kg", kind: "habit" }] });
+    return f;
+  };
+  const GOALS = /Goal: |Targets:|Remaining, negative|50 kg|Goal in their words|Plan goals/;
+
+  it("withholds the goals when the weigh-ins could not be read", () => {
+    // Positive control: read, the weigh-in itself withholds them.
+    const read = renderAskContext(underweight());
+    expect(read).toContain("Their current weight is below a healthy range for their height.");
+    expect(read).not.toMatch(GOALS);
+
+    const f = underweight();
+    f.weights = [];
+    f.unreadable = ["weight"];
+    const out = renderAskContext(f);
+    expect(out).not.toMatch(GOALS);
+    expect(out).toContain(
+      "Tracking only for this question: their weigh-ins could not be read, so treat them as having no weight, calorie-cutting or exercise goals.",
+    );
+    expect(out).toContain("COULD NOT READ THIS TIME\nTheir weigh-ins.");
+  });
+
+  it("withholds the goals when the profile could not be read", () => {
+    const f = underweight();
+    f.profile = null;
+    f.unreadable = ["profile"];
+    const out = renderAskContext(f);
+    expect(out).not.toMatch(GOALS);
+    expect(out).not.toContain("Pace:");
+    expect(out).toContain(
+      "Tracking only for this question: their profile could not be read, so treat them as having no weight, calorie-cutting or exercise goals.",
+    );
+    expect(out).toContain("COULD NOT READ THIS TIME\nTheir profile.");
+  });
+
+  it("names both when both could not be read, and the plan too", () => {
+    const f = underweight();
+    f.plan = null;
+    f.profile = null;
+    f.unreadable = ["plan", "profile"];
+    expect(renderAskContext(f)).toContain(
+      "PLAN\nTracking only for this question: their plan and their profile could not be read,",
+    );
+  });
+
+  it("keeps the goals when the failed read could not change the answer", () => {
+    // Set to gain: their targets aim up, whatever the weigh-in says.
+    const gain = underweight();
+    gain.profile = { ...gain.profile!, direction: "gain", goalWeightKg: 60 };
+    gain.weights = [];
+    gain.unreadable = ["weight"];
+    expect(renderAskContext(gain)).toMatch(/Targets: 1900 cal[\s\S]*Remaining, negative means over/);
+    // No height to check a weigh-in against, so the check was never possible.
+    const tall = underweight();
+    tall.profile = { ...tall.profile!, heightCm: undefined as unknown as number };
+    tall.weights = [];
+    tall.unreadable = ["weight"];
+    const out = renderAskContext(tall);
+    expect(out).toMatch(/Targets: 1900 cal/);
+    expect(out).not.toContain("Tracking only");
+  });
+});

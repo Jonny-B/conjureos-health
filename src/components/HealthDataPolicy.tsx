@@ -150,8 +150,8 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
             </li>
             <li>
               Find patterns and your health coach send nothing you have logged until you agree to
-              that separately. The first time, you are shown exactly what would be sent and can
-              decline.
+              that separately. Before anything is sent, you are shown exactly what would be sent
+              and can decline, and you are asked again whenever that changes.
             </li>
             <li>
               The free-text note on a symptom is a separate choice, off unless you turn it on.

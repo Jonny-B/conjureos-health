@@ -58,5 +58,13 @@
  *      `DISCLOSURE_VERSION` moves: it versions the consent sheet's wording,
  *      which this line is not part of, and decd535 widened this line without
  *      a bump.
+ *   5. The trainer's AI consent. CoachScreen sends buildCoachContext and the
+ *      conversation to the AI with no `hasAiJournalConsent` check, and the
+ *      consent wording (DISCLOSURE_SENDS) describes only the health coach and
+ *      Find patterns. Gate the trainer the way askCoach is gated and word
+ *      what it sends (a DISCLOSURE_VERSION bump) before this ships as true.
+ *      Its history already goes through `redactHistory` (coach/ask.ts), so a
+ *      Find patterns journal and any answer that can quote its notes are not
+ *      resent; keep it that way, since both share coach-chat.json.
  */
 export const COACH_AND_WORKOUTS_ENABLED: boolean = false;

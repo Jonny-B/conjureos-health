@@ -468,6 +468,21 @@ describe("widened scope", () => {
     expect(sys).toMatch(/Helping them gain weight or eat enough is fine/);
   });
 
+  /**
+   * The safety intake makes a plan logging-only for a heart condition, and a
+   * doctor can set a fluid limit for one. The 2 litre mark is the app's rule
+   * of thumb, so the coach must not turn it into advice to drink more.
+   */
+  it("tells a tracking-only user neither to drink more nor less", async () => {
+    fill();
+    plan = { ...plan!, mode: "logging_only" };
+    const sys = await systemFor("Is my water on track today?");
+    expect(sys).toContain("Tracking only: the app sets no weight");
+    const rule = sys.split("LIMITS")[1]!.split("\n- ").find((l) => l.startsWith("If the summary says tracking only"))!;
+    expect(rule).toMatch(/do not tell them to drink more or less/);
+    expect(rule).toMatch(/doctor/);
+  });
+
   it("does not deny the one streak it is sent", async () => {
     const sys = await systemFor();
     expect(sys).not.toMatch(/Streaks and body\s+measurements are not tracked/);
@@ -500,9 +515,12 @@ describe("widened scope", () => {
     expect(sys).toContain("PROFILE");
     expect(sys).toContain("LAST 7 DAYS");
     expect(sys).not.toMatch(/\nWEIGHT\n/);
-    // An unread plan may be a logging-only one: the summary fails closed on
-    // it, and PLAN says only that, with no goal left over on the profile.
-    expect(sys).toMatch(/\nPLAN\nTracking only for this question: their plan could not be read[^\n]*\n\n/);
+    // An unread plan may be a logging-only one, and unread weigh-ins leave
+    // the healthy-range check undone: the summary fails closed on both, and
+    // PLAN says only that, with no goal left over on the profile.
+    expect(sys).toMatch(
+      /\nPLAN\nTracking only for this question: their plan and their weigh-ins could not be read[^\n]*\n\n/,
+    );
     expect(sys).not.toMatch(/losing weight|Goal weight|Targets:/);
     // Not "no weigh-ins": the prompt reads a missing section as nothing logged.
     expect(sys).toMatch(/\nCOULD NOT READ THIS TIME\nTheir weigh-ins, their plan\.$/);
@@ -589,6 +607,9 @@ describe("the conversation sent with a question", () => {
     "2026-09-04: 1800 cal from 6 items; 95g protein",
   ].join("\n");
   type Req = { messages: { role: string; content: string }[] };
+  /** A Find patterns question with a noted journal, as builds before 1.40.4 stored it. */
+  const patternsQuestion0 = () =>
+    `Here is my journal for 2026-08-01 to 2026-08-31. What patterns do you notice \u2014 anything that seems to go together?\n\n${JOURNAL}`;
 
   it("sends a Find patterns journal once, with its own question, and never again", async () => {
     const { askCoach, loadAskHistory, saveAskHistory, patternsQuestion } = await import("./ask");
@@ -710,6 +731,58 @@ describe("the conversation sent with a question", () => {
     expect(JSON.stringify((complete.mock.calls[0]![0] as Req).messages)).not.toContain(NOTE);
   });
 
+  /**
+   * Builds before 1.40.4 resent the last 10 messages word for word, so the
+   * journal, notes and all, went with each of the next few questions, and any
+   * answer they gave after it can quote a note. Answers this build gives are
+   * asked without it, and are kept.
+   */
+  it("does not resend an earlier build's later answer that quotes a note", async () => {
+    const { askCoach } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    const old = `Here is my journal for 2026-08-01 to 2026-08-31. What patterns do you notice \u2014 anything that seems to go together?\n\n${JOURNAL}`;
+    await askCoach("What should I eat?", [
+      { role: "user", content: old },
+      { role: "assistant", content: "Your headaches tend to follow a hard day." },
+      { role: "user", content: "Tell me more about that" },
+      { role: "assistant", content: `On 2026-09-03 you noted "${NOTE}" with a 3/5 headache.` },
+      { role: "user", content: "How was my sleep?" },
+      { role: "assistant", content: "About 7 hours a night." },
+    ]);
+    const msgs = (complete.mock.calls[0]![0] as Req).messages;
+    expect(JSON.stringify(msgs)).not.toContain(NOTE);
+    expect(msgs).toHaveLength(7);
+    // The questions stay, so the answers to them are still placed.
+    expect(msgs[2]!.content).toBe("Tell me more about that");
+    expect(msgs[3]!.role).toBe("assistant");
+    expect(msgs[3]!.content).toMatch(/^\[/);
+    expect(msgs[5]!.content).toMatch(/^\[/);
+  });
+
+  it("keeps the answers this build gave after such a journal, so a follow-up still makes sense", async () => {
+    const { askCoach, answerItem } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    await askCoach("How many calories is that?", [
+      { role: "user", content: patternsQuestion0() },
+      { role: "assistant", content: `You noted "${NOTE}".` },
+      { role: "user", content: "What should I eat for dinner?" },
+      answerItem("Salmon with rice and greens would fit."),
+    ]);
+    const msgs = (complete.mock.calls[0]![0] as Req).messages;
+    expect(JSON.stringify(msgs)).not.toContain(NOTE);
+    expect(msgs[3]!.content).toBe("Salmon with rice and greens would fit.");
+  });
+
+  it("stores an answer marked as asked without any earlier journal", async () => {
+    const { answerItem, historyForPrompt } = await import("./ask");
+    const item = answerItem("ok");
+    expect(item.role).toBe("assistant");
+    expect(item.content).toBe("ok");
+    // Survives the round trip through the chat file.
+    const [back] = JSON.parse(JSON.stringify([item]));
+    expect(historyForPrompt([{ role: "user", content: patternsQuestion0() }, { role: "assistant", content: "x" }, { role: "user", content: "q" }, back])[3]!.content).toBe("ok");
+  });
+
   it("keeps the answer to a journal without notes, so a follow-up still makes sense", async () => {
     const { askCoach, patternsQuestion } = await import("./ask");
     complete.mockResolvedValue("ok");
@@ -763,7 +836,12 @@ describe("the prompt and the summary agree", () => {
 
   it("says where the fast-loss line and a weight they name come in", async () => {
     const sys = await promptAndContext();
-    expect(sys).toMatch(/1% of body weight a week \(the summary says so when it is\)/);
+    // No line is not "not losing fast": with too few weigh-ins the summary
+    // cannot tell, and the model is pointed at the dated changes instead.
+    expect(sys).not.toMatch(/the summary says so when it is\)/);
+    expect(sys).toMatch(
+      /1% of body weight a week \(the summary says so when its weigh-ins can show it; with too few to tell, judge\s+from the dated changes\)/,
+    );
     expect(sys).toMatch(/Treat a weight they name\s+themselves the same way when it is below a healthy range for their height/);
     expect(sys).not.toContain("—");
   });

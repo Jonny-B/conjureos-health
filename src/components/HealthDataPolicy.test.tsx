@@ -72,3 +72,22 @@ describe("health data policy, plan building", () => {
     }
   });
 });
+
+/**
+ * Agreeing to send what you log to the AI is asked for again when the wording
+ * of what is sent changes (DISCLOSURE_VERSION), so "the first time" is not
+ * the only time.
+ */
+describe("health data policy, the AI agreement", () => {
+  it("says it is asked for before anything is sent, and again when that changes", async () => {
+    const { HealthDataPolicy } = await import("./HealthDataPolicy");
+    const text = renderToStaticMarkup(<HealthDataPolicy onClose={() => {}} />)
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ");
+    expect(text).not.toMatch(/the first time/i);
+    expect(text).toContain(
+      "Before anything is sent, you are shown exactly what would be sent and can decline, and you are asked again whenever that changes.",
+    );
+    expect(text).not.toMatch(/\b(now|yet|no longer)\b|\u2014/i);
+  });
+});

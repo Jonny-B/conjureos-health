@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { askCoach, loadAskHistory, saveAskHistory } from "../features/coach/ask";
+import { answerItem, askCoach, loadAskHistory, saveAskHistory } from "../features/coach/ask";
 import type { CoachChatItem } from "../features/coach/model";
 import { useScrollLock } from "../hooks/useScrollLock";
 import { CloseIcon } from "./icons";
@@ -41,7 +41,7 @@ export function CoachChatModal({
     const withUser: CoachChatItem[] = [...base, { role: "user", content: question }];
     setItems(withUser);
     const reply = await askCoach(question, base);
-    const withReply: CoachChatItem[] = [...withUser, { role: "assistant", content: reply }];
+    const withReply: CoachChatItem[] = [...withUser, answerItem(reply)];
     setItems(withReply);
     await saveAskHistory(withReply);
     busyRef.current = false;

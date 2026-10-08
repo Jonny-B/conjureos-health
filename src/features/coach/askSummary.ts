@@ -24,8 +24,11 @@
  * under 18) the summary says "Tracking only" and leaves out the goal
  * direction, goal weight, weekly pace, today's targets and what is left of
  * them, and the plan's goals in any words, its weekly exercise target
- * included. A plan that could not be read is treated the same way, since it
- * may be a logging-only one. The reason a plan is logging-only is never sent.
+ * included. A read that could have changed that answer and failed is
+ * treated the same way, and named: a plan that could not be read may be a
+ * logging-only one, a profile may give an age under 18 and holds the height
+ * the healthy-range check needs, and weigh-ins are the other half of that
+ * check. The reason a plan is logging-only is never sent.
  *
  * Below a healthy range for their height (see gateFor) is worked out here
  * too, never left to the model. A goal weight they would have to lose weight
@@ -33,7 +36,8 @@
  * is said outright. Either one, unless they are set to gain, also leaves out
  * the goal direction, today's targets and the plan's goals, since those are
  * the deficit that leads there. Weight falling faster than 1% of body weight
- * a week is said outright, for everyone.
+ * a week is said outright, for everyone, from whatever earlier weigh-in can
+ * show it.
  *
  * What may appear here is bounded by the AI consent wording in
  * features/aiConsent.ts (DISCLOSURE_SENDS). A new field means new wording
@@ -85,12 +89,23 @@ const MIN_HEALTHY_BMI = 18.5;
 /** Weekly loss, as a share of body weight, past which it is called out. */
 const FAST_LOSS_SHARE = 0.01;
 
+/** The shortest span a weekly pace is measured over. */
+const PACE_MIN_DAYS = 14;
+
+/** Under PACE_MIN_DAYS, the shortest span that can still show a fast loss,
+ *  and the loss over it, as a share of body weight, that does. Over 7 to 13
+ *  days a 2% loss is more than 1% a week, so the same line stays true; over
+ *  fewer, water moves the scale as much as that. */
+const SHORT_MIN_DAYS = 7;
+const SHORT_LOSS_SHARE = 0.02;
+
 /** The line the prompt's tracking-only rule keys on. */
 const TRACKING_ONLY = "Tracking only: the app sets no weight, calorie-cutting or exercise goals for this user.";
 
-/** The same rule, when the plan that would say so could not be read. */
-const TRACKING_UNREAD =
-  "Tracking only for this question: their plan could not be read, so treat them as having no weight, calorie-cutting or exercise goals.";
+/** The same rule, when a read that could have changed it failed: `what` is
+ *  that read in words, "their plan" and so on (see gateFor). */
+const trackingUnread = (what: string) =>
+  `Tracking only for this question: ${what} could not be read, so treat them as having no weight, calorie-cutting or exercise goals.`;
 
 const GOAL_TOO_LOW = "Their goal weight is below a healthy range for their height.";
 
@@ -187,10 +202,18 @@ export function isTrackingOnly(plan: Plan | null, profile: Profile | null): bool
 }
 
 /**
- * How the summary treats this user's goals. Fails closed: a plan that could
- * not be read may be a logging-only one, so it counts as tracking only. One
- * cautious answer to an adult costs far less than counting a pregnant user
- * down to a goal weight left over from an earlier plan.
+ * How the summary treats this user's goals. Fails closed: a read that could
+ * have made them tracking only, or put their weight below a healthy range,
+ * and failed, counts as if it had. One cautious answer to an adult costs far
+ * less than counting a pregnant user down to a goal weight left over from an
+ * earlier plan. Those reads, in words, are `unread`:
+ *   - their plan, which may be a logging-only one;
+ *   - their profile, which may give an age under 18, and holds the height
+ *     and goal direction the healthy-range check needs;
+ *   - their weigh-ins, when the profile has a height to check one against and
+ *     they are not set to gain, since the weigh-in is the other half of that
+ *     check. Set to gain, or with no believable height, a weigh-in could not
+ *     have withheld anything, so its failed read withholds nothing either.
  *
  * `goalsWithheld` (no goal direction, targets, what is left of them, or plan
  * goals) is tracking only, a goal weight they would have to lose weight to
@@ -202,17 +225,26 @@ export function isTrackingOnly(plan: Plan | null, profile: Profile | null): bool
  * do not hold under 18 or in pregnancy, and the tracking-only rule already
  * rules out weight-loss help.
  */
-function gateFor(f: AskFacts): { trackingOnly: boolean; planUnread: boolean; goalsWithheld: boolean } {
-  const planUnread = !f.plan && (f.unreadable ?? []).includes("plan");
-  const trackingOnly = planUnread || isTrackingOnly(f.plan, f.profile);
-  if (trackingOnly) return { trackingOnly, planUnread, goalsWithheld: true };
+function gateFor(f: AskFacts): { trackingOnly: boolean; unread: string; goalsWithheld: boolean } {
+  const gaps = f.unreadable ?? [];
   const p = f.profile;
-  const latestKg = weighIns(f.weights)[0]?.weightKg;
+  const known = isTrackingOnly(f.plan, p);
+  const lost: string[] = [];
+  if (!f.plan && gaps.includes("plan")) lost.push("their plan");
+  if (!p && gaps.includes("profile")) lost.push("their profile");
+  const ws = weighIns(f.weights);
+  if (!known && p && heightKnown(p.heightCm) && p.direction !== "gain" && gaps.includes("weight") && !ws.length) {
+    lost.push("their weigh-ins");
+  }
+  const unread = lost.length > 1 ? `${lost.slice(0, -1).join(", ")} and ${lost[lost.length - 1]}` : lost[0] ?? "";
+  const trackingOnly = known || !!unread;
+  if (trackingOnly) return { trackingOnly, unread, goalsWithheld: true };
+  const latestKg = ws[0]?.weightKg;
   const goal = activeGoalKg(p?.goalWeightKg, p?.direction);
   const underweight = belowHealthyRange(latestKg, p?.heightCm);
   return {
     trackingOnly,
-    planUnread,
+    unread,
     goalsWithheld: goalTooLow(goal, p?.heightCm, p?.direction, latestKg) || (underweight && p?.direction !== "gain"),
   };
 }
@@ -360,10 +392,13 @@ export function renderProfileForPrompt(
  * A latest weigh-in below a healthy range is said outright, whatever their
  * goal, and so is loss faster than 1% of body weight a week, for every user:
  * the prompt's guardrails depend on both and the model can get the
- * arithmetic wrong. With `trackingOnly` (see isTrackingOnly) neither the goal
- * weight, the weekly pace nor the healthy-range line is sent (adult ranges do
- * not hold under 18 or in pregnancy), only where their weight is, how it has
- * changed, and the 1% warning.
+ * arithmetic wrong. The prompt reads no 1% line as no fast loss, so it is
+ * worked out from any weigh-in a week or more back that can show one, not
+ * only from one inside the last month. With `trackingOnly` (see
+ * isTrackingOnly) neither the goal weight, the weekly pace nor the
+ * healthy-range line is sent (adult ranges do not hold under 18 or in
+ * pregnancy), only where their weight is, how it has changed, and the 1%
+ * warning.
  */
 export function renderWeightForPrompt(
   entries: WeightEntry[],
@@ -403,19 +438,29 @@ export function renderWeightForPrompt(
     changes.push(`${fmtWeightChange(latest.weightKg - first.weightKg, units)} since the first weigh-in`);
     lines.push(`Change: ${changes.join(", ")}.`);
 
-    // A weekly pace over the last month, when there is a fortnight or more to
-    // measure it on. This is what the "losing too fast" guardrail needs, and
-    // working it out from two dates is arithmetic the model can get wrong.
-    const base = oldestWithin(WEIGHT_WINDOWS[WEIGHT_WINDOWS.length - 1]!);
-    const span = base ? daysBetween(base.date, latest.date) : 0;
-    if (base && span >= 14) {
-      const perWeek = ((latest.weightKg - base.weightKg) / span) * 7;
-      if (!opts.trackingOnly) lines.push(`Pace: about ${fmtWeightChange(perWeek, units)} a week since ${base.date}.`);
-      // A safety signal, not a goal: sent whatever the plan is.
-      if (-perWeek > latest.weightKg * FAST_LOSS_SHARE) {
-        lines.push(`Losing more than 1% of body weight a week since ${base.date}.`);
-      }
+    // A weekly pace, measured from the oldest weigh-in in the last month when
+    // that is a fortnight or more back, or else from the newest one that is.
+    // This is what the "losing too fast" guardrail needs, and working it out
+    // from two dates is arithmetic the model can get wrong.
+    const back = (w: WeightEntry) => daysBetween(w.date, latest.date);
+    const month = oldestWithin(WEIGHT_WINDOWS[WEIGHT_WINDOWS.length - 1]!);
+    const base = month && back(month) >= PACE_MIN_DAYS ? month : ws.find((w) => back(w) >= PACE_MIN_DAYS);
+    const perWeek = base ? ((latest.weightKg - base.weightKg) / back(base)) * 7 : 0;
+    if (base && !opts.trackingOnly) {
+      lines.push(`Pace: about ${fmtWeightChange(perWeek, units)} a week since ${base.date}.`);
     }
+    // A safety signal, not a goal: sent whatever the plan is. Over the pace,
+    // or, when the last month has nothing a fortnight back, over the week or
+    // more since the oldest weigh-in in it, so neither sparse nor recent
+    // weigh-ins hide a fast loss. The prompt reads no line as no fast loss.
+    const short = month && back(month) >= SHORT_MIN_DAYS && back(month) < PACE_MIN_DAYS ? month : undefined;
+    const fastSince =
+      base && -perWeek > latest.weightKg * FAST_LOSS_SHARE
+        ? base
+        : short && short.weightKg - latest.weightKg > latest.weightKg * SHORT_LOSS_SHARE
+          ? short
+          : undefined;
+    if (fastSince) lines.push(`Losing more than 1% of body weight a week since ${fastSince.date}.`);
   }
 
   // A safety signal like the 1% line, sent whatever their goal.
@@ -454,8 +499,9 @@ export function renderWeightForPrompt(
  * With `trackingOnly` (see isTrackingOnly) the tracking-only line is sent
  * whatever the plan is, and with no plan at all, since an age too young to
  * state in PROFILE would otherwise reach the model as nothing. With
- * `planUnread` it says the plan could not be read and to treat it the same
- * way. Tracking only, or with `goalsWithheld` (see gateFor), none of the
+ * `unread` (see gateFor) it says what could not be read and to treat them
+ * the same way, unless the plan is logging-only, which says so for itself.
+ * Tracking only, or with `goalsWithheld` (see gateFor), none of the
  * goals are sent: their goal in their own words and the plan's goals can name
  * the weight the rest of the summary leaves out, and the weekly exercise
  * target is a goal the tracking-only line says the app never set. The wizard
@@ -466,11 +512,11 @@ export function renderPlanForPrompt(
   plan: Plan | null,
   today: string,
   days: DaySnapshot[],
-  opts: { trackingOnly?: boolean; planUnread?: boolean; goalsWithheld?: boolean } = {},
+  opts: { trackingOnly?: boolean; unread?: string; goalsWithheld?: boolean } = {},
 ): string {
   const tracking = !!opts.trackingOnly || plan?.mode === "logging_only";
   if (!plan || !plan.startDate || !plan.endDate) {
-    if (opts.planUnread) return `PLAN\n${TRACKING_UNREAD}`;
+    if (opts.unread) return `PLAN\n${trackingUnread(opts.unread)}`;
     return tracking ? `PLAN\n${TRACKING_ONLY}` : "";
   }
   const lines: string[] = [];
@@ -485,7 +531,9 @@ export function renderPlanForPrompt(
   lines.push(
     `${planModeLabel(plan)} plan, ${plan.startDate} to ${plan.endDate}${where ? `, ${where}` : ""}.`,
   );
-  if (tracking) lines.push(TRACKING_ONLY);
+  if (tracking) {
+    lines.push(plan.mode === "logging_only" || !opts.unread ? TRACKING_ONLY : trackingUnread(opts.unread));
+  }
   const goalsSent = !tracking && !opts.goalsWithheld;
 
   if (goalsSent && plan.goalText && plan.goalText.trim()) {
@@ -692,7 +740,7 @@ export function renderGapsForPrompt(f: AskFacts): string {
 /** PROFILE, WEIGHT, PLAN and LAST 7 DAYS, in that order, each only when it
  *  has something to say. Split out so its size can be held to a budget. */
 export function renderSummaryBlocks(f: AskFacts): string {
-  const { trackingOnly, planUnread, goalsWithheld } = gateFor(f);
+  const { trackingOnly, unread, goalsWithheld } = gateFor(f);
   const p = f.profile;
   return [
     section(() => renderProfileForPrompt(p, f.units, { goalsWithheld })),
@@ -703,7 +751,7 @@ export function renderSummaryBlocks(f: AskFacts): string {
         trackingOnly,
       }),
     ),
-    section(() => renderPlanForPrompt(f.plan, f.today, f.days, { trackingOnly, planUnread, goalsWithheld })),
+    section(() => renderPlanForPrompt(f.plan, f.today, f.days, { trackingOnly, unread, goalsWithheld })),
     section(() => renderWeekForPrompt(f)),
   ]
     .filter(Boolean)

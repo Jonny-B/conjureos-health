@@ -4,6 +4,7 @@ import { aiErrorMessage, type ChatMessage } from "../bridge/ai";
 import { readJson, writeJson } from "../bridge/vfs";
 import { buildCoachContext } from "../features/coach/context";
 import { coachChat } from "../features/coach/coach";
+import { answerItem, redactHistory } from "../features/coach/ask";
 import type { CoachChatItem, CoachContext, CoachProposal } from "../features/coach/model";
 
 const CHAT_PATH = "coach-chat.json";
@@ -107,7 +108,11 @@ export function CoachScreen({
     if (!answering) roundRef.current = 0;
     try {
       const ctx = ctxRef.current ?? (await buildCoachContext());
-      const outcome = await coachChat(toChatMessages(withUser), ctx, {
+      // The stored turns as redactHistory leaves them: this file is shared
+      // with "Ask your health coach", where Find patterns stores a whole
+      // journal that goes to the AI once, with its own question.
+      const sent: CoachChatItem[] = [...redactHistory(grounded), { role: "user", content: t }];
+      const outcome = await coachChat(toChatMessages(sent), ctx, {
         answering,
         canPropose: roundRef.current < MAX_PROPOSAL_ROUNDS,
       });
@@ -116,8 +121,7 @@ export function CoachScreen({
         ctxRef.current = await buildCoachContext();
       }
       const assistant: CoachChatItem = {
-        role: "assistant",
-        content: outcome.reply,
+        ...answerItem(outcome.reply),
         ...(outcome.proposal ? { proposal: outcome.proposal } : {}),
       };
       roundRef.current = outcome.proposal ? roundRef.current + 1 : 0;

@@ -133,6 +133,10 @@ export interface CoachChatItem {
   proposal?: CoachProposal;
   /** True once the user has answered this proposal (locks the card). */
   answered?: boolean;
+  /** On an answer: it was asked with the conversation as coach/ask.ts
+   *  redactHistory sends it, so it cannot quote a symptom note from an
+   *  earlier question (see answerItem). */
+  redactedHistory?: boolean;
 }
 
 /** Result of an evaluation or chat turn that may have touched the plan. */
