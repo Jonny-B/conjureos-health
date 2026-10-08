@@ -35,6 +35,21 @@ let consent: AiJournalConsent | undefined = {
 
 // The rest of what the user has logged. Empty by default so the older tests
 // below read exactly as they did; the "widened scope" tests fill them in.
+// The plan is the exception: only a plan writes a profile, so a profile with
+// no plan is one whose plan was deleted, which the summary treats as having
+// no goals (askSummary.ts gateFor). The default is an ordinary plan with
+// nothing in it beyond its type and dates.
+const basePlan = (): Plan => ({
+  id: "p0",
+  mode: "eat_better",
+  durationWeeks: 4,
+  startDate: shiftDate(today, -14),
+  endDate: shiftDate(today, 13),
+  goals: [],
+  safety: { ageBand: "18_39", pregnant: false, cardiacFlag: false, injuries: [], activityLevel: "light" },
+  liability: { acknowledged: true, acceptedAt: "2026-01-01T00:00:00.000Z" },
+  createdAt: "2026-01-01T00:00:00.000Z",
+});
 let profileExtra: Partial<Profile> = {};
 let weights: WeightEntry[] = [];
 let plan: Plan | null = null;
@@ -123,7 +138,7 @@ beforeEach(() => {
   consent = { version: DISCLOSURE_VERSION, acceptedAt: "2026-01-01T00:00:00.000Z", includeNotes: false };
   profileExtra = {};
   weights = [];
-  plan = null;
+  plan = basePlan();
   sleepRange = [];
   symptomNote = undefined;
   reads.length = 0;
@@ -417,7 +432,9 @@ describe("widened scope", () => {
     const sys = await systemFor();
     expect(sys).toContain("ABOUT THIS USER\nTODAY\n");
     expect(sys).toContain("PROFILE\nGoal: losing weight.");
-    expect(sys).not.toMatch(/\nWEIGHT\n|\nPLAN\n|Goal weight|Plan goals|rested/);
+    expect(sys).not.toMatch(/\nWEIGHT\n|Goal weight|Goal in their words|Plan goals|target days|rested/);
+    // The plan says what it is and where they are in it, and nothing more.
+    expect(sys).toMatch(/\nPLAN\nEat better plan, [-\d]+ to [-\d]+, day 15 of 28\.\n\n/);
     // The profile's own weight is not a weigh-in and is never stated as one.
     expect(sys).not.toContain("178.6");
     expect(sys).not.toMatch(/undefined|NaN|\bnull\b/);
@@ -551,6 +568,19 @@ describe("widened scope", () => {
     expect(sys).not.toMatch(/losing weight|Goal weight|Targets:/);
     // Not "no weigh-ins": the prompt reads a missing section as nothing logged.
     expect(sys).toMatch(/\nCOULD NOT READ THIS TIME\nTheir weigh-ins, their plan\.$/);
+  });
+
+  /** Reset health data, Current plan: the profile and stored targets stay,
+   *  and the plan read works and finds none. */
+  it("sends no goal or targets the deleted plan left on file", async () => {
+    fill();
+    plan = null;
+    const sys = await systemFor();
+    const ctx = sys.split("ABOUT THIS USER")[1]!;
+    expect(ctx).toContain("Eaten so far: 750 cal");
+    expect(ctx).toContain(`WEIGHT\nLatest: 176.4 lb on ${today}.`);
+    expect(ctx).not.toMatch(/losing weight|Goal weight|158\.7|Targets:|Remaining, negative|2200 cal|\nPLAN\n/);
+    expect(ctx).not.toContain("COULD NOT READ");
   });
 
   it("writes no em-dashes into what the model reads", async () => {

@@ -33,9 +33,13 @@ export function AskCoachCard({ onAsk }: { onAsk: (question: string) => void }) {
   const [engaged, setEngaged] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   // A question asked before consent is on file, parked here while the sheet
-  // shows. Set only long enough to either fire on accept or drop on cancel —
-  // this is not a second history, just a one-question waiting room.
-  const [pending, setPending] = useState<string | null>(null);
+  // shows. Set only long enough to either fire on accept or go back to the
+  // field; this is not a second history, just a one-question waiting room.
+  // `typed` is whether it came from the field: a typed question that is not
+  // asked (they declined, or the agreement could not be saved) goes back
+  // there, so declining to share never costs them what they wrote. A tapped
+  // suggestion stays in the carousel, so the field stays empty.
+  const [pending, setPending] = useState<{ question: string; typed: boolean } | null>(null);
 
   /**
    * Gate every question through the same consent check as "Find patterns",
@@ -43,10 +47,10 @@ export function AskCoachCard({ onAsk }: { onAsk: (question: string) => void }) {
    * Asking is cheap to retry, so this fails toward "ask again" rather than
    * caching a stale answer to "has the user agreed".
    */
-  const ask = (question: string) => {
+  const ask = (question: string, typed: boolean) => {
     void (async () => {
       if (await hasAiJournalConsent()) onAsk(question);
-      else setPending(question);
+      else setPending({ question, typed });
     })();
   };
 
@@ -65,7 +69,7 @@ export function AskCoachCard({ onAsk }: { onAsk: (question: string) => void }) {
     setDraft("");
     setEngaged(false);
     inputRef.current?.blur();
-    ask(q);
+    ask(q, true);
   };
 
   // An untouched field offers the visible suggestion as a one-tap question.
@@ -98,7 +102,7 @@ export function AskCoachCard({ onAsk }: { onAsk: (question: string) => void }) {
             className="btn primary ask-send"
             // With nothing typed the button asks whatever is on screen, so the
             // suggestions are usable rather than decorative.
-            onClick={() => (draft.trim() ? submit() : ask(suggestion))}
+            onClick={() => (draft.trim() ? submit() : ask(suggestion, false))}
           >
             Ask
           </button>
@@ -111,15 +115,19 @@ export function AskCoachCard({ onAsk }: { onAsk: (question: string) => void }) {
       {pending !== null && (
         <AiConsentSheet
           acceptLabel="Agree and ask"
-          onCancel={() => setPending(null)}
+          onCancel={() => {
+            if (pending.typed) setDraft(pending.question);
+            setPending(null);
+          }}
           onAccept={async (includeNotes) => {
             // Persist BEFORE disclosing — same contract as JournalScreen's
             // gate. An agreement that survives only in memory is not a
             // record, so a write failure must not still let the question through.
             const stored = await recordAiJournalConsent(includeNotes);
-            const q = pending;
+            const { question, typed } = pending;
             setPending(null);
-            if (stored && q) onAsk(q);
+            if (stored) onAsk(question);
+            else if (typed) setDraft(question);
           }}
         />
       )}

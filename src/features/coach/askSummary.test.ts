@@ -234,7 +234,7 @@ describe("renderPlanForPrompt", () => {
   it("carries the goal in the user's words, capped, and up to three visible goals", () => {
     const out = renderPlanForPrompt(
       plan({
-        goalText: `Lose about 10 lb before my sister's wedding. ${"Really. ".repeat(40)}`,
+        goalText: `Feel stronger before my sister's wedding. ${"Really. ".repeat(40)}`,
         goals: [
           { id: "1", label: "Hit 140 g protein", kind: "nutrition" },
           { id: "2", label: "Murph benchmark", kind: "workout" },
@@ -247,7 +247,7 @@ describe("renderPlanForPrompt", () => {
       [],
     );
     const goalLine = out.split("\n").find((l) => l.startsWith("Goal in their words: "))!;
-    expect(goalLine).toContain("Lose about 10 lb before my sister's wedding.");
+    expect(goalLine).toContain("Feel stronger before my sister's wedding.");
     expect(goalLine.length).toBeLessThanOrEqual("Goal in their words: ".length + 120);
     expect(out).toContain("Plan goals: Hit 140 g protein; Drink 2 L of water; Log every meal; and 1 more.");
     // A paused workout goal is not presented as something to do.
@@ -974,5 +974,162 @@ describe("a read the healthy-range check needs, failing", () => {
     const out = renderAskContext(tall);
     expect(out).toMatch(/Targets: 1900 cal/);
     expect(out).not.toContain("Tracking only");
+  });
+});
+
+/**
+ * The plan wizard logs no weigh-in, so the weight a plan is built from can be
+ * newer than every weigh-in on file. 170 cm throughout: 45 kg is a BMI of
+ * about 15.6, 51 kg 17.6, and the March weigh-in of 56 kg 19.4.
+ */
+describe("a plan built after the latest weigh-in", () => {
+  const built = (weightKg: number, goalWeightKg: number | undefined): AskFacts => {
+    const f = sampleFacts();
+    const direction = goalWeightKg === undefined ? "maintain" : goalWeightKg > weightKg ? "gain" : "lose";
+    f.profile = { ...PROFILE, age: 30, heightCm: 170, weightKg, goalWeightKg, direction };
+    f.weights = [{ date: "2026-03-01", weightKg: 56 }];
+    f.plan = plan({ createdAt: "2026-10-01T12:00:00Z", startDate: "2026-10-01" });
+    return f;
+  };
+
+  it("judges the weight the plan was built from, and helps them gain", () => {
+    const out = renderAskContext(built(45, 50));
+    expect(out).toContain("Their current weight is below a healthy range for their height.");
+    expect(out).not.toContain("Their goal weight is below a healthy range");
+    expect(out).toContain("Goal: gaining weight.");
+    expect(out).toMatch(/Targets: 1900 cal[\s\S]*Remaining, negative means over/);
+    // No distance to the goal from a weigh-in that is not where they are,
+    // and never the profile's weight itself.
+    expect(out).not.toMatch(/Goal weight:|reached/);
+    expect(out).not.toMatch(/\b45\b/);
+  });
+
+  it("judges the weight the plan was built from, and sends nothing to cut toward", () => {
+    const out = renderAskContext(built(51, undefined));
+    expect(out).toContain("Their current weight is below a healthy range for their height.");
+    expect(out).not.toMatch(/Targets:|Remaining, negative|Goal: maintaining/);
+  });
+
+  it("goes by a weigh-in newer than the plan", () => {
+    const f = built(51, undefined);
+    f.weights = [{ date: "2026-10-05", weightKg: 60 }, ...f.weights];
+    const out = renderAskContext(f);
+    expect(out).not.toContain("healthy range");
+    expect(out).toMatch(/Targets: 1900 cal/);
+    expect(out).toContain("Goal: maintaining.");
+  });
+});
+
+/**
+ * The healthy-range check reads the numeric goal weight only, so a weight in
+ * the goal's own words, or in a plan goal written from it, is one the coach
+ * would be counting down to unchecked. 170 cm: 50 kg is a BMI of about 17.3.
+ */
+describe("a weight named in the plan's words", () => {
+  it("never sends goal text or a plan goal that names one", () => {
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, heightCm: 170, direction: "lose", goalWeightKg: 55 };
+    f.weights = [
+      { date: "2026-10-08", weightKg: 58 },
+      { date: "2026-09-10", weightKg: 60 },
+    ];
+    f.plan = plan({
+      goalText: "get down to 50 kg",
+      goals: [
+        { id: "1", label: "Get down to 50 kg", kind: "habit" },
+        { id: "2", label: "Log every meal", kind: "nutrition" },
+      ],
+    });
+    const out = renderAskContext(f);
+    expect(out).not.toMatch(/50 kg|Goal in their words/);
+    expect(out).toContain("Plan goals: Log every meal.");
+    // The numeric goal is checked, so it still goes.
+    expect(out).toContain("Goal weight: 55 kg (3.0 kg away).");
+  });
+
+  /** Built with a 42 kg goal at 165 cm, then Edit plan cleared the goal
+   *  weight: that edit modifies the plan in place and keeps its goals. */
+  it("drops a plan goal kept after the goal weight was cleared", () => {
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, heightCm: 165, weightKg: 52, direction: "maintain", goalWeightKg: undefined };
+    f.weights = [{ date: "2026-10-08", weightKg: 52 }];
+    f.plan = plan({ goalText: "feel better", goals: [{ id: "1", label: "Reach 42 kg", kind: "habit" }] });
+    const out = renderAskContext(f);
+    expect(out).not.toMatch(/42 kg|Plan goals/);
+    expect(out).toContain("Goal in their words: feel better");
+  });
+
+  it("knows a weight in kilograms, pounds, stone or bare, and leaves other numbers alone", () => {
+    const sent = (goalText: string) => renderPlanForPrompt(plan({ goalText }), TODAY, []).includes("Goal in their words");
+    for (const t of [
+      "get down to 100 lb",
+      "lose the baby weight, about 20 lbs",
+      "be 9st 4lb by summer",
+      "get under 9 stone",
+      "Reach 42kg",
+      "50 kilos by June",
+      "lose 3 pounds a week",
+      "get down to 50 by summer",
+      "weigh 50",
+      "Get down to 50.",
+      "lose 10 by summer",
+      "reach 8.5 st",
+    ]) {
+      expect(sent(t), t).toBe(false);
+    }
+    for (const t of [
+      "Hit 120 g protein a day",
+      "Hit 120g protein",
+      "Run a 5k",
+      "Walk 10000 steps",
+      "Stay under 2000 calories",
+      "Sleep 8 hours",
+      "Drink 2 litres of water",
+      "gain weight back after being ill",
+      "Move 3 days a week",
+      "Hit 3 workouts a week",
+      "Under 3 drinks a week",
+      "Lose 2 hours of screen time",
+      "my 1st half marathon",
+    ]) {
+      expect(sent(t), t).toBe(true);
+    }
+  });
+});
+
+/**
+ * Deleting the plan (Reset health data, Current plan) keeps the profile and
+ * the stored daily targets, and the profile still holds the goal direction
+ * and goal weight the deleted plan set. A profile with no plan is only ever
+ * one whose plan was deleted.
+ */
+describe("a plan that was deleted", () => {
+  const deleted = (): AskFacts => {
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, direction: "lose", goalWeightKg: 60 };
+    f.weights = [
+      { date: "2026-10-08", weightKg: 68 },
+      { date: "2026-09-20", weightKg: 69 },
+    ];
+    f.plan = null;
+    return f;
+  };
+
+  it("sends none of the goals it left behind", () => {
+    const out = renderAskContext(deleted());
+    expect(out).not.toMatch(/Goal: |Goal weight|60 kg|Targets:|Remaining, negative/);
+    expect(out).toContain("Latest: 68 kg on 2026-10-08.");
+    expect(out).toContain("Eaten so far: 900 cal");
+    // Nothing failed, so nothing is named as unread, and the targets are no gap.
+    expect(out).not.toContain("COULD NOT READ");
+    const f = deleted();
+    f.days[f.days.length - 1] = { ...f.days[f.days.length - 1]!, unreadable: ["targets"] };
+    expect(renderAskContext(f)).not.toMatch(/daily targets/);
+  });
+
+  it("still says a current weight is below a healthy range", () => {
+    const f = deleted();
+    f.weights = [{ date: "2026-10-08", weightKg: 48 }];
+    expect(renderAskContext(f)).toContain("Their current weight is below a healthy range for their height.");
   });
 });

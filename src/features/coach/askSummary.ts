@@ -34,12 +34,18 @@
  * Below a healthy range for their height (see gateFor) is worked out here
  * too, never left to the model. A goal weight they would have to lose weight
  * to reach is never sent as a target, and a current weight below the range
- * is said outright, judged from the profile's weight when no weigh-in is
- * logged. Either one, unless they are set to gain, also leaves out the goal
- * direction, today's targets and the plan's goals, since those are the
- * deficit that leads there. Weight falling faster than 1% of body weight a
- * week is said outright, for everyone, from whatever earlier weigh-in can
- * show it.
+ * is said outright, judged from the profile's weight as well whenever it can
+ * be newer than the latest weigh-in (see profileWeightToJudge). Either one,
+ * unless they are set to gain, also leaves out the goal direction, today's
+ * targets and the plan's goals, since those are the deficit that leads
+ * there. Goal text and plan goals that name a weight are never sent, since
+ * only the numeric goal weight is checked. Weight falling faster than 1% of
+ * body weight a week is said outright, for everyone, from whatever earlier
+ * weigh-in can show it.
+ *
+ * A profile with no plan is one whose plan was deleted: its goal direction
+ * and goal weight, and the stored daily targets, are what that plan left
+ * behind, so none of them are sent (see gateFor).
  *
  * What may appear here is bounded by the AI consent wording in
  * features/aiConsent.ts (DISCLOSURE_SENDS). A new field means new wording
@@ -218,39 +224,61 @@ export function isTrackingOnly(plan: Plan | null, profile: Profile | null): bool
  *     have withheld anything, so its failed read withholds nothing either.
  *
  * `goalsWithheld` (no goal direction, targets, what is left of them, or plan
- * goals) is tracking only, a goal weight they would have to lose weight to
- * reach below a healthy range (goalTooLow), or a current weight below that
- * range unless they are set to gain. The current weight is the latest
- * weigh-in, or with none the profile's (currentWeightKg), since a plan just
- * built has no weigh-in and was built from that weight: a weigh-in read that
- * worked and found none must not be the one case that lets this through. The
- * targets are the deficit set to get there, and SCOPE answers "what should I
- * eat" from what is left of them. Someone gaining back to a healthy weight
- * keeps them, because their targets aim up. The weight is never judged for a
+ * goals) is tracking only, a deleted plan, a goal weight they would have to
+ * lose weight to reach below a healthy range (goalTooLow), or a current
+ * weight below that range unless they are set to gain. The current weight is
+ * the latest weigh-in, or the profile's when that can be newer and is lower
+ * (currentWeightKg), since the plan wizard logs no weigh-in and builds the
+ * plan from the profile's: a plan built after the latest weigh-in, or with
+ * none logged, must not be the case that lets this through. The targets are
+ * the deficit set to get there, and SCOPE answers "what should I eat" from
+ * what is left of them. Someone gaining back to a healthy weight keeps them,
+ * because their targets aim up. The weight is never judged for a
  * tracking-only user: adult ranges do not hold under 18 or in pregnancy, and
  * the tracking-only rule already rules out weight-loss help.
+ *
+ * A deleted plan is a profile with no plan, from a plan read that worked.
+ * Only a plan sets the profile's goal direction and goal weight and the
+ * stored daily targets, and deleting the plan keeps all three, so they are
+ * the deleted plan's: possibly a deficit set before a pregnancy the deleted
+ * plan knew about. None of them go as goals: `direction` is undefined then,
+ * for every check here and for WEIGHT.
  */
-function gateFor(f: AskFacts): { trackingOnly: boolean; unread: string; goalsWithheld: boolean } {
+function gateFor(f: AskFacts): {
+  trackingOnly: boolean;
+  unread: string;
+  goalsWithheld: boolean;
+  /** The goal direction to go by: the profile's, or undefined for a deleted plan. */
+  direction: Profile["direction"] | undefined;
+  /** The profile's weight, when it is judged beside the weigh-ins (profileWeightToJudge). */
+  profileWeightKg: number | undefined;
+} {
   const gaps = f.unreadable ?? [];
   const p = f.profile;
   const known = isTrackingOnly(f.plan, p);
+  const planGone = !!p && !f.plan && !gaps.includes("plan");
+  const direction = planGone ? undefined : p?.direction;
   const lost: string[] = [];
   if (!f.plan && gaps.includes("plan")) lost.push("their plan");
   if (!p && gaps.includes("profile")) lost.push("their profile");
   const ws = weighIns(f.weights);
-  if (!known && p && heightKnown(p.heightCm) && p.direction !== "gain" && gaps.includes("weight") && !ws.length) {
+  if (!known && p && heightKnown(p.heightCm) && direction !== "gain" && gaps.includes("weight") && !ws.length) {
     lost.push("their weigh-ins");
   }
   const unread = lost.length > 1 ? `${lost.slice(0, -1).join(", ")} and ${lost[lost.length - 1]}` : lost[0] ?? "";
   const trackingOnly = known || !!unread;
-  if (trackingOnly) return { trackingOnly, unread, goalsWithheld: true };
-  const latestKg = ws[0]?.weightKg;
-  const goal = activeGoalKg(p?.goalWeightKg, p?.direction);
-  const underweight = belowHealthyRange(currentWeightKg(ws, p?.weightKg), p?.heightCm);
+  const profileWeightKg = profileWeightToJudge(f, ws);
+  if (trackingOnly) return { trackingOnly, unread, goalsWithheld: true, direction, profileWeightKg };
+  const nowKg = currentWeightKg(ws, profileWeightKg);
+  const goal = activeGoalKg(p?.goalWeightKg, direction);
+  const underweight = belowHealthyRange(nowKg, p?.heightCm);
   return {
     trackingOnly,
     unread,
-    goalsWithheld: goalTooLow(goal, p?.heightCm, p?.direction, latestKg) || (underweight && p?.direction !== "gain"),
+    goalsWithheld:
+      planGone || goalTooLow(goal, p?.heightCm, direction, nowKg) || (underweight && direction !== "gain"),
+    direction,
+    profileWeightKg,
   };
 }
 
@@ -281,22 +309,51 @@ function goalTooLow(
   goalKg: number | undefined,
   heightCm: number | undefined,
   direction: Profile["direction"] | undefined,
-  latestKg: number | undefined,
+  nowKg: number | undefined,
 ): boolean {
   if (goalKg === undefined || !belowHealthyRange(goalKg, heightCm)) return false;
-  return direction !== "gain" || (latestKg !== undefined && latestKg > goalKg);
+  return direction !== "gain" || (nowKg !== undefined && nowKg > goalKg);
 }
 
 /**
- * The weight the healthy-range check goes by: the latest usable weigh-in, or,
- * with none, the profile's weight, which is what the plan wizard keeps (it
- * logs no weigh-in) and what their targets were worked out from. Judged,
+ * The profile's weight when it can be newer than the latest weigh-in, for
+ * currentWeightKg to judge, or undefined when a weigh-in is known to be newer.
+ * The plan wizard keeps the weight it built the plan from on the profile and
+ * logs no weigh-in, so a plan made on or after the latest weigh-in's date was
+ * made from a weight at least as new; with no weigh-in at all, the profile's
+ * is the only one. A plan with no usable creation time, or no plan (deleted,
+ * see gateFor), cannot say which is newer, so the profile's counts then too.
+ * An edit that keeps the plan keeps its creation time, but the wizard starts
+ * that edit from the latest weigh-in.
+ */
+function profileWeightToJudge(f: AskFacts, ws: WeightEntry[]): number | undefined {
+  const kg = f.profile?.weightKg;
+  const latest = ws[0];
+  if (!latest) return kg;
+  const made = Date.parse(f.plan?.createdAt ?? "");
+  if (!Number.isFinite(made)) return kg;
+  return todayISO(new Date(made)) >= latest.date ? kg : undefined;
+}
+
+/**
+ * The weight the healthy-range check goes by: the latest usable weigh-in, the
+ * profile's weight when there is none, and the lower of the two when the
+ * profile's is passed beside a weigh-in (see profileWeightToJudge). Judged,
  * never sent: that field can hold a pounds figure in the kilogram slot (see
- * renderProfileForPrompt), which reads heavier, so a wrong one is far likelier
- * to miss a weight below the range than to invent one.
+ * renderProfileForPrompt), which reads heavier, so the lower of the two never
+ * takes a wrong one over a real weigh-in, and a wrong one is far likelier to
+ * miss a weight below the range than to invent one. Lower rather than newer
+ * for the same reason: one cautious answer costs less than helping someone
+ * under the range lose weight.
  */
 function currentWeightKg(ws: WeightEntry[], profileWeightKg: number | undefined): number | undefined {
-  return ws[0]?.weightKg ?? profileWeightKg;
+  const latest = ws[0]?.weightKg;
+  const profile =
+    typeof profileWeightKg === "number" && Number.isFinite(profileWeightKg) && profileWeightKg > 0
+      ? profileWeightKg
+      : undefined;
+  if (latest === undefined) return profile;
+  return profile === undefined ? latest : Math.min(latest, profile);
 }
 
 /** Weigh-ins that can be used, newest first, whatever order the store keeps. */
@@ -420,8 +477,11 @@ export function renderProfileForPrompt(
  * A current weight below a healthy range is said outright, whatever their
  * goal, and so is loss faster than 1% of body weight a week, for every user:
  * the prompt's guardrails depend on both and the model can get the
- * arithmetic wrong. The current weight is the latest weigh-in, or with none
- * `profileWeightKg` (see currentWeightKg), which is judged but never sent.
+ * arithmetic wrong. The current weight is the latest weigh-in, or
+ * `profileWeightKg` when there is none or it is lower (see currentWeightKg),
+ * which is judged but never sent. When the profile's weight is the one
+ * judged, the goal weight is left out as it is with no weigh-in: its
+ * distance would be measured from a weigh-in that is not where they are.
  * The prompt reads no 1% line as no fast loss, so it is worked out from
  * every weigh-in a week or more back, not only from the one the pace is
  * measured from. With `trackingOnly` (see
@@ -438,17 +498,18 @@ export function renderWeightForPrompt(
     heightCm?: number;
     direction?: Profile["direction"];
     trackingOnly?: boolean;
-    /** The profile's weight, judged (never sent) when no weigh-in is logged. */
+    /** The profile's weight, judged (never sent) beside the latest weigh-in.
+     *  Pass it only when it can be newer (see profileWeightToJudge). */
     profileWeightKg?: number;
   } = {},
 ): string {
   const goal = opts.trackingOnly ? undefined : activeGoalKg(goalWeightKg, opts.direction);
   const ws = weighIns(entries);
   const latest = ws[0];
-  const tooLow = goalTooLow(goal, opts.heightCm, opts.direction, latest?.weightKg);
+  const nowKg = currentWeightKg(ws, opts.profileWeightKg);
+  const tooLow = goalTooLow(goal, opts.heightCm, opts.direction, nowKg);
   // A safety signal like the 1% line, sent whatever their goal.
-  const weightTooLow =
-    !opts.trackingOnly && belowHealthyRange(currentWeightKg(ws, opts.profileWeightKg), opts.heightCm);
+  const weightTooLow = !opts.trackingOnly && belowHealthyRange(nowKg, opts.heightCm);
   if (!latest) {
     const lines = [...(weightTooLow ? [WEIGHT_TOO_LOW] : []), ...(tooLow ? [GOAL_TOO_LOW] : [])];
     return lines.length ? `WEIGHT\n${lines.join("\n")}` : "";
@@ -512,7 +573,7 @@ export function renderWeightForPrompt(
 
   if (tooLow) {
     lines.push(GOAL_TOO_LOW);
-  } else if (goal !== undefined) {
+  } else if (goal !== undefined && nowKg === latest.weightKg) {
     const ratio = goal / latest.weightKg;
     if (ratio >= 0.5 && ratio <= 1.6) {
       // Gone past it in the direction they were heading counts as reached.
@@ -527,6 +588,27 @@ export function renderWeightForPrompt(
 }
 
 // ── PLAN ──────────────────────────────────────────────────────────────
+
+/** A figure in kilograms or pounds: "50 kg", "42kg", "20 lbs", "3 pounds". */
+const WEIGHT_IN_UNITS = /\d(?:[.,]\d+)?\s*(?:kgs?|kilos?|kilogra(?:m|mme)s?|lbs?|pounds?)(?![a-z])/i;
+
+/** A figure in stone, "9 stone", "8.5 st", "9st 4lb". From 4 up, so an
+ *  ordinal ("1st") is not one. */
+const WEIGHT_IN_STONE = /\b(?:[4-9]|[1-3]\d)(?:[.,]\d+)?\s*(?:st|stones?)(?![a-z])/i;
+
+/** A bare figure it says to weigh, reach, get down to or lose ("get down to
+ *  50 by summer", "weigh 50", "lose 10"), unless a unit that is not a weight
+ *  follows it ("hit 120 g protein", "under 2000 calories", "reach 10k
+ *  steps"). */
+const WEIGHT_BARE =
+  /\b(?:weigh(?:t|s|ing)?|(?:down|get|back|drop|go)\s+to|reach|hit|under|below|less\s+than|be|lose|losing|drop|shed)\s+(?:(?:about|around|roughly|another|to|of|at|under|below)\s+){0,2}\d+(?:[.,]\d+)?(?!\s*(?:[.,]?\d|%|(?:g|grams?|k|km|kcal|cals?|calories|steps?|mins?|minutes?|h|hrs?|hours?|days?|nights?|weeks?|months?|times?|reps?|sets?|workouts?|sessions?|runs?|walks?|classes?|ml|l|litres?|liters?|oz|cups?|glass(?:es)?|drinks?|units?|servings?|portions?|meals?|snacks?|mi|miles?|bpm|am|pm)(?![a-z])))/i;
+
+/** Whether text names a body weight (see renderPlanForPrompt). Errs toward
+ *  yes: a goal left out costs a little context, one sent can be a target
+ *  below a healthy range that nothing checked. */
+export function namesAWeight(text: string): boolean {
+  return WEIGHT_IN_UNITS.test(text) || WEIGHT_IN_STONE.test(text) || WEIGHT_BARE.test(text);
+}
 
 /**
  * Where the user is in their plan: its kind and dates, day N of M, their goal
@@ -551,6 +633,14 @@ export function renderWeightForPrompt(
  * target is a goal the tracking-only line says the app never set. The wizard
  * asks "Want to move most days?" on every plan without workouts, a
  * logging-only one included, so a logging-only plan can carry one.
+ *
+ * Otherwise the goal in their words and each plan goal go only when they
+ * name no weight (namesAWeight). The healthy-range check reads the numeric
+ * goal weight alone, so a weight typed into the goal, or written into a plan
+ * goal from it, would reach the coach as their target unchecked. A plan goal
+ * also outlives its goal weight: clearing that in Edit plan keeps the plan
+ * and its goals. "Lose 10 lb" goes too, since an amount to lose is a target
+ * by another name.
  */
 export function renderPlanForPrompt(
   plan: Plan | null,
@@ -580,13 +670,13 @@ export function renderPlanForPrompt(
   }
   const goalsSent = !tracking && !opts.goalsWithheld;
 
-  if (goalsSent && plan.goalText && plan.goalText.trim()) {
+  if (goalsSent && typeof plan.goalText === "string" && plan.goalText.trim() && !namesAWeight(plan.goalText)) {
     lines.push(`Goal in their words: ${clip(plan.goalText, MAX_GOAL_TEXT)}`);
   }
 
   const stored = Array.isArray(plan.goals) ? plan.goals.filter(Boolean) : [];
   const goals = (goalsSent ? visiblePlanGoals({ ...plan, goals: stored }) : []).filter(
-    (g) => typeof g.label === "string" && g.label.trim(),
+    (g) => typeof g.label === "string" && g.label.trim() && !namesAWeight(g.label),
   );
   if (goals.length) {
     const shown = goals.slice(0, MAX_PLAN_GOALS).map((g) => clip(g.label, MAX_GOAL_LABEL));
@@ -784,16 +874,17 @@ export function renderGapsForPrompt(f: AskFacts): string {
 /** PROFILE, WEIGHT, PLAN and LAST 7 DAYS, in that order, each only when it
  *  has something to say. Split out so its size can be held to a budget. */
 export function renderSummaryBlocks(f: AskFacts): string {
-  const { trackingOnly, unread, goalsWithheld } = gateFor(f);
+  const { trackingOnly, unread, goalsWithheld, direction, profileWeightKg } = gateFor(f);
   const p = f.profile;
   return [
     section(() => renderProfileForPrompt(p, f.units, { goalsWithheld, trackingOnly })),
     section(() =>
       renderWeightForPrompt(f.weights, p?.goalWeightKg, f.units, {
         heightCm: p?.heightCm,
-        direction: p?.direction,
+        // Undefined for a deleted plan, which takes its goal weight with it.
+        direction,
         trackingOnly,
-        profileWeightKg: p?.weightKg,
+        profileWeightKg,
       }),
     ),
     section(() => renderPlanForPrompt(f.plan, f.today, f.days, { trackingOnly, unread, goalsWithheld })),
