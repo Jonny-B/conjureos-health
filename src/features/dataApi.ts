@@ -12,8 +12,8 @@
  * that's the caller's job.
  */
 
-import type { MealType } from "../types";
-import { MEAL_LABELS, MEAL_TYPES } from "../types";
+import type { DiaryEntry, MealType, SleepEntry, SymptomEntry, WaterEntry, WeightEntry } from "../types";
+import { DEFAULT_GOALS, MEAL_LABELS, MEAL_TYPES } from "../types";
 import { getRepository } from "../data/repository";
 import { buildDayView, shiftDate, todayISO } from "./diary";
 import { exerciseCaloriesForDate } from "./exercise";
@@ -54,23 +54,45 @@ export interface DaySnapshot {
   sleepMinutes: number;
   symptoms: { label: string; at: string; severity?: number }[];
   weightKg?: number;
+  /**
+   * The parts whose read failed, so a reader can tell "could not be read"
+   * from "nothing logged": both leave the same empty value behind. Absent
+   * when every read worked.
+   */
+  unreadable?: SnapshotPart[];
 }
 
+/** The stores one snapshot reads, as named in `DaySnapshot.unreadable`. */
+export type SnapshotPart = "diary" | "targets" | "exercise" | "water" | "sleep" | "symptoms" | "weight";
+
 /**
- * Assemble one day. Every store is read best-effort: a slice that fails reads
- * as absent rather than failing the snapshot, because a coach answer built on
- * four of five stores is far better than an error.
+ * Assemble one day. Every store is read best-effort, the targets included: a
+ * slice that fails reads as absent rather than failing the snapshot, because
+ * a coach answer built on four of five stores is far better than an error.
+ * Each failure is named in `unreadable`, so the absence is not mistaken for
+ * a day with nothing logged. A failed targets read leaves DEFAULT_GOALS in
+ * `targets`; a caller that reports targets must check `unreadable` first.
  */
 export async function daySnapshot(date = todayISO()): Promise<DaySnapshot> {
   const repo = await getRepository();
+  const unreadable: SnapshotPart[] = [];
+  // Through a promise chain so a method missing on some backend (a TypeError
+  // thrown before any promise exists) is caught like any other failed read.
+  const read = <T>(part: SnapshotPart, run: () => Promise<T>, fallback: T): Promise<T> =>
+    Promise.resolve()
+      .then(run)
+      .catch(() => {
+        unreadable.push(part);
+        return fallback;
+      });
   const [entries, goals, exercise, water, sleep, symptoms, weights] = await Promise.all([
-    repo.listDiary(date).catch(() => []),
-    repo.getGoals(),
-    exerciseCaloriesForDate(date).catch(() => 0),
-    repo.listWater(date).catch(() => []),
-    repo.listSleep(date).catch(() => []),
-    repo.listSymptoms(date).catch(() => []),
-    repo.listWeights().catch(() => []),
+    read("diary", () => repo.listDiary(date), [] as DiaryEntry[]),
+    read("targets", () => repo.getGoals(), { ...DEFAULT_GOALS }),
+    read("exercise", () => exerciseCaloriesForDate(date), 0),
+    read("water", () => repo.listWater(date), [] as WaterEntry[]),
+    read("sleep", () => repo.listSleep(date), [] as SleepEntry[]),
+    read("symptoms", () => repo.listSymptoms(date), [] as SymptomEntry[]),
+    read("weight", () => repo.listWeights(), [] as WeightEntry[]),
   ]);
 
   const { total } = buildDayView(date, entries);
@@ -109,6 +131,7 @@ export async function daySnapshot(date = todayISO()): Promise<DaySnapshot> {
   };
   const w = weights.find((x) => x.date === date);
   if (w) snap.weightKg = w.weightKg;
+  if (unreadable.length) snap.unreadable = unreadable;
   return snap;
 }
 
@@ -129,26 +152,38 @@ export async function recentSnapshots(days = 3, from = todayISO()): Promise<DayS
  * needless chance for it to get the arithmetic wrong.
  */
 export function renderDayForPrompt(s: DaySnapshot, units: Units = "metric"): string {
+  // A part that could not be read is left out rather than shown as zero: the
+  // fallback values look exactly like a day with nothing logged. The caller
+  // says what was unreadable (see coach/askSummary.renderGapsForPrompt).
+  const lost = new Set(s.unreadable ?? []);
   const lines: string[] = [`Date: ${s.date}`];
-  lines.push(
-    `Targets: ${s.targets.calories} cal, ${s.targets.protein}g protein, ` +
-      `${s.targets.carbs}g carbs, ${s.targets.fat}g fat.`,
-  );
-  lines.push(
-    `Eaten so far: ${s.consumed.calories} cal, ${s.consumed.protein}g protein, ` +
-      `${s.consumed.carbs}g carbs, ${s.consumed.fat}g fat.`,
-  );
+  if (!lost.has("targets")) {
+    lines.push(
+      `Targets: ${s.targets.calories} cal, ${s.targets.protein}g protein, ` +
+        `${s.targets.carbs}g carbs, ${s.targets.fat}g fat.`,
+    );
+  }
+  if (!lost.has("diary")) {
+    lines.push(
+      `Eaten so far: ${s.consumed.calories} cal, ${s.consumed.protein}g protein, ` +
+        `${s.consumed.carbs}g carbs, ${s.consumed.fat}g fat.`,
+    );
+  }
   if (s.exerciseCalories > 0) lines.push(`Exercise: ${s.exerciseCalories} cal burned, added back.`);
   // Signed rather than worded ("121 left" / "121 over"): a bare negative is
   // unambiguous to read, and gluing a unit onto a phrase produced "121 leftg
-  // protein" the first time round.
-  lines.push(
-    `Remaining, negative means over (${s.remaining.calories} cal, ` +
-      `${s.remaining.protein}g protein, ${s.remaining.carbs}g carbs, ${s.remaining.fat}g fat).`,
-  );
+  // protein" the first time round. Only when every term of it was read.
+  if (!lost.has("targets") && !lost.has("diary") && !lost.has("exercise")) {
+    lines.push(
+      `Remaining, negative means over (${s.remaining.calories} cal, ` +
+        `${s.remaining.protein}g protein, ${s.remaining.carbs}g carbs, ${s.remaining.fat}g fat).`,
+    );
+  }
 
+  // An unreadable diary gets no line at all: "nothing logged" is the one
+  // thing we do not know.
   if (s.foods.length === 0) {
-    lines.push("Nothing logged yet today.");
+    if (!lost.has("diary")) lines.push("Nothing logged yet today.");
   } else {
     const byMeal = MEAL_TYPES.map((m) => {
       const inMeal = s.foods.filter((f) => f.meal === m);

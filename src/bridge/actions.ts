@@ -287,6 +287,10 @@ async function dayNutrition(raw?: unknown): Promise<{
   const p = asObject(raw);
   const date = asDate(p.date);
   const s = await daySnapshot(date);
+  // The snapshot reads the targets best-effort and leaves defaults behind on a
+  // failure. Another app planning a meal around "what's left" must not be
+  // handed those as the user's own, so this fails the way it always has.
+  if (s.unreadable?.includes("targets")) throw new Error("Could not read the daily targets. Try again in a moment.");
   return {
     date: s.date,
     targets: s.targets,

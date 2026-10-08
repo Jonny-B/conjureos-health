@@ -16,7 +16,9 @@
  * history document.
  *
  * History shares `coach-chat.json` with the full coach screen, so a
- * conversation started here is still there when the trainer comes back.
+ * conversation started here is still there when the trainer comes back. The
+ * last MAX_CONTEXT_TURNS turns of it go with each question, except the journal
+ * a Find patterns question carried (see historyForPrompt).
  */
 
 import { aiErrorMessage, complete, isAiAvailable, type ChatMessage } from "../../bridge/ai";
@@ -32,16 +34,18 @@ const CHAT_PATH = "coach-chat.json";
 const MAX_STORED = 40;
 
 /** Turns sent as context on a new question. Enough for follow-ups ("what about
- *  the green ones?") without paying for the whole history every time. */
-const MAX_CONTEXT_TURNS = 10;
+ *  the green ones?") without paying for the whole history every time. The
+ *  consent wording names this number (DISCLOSURE_SENDS), and a test holds
+ *  them together. */
+export const MAX_CONTEXT_TURNS = 10;
 
 /**
  * The rotating prompts under the ask box. They exist to teach the shape of a
  * good question, so they lean concrete and everyday rather than clever. Half
  * are about the user's own numbers and half are general food questions,
  * alternating, so a few seconds of watching shows both kinds. Only ask what
- * the coach can answer from what it is sent: nothing about streaks or body
- * measurements, which the app does not track.
+ * the coach can answer from what it is sent: nothing about body measurements,
+ * which the app does not track, or streaks beyond the food-logging run.
  */
 export const ASK_SUGGESTIONS: readonly string[] = [
   "How has my weight changed this month?",
@@ -70,8 +74,11 @@ SCOPE
 - What they have logged is summarised at the end of this prompt. USE IT: answer from their real numbers and
   dates, and answer what to eat from what is left today.
 - Never ask them to paste in data you were given, and never claim you cannot see their diary.
-- A missing section means nothing of that kind was logged: say so and answer generally. Streaks and body
-  measurements are not tracked, so do not invent them. Water is shown against a 2 litre (64 oz) rule of thumb.
+- A section missing from the summary means nothing of that kind was logged: say so and answer generally. What
+  is listed under COULD NOT READ THIS TIME failed to load for this question: say you could not read it just
+  now, never that it was not logged.
+- The only streak the app keeps is the "in a row" count of days with food logged; do not invent any other.
+  Body measurements are not tracked. Water is shown against a 2 litre (64 oz) rule of thumb.
 - A question that is odd, vague or a joke still gets a straight, good-humoured answer. Do not lecture.
 
 LIMITS
@@ -86,6 +93,13 @@ LIMITS
   1% of body weight a week, mention it gently once and suggest a doctor or dietitian. Low days may be unlogged meals.
 - Never suggest a calorie target below what the app already set, and never encourage restriction,
   purging, fasting as weight control, or "earning" food with exercise.
+- If the summary says their goal weight is below a healthy range, never help them toward it or say how long it
+  would take. Say gently that it is worth talking over with a doctor or dietitian.
+- If the summary says tracking only, or gives an age under 18, do not suggest weight loss, a goal weight, eating
+  less or exercise to do. Answer from what they logged, keep the rest general, and suggest their doctor.
+- You are not told about injuries or health conditions. Never prescribe a workout, specific exercises or an
+  intensity. For exercise ideas keep to general, gentle movement, and say to work around any injury and check
+  with a doctor or physio first.
 - You are read-only. You cannot change the user's plan, targets, diary or any entry, and never say you did. If
   asked, say what to change and where: entries on the Diary tab (past days on the Journal tab); the plan, goal
   weight and targets in Edit plan on the Plan tab.`;
@@ -147,6 +161,48 @@ export async function coachNeedsConsent(): Promise<boolean> {
   return !(await hasAiJournalConsent());
 }
 
+/**
+ * The opening of a Find patterns question: one line, a blank line, then the
+ * journal for the range, symptom notes included when the user opted in.
+ * Matches what patternsQuestion builds and what JournalScreen built before it
+ * (same first sentence), so history saved by either is recognised.
+ */
+const JOURNAL_TURN = /^Here is my journal for (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})\.[^\n]*\n\n/;
+
+/**
+ * The question "Find patterns" asks, with the journal for the range (from
+ * journal.summarizeRange) after it. Built here so historyForPrompt can find
+ * the journal again and leave it out of later questions.
+ */
+export function patternsQuestion(from: string, to: string, summary: string): string {
+  return summary
+    ? `Here is my journal for ${from} to ${to}. What patterns do you notice? Anything that seems to go together?\n\n${summary}`
+    : `I have nothing recorded for ${from} to ${to} yet. What would be worth tracking to spot patterns?`;
+}
+
+/**
+ * The stored conversation as it goes with a new question: the last
+ * MAX_CONTEXT_TURNS turns, with the journal taken out of any Find patterns
+ * question among them.
+ *
+ * That journal is sent once, with the question that asked for it. Sent again
+ * with each later question it would carry a month of data, and any symptom
+ * notes, into coach questions whose consent wording (aiConsent.ts) promises
+ * the 7 days before today and notes only through Find patterns; it would
+ * keep doing so after notes were switched off in Settings; and it would cost
+ * a month of tokens per follow-up. The question itself stays, marked, so the
+ * coach's own answer to it still makes sense.
+ */
+export function historyForPrompt(items: CoachChatItem[]): ChatMessage[] {
+  return items.slice(-MAX_CONTEXT_TURNS).map((m) => {
+    const head = m.role === "user" ? JOURNAL_TURN.exec(m.content) : null;
+    const content = head
+      ? `${head[0].trimEnd()}\n\n[Their journal for ${head[1]} to ${head[2]} went with that question only, and is not repeated here.]`
+      : m.content;
+    return { role: m.role, content } as ChatMessage;
+  });
+}
+
 /** Read the stored conversation, oldest first. Never throws. */
 export async function loadAskHistory(): Promise<CoachChatItem[]> {
   const raw = await readJson<CoachChatItem[]>(CHAT_PATH, []).catch(() => []);
@@ -180,12 +236,7 @@ export async function askCoach(question: string, history: CoachChatItem[] = []):
       : ctx
         ? `${SYSTEM}\n\nABOUT THIS USER\n${ctx}`
         : `${SYSTEM}\n\n${UNREADABLE_NOTE}`;
-  const messages: ChatMessage[] = [
-    ...history
-      .slice(-MAX_CONTEXT_TURNS)
-      .map((m) => ({ role: m.role, content: m.content }) as ChatMessage),
-    { role: "user", content: q },
-  ];
+  const messages: ChatMessage[] = [...historyForPrompt(history), { role: "user", content: q }];
 
   try {
     const reply = await complete({

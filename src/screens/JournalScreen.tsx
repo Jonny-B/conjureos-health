@@ -21,6 +21,7 @@ import { shiftDate, todayISO } from "../features/diary";
 import { fmtWater } from "../features/water";
 import { formatSleep } from "../features/sleep";
 import { CoachChatModal } from "../components/CoachChatModal";
+import { patternsQuestion } from "../features/coach/ask";
 import { AiConsentSheet } from "../components/AiConsentSheet";
 import {
   hasAiJournalConsent,
@@ -123,13 +124,9 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
    */
   const runPatterns = (includeNotes: boolean) => {
     const days = month ?? [];
-    const summary = summarizeRange(days, { includeNotes });
-    const range = `${from} to ${to}`;
-    setAsking(
-      summary
-        ? `Here is my journal for ${range}. What patterns do you notice — anything that seems to go together?\n\n${summary}`
-        : `I have nothing recorded for ${range} yet. What would be worth tracking to spot patterns?`,
-    );
+    // Built in coach/ask so later questions can leave this journal out (it
+    // goes to the AI once, with this question).
+    setAsking(patternsQuestion(from, to, summarizeRange(days, { includeNotes })));
   };
 
   const askPatterns = async () => {

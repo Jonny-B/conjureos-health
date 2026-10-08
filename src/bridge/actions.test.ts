@@ -391,6 +391,27 @@ describe("recentNutrition", () => {
   });
 });
 
+describe("dayNutrition", () => {
+  // daySnapshot reads the targets best-effort for the coach, leaving defaults
+  // behind on a failure. Another app must never be handed those as the
+  // user's own targets.
+  it("fails rather than reporting default targets when the user's cannot be read", async () => {
+    const extra = repo as unknown as Record<string, unknown>;
+    extra.listDiary = async () => [];
+    extra.getGoals = async () => {
+      throw new Error("goals unreadable");
+    };
+    try {
+      await expect(call("dayNutrition", {})).rejects.toThrow(/daily targets/);
+      extra.getGoals = async () => ({ calories: 1800, protein: 120, carbs: 180, fat: 60 });
+      await expect(call("dayNutrition", {})).resolves.toMatchObject({ targets: { calories: 1800 } });
+    } finally {
+      delete extra.listDiary;
+      delete extra.getGoals;
+    }
+  });
+});
+
 describe("without consent to collect health data", () => {
   it("refuses writes and reads", async () => {
     consentGranted = false;

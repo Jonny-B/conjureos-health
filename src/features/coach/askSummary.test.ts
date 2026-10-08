@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
+  isTrackingOnly,
   renderAskContext,
+  renderGapsForPrompt,
   renderPlanForPrompt,
   renderProfileForPrompt,
   renderSummaryBlocks,
@@ -132,6 +134,36 @@ describe("renderWeightForPrompt", () => {
     // 160 typed as pounds while the app was metric: stored as 160 kg.
     expect(renderWeightForPrompt(WEIGHTS, 160, "imperial")).not.toContain("Goal weight");
   });
+
+  /**
+   * The unit check above passes any goal within reach of their weight, and a
+   * steady loss toward an underweight goal trips none of the prompt's
+   * eating-disorder guardrails (pace under 1% a week, days above the floor).
+   */
+  it("never sends a goal weight below a healthy range for their height as a target", () => {
+    const ws = [
+      { date: "2026-10-08", weightKg: 52 },
+      { date: "2026-09-10", weightKg: 53.6 },
+    ];
+    // 165 cm and 42 kg is a BMI of about 15.4, and 42 / 52 passes the unit check.
+    const out = renderWeightForPrompt(ws, 42, "metric", { heightCm: 165 });
+    expect(out).toContain("Their goal weight is below a healthy range for their height.");
+    expect(out).not.toMatch(/42 kg|10\.0 kg away|Goal weight:/);
+    // Their weight and its trend are still there.
+    expect(out).toContain("Latest: 52 kg on 2026-10-08.");
+    expect(out).toContain("Pace: about -0.4 kg a week");
+    // A healthy goal for the same height is sent as before (BMI about 20.2).
+    expect(renderWeightForPrompt(ws, 55, "metric", { heightCm: 165 })).toContain("Goal weight: 55 kg (3.0 kg away).");
+    // A height that is not believable cannot judge it either way.
+    expect(renderWeightForPrompt(ws, 42, "metric", { heightCm: 66 })).toContain("Goal weight: 42 kg");
+  });
+
+  it("sends where their weight is but no goal weight or pace when tracking only", () => {
+    const out = renderWeightForPrompt(WEIGHTS, 72, "metric", { heightCm: 165, trackingOnly: true });
+    expect(out).toContain("Latest: 80 kg on 2026-10-08.");
+    expect(out).toContain("since the first weigh-in");
+    expect(out).not.toMatch(/Goal weight|Pace|healthy range/);
+  });
 });
 
 describe("renderProfileForPrompt", () => {
@@ -148,6 +180,26 @@ describe("renderProfileForPrompt", () => {
 
   it("is empty with no profile", () => {
     expect(renderProfileForPrompt(null, "metric")).toBe("");
+  });
+
+  it("states no goal direction when tracking only", () => {
+    expect(renderProfileForPrompt({ ...PROFILE, age: 15 }, "metric", { trackingOnly: true })).toBe(
+      `PROFILE\nSex: female. Age: 15. Height: 165 cm. Activity: lightly active.`,
+    );
+  });
+});
+
+describe("isTrackingOnly", () => {
+  it("is a logging-only plan or an age under 18, and nothing else", () => {
+    expect(isTrackingOnly(plan({ mode: "logging_only" }), PROFILE)).toBe(true);
+    expect(isTrackingOnly(null, { ...PROFILE, age: 15 })).toBe(true);
+    expect(isTrackingOnly(plan(), { ...PROFILE, age: 17 })).toBe(true);
+    // Too low to state as fact, but still treated with care.
+    expect(isTrackingOnly(null, { ...PROFILE, age: 3 })).toBe(true);
+    expect(isTrackingOnly(plan(), PROFILE)).toBe(false);
+    expect(isTrackingOnly(plan({ mode: "both" }), { ...PROFILE, age: 18 })).toBe(false);
+    expect(isTrackingOnly(null, null)).toBe(false);
+    expect(isTrackingOnly(null, { ...PROFILE, age: Number.NaN })).toBe(false);
   });
 });
 
@@ -195,6 +247,19 @@ describe("renderPlanForPrompt", () => {
     );
   });
 
+  it("says what a logging-only plan means for the coach, never why it is one", () => {
+    const p = plan({
+      mode: "logging_only",
+      safety: { ageBand: "18_39", pregnant: true, cardiacFlag: false, injuries: [], activityLevel: "light" },
+    });
+    const out = renderPlanForPrompt(p, TODAY, []);
+    expect(out).toBe(
+      "PLAN\nLogging plan, 2026-09-24 to 2026-10-21, day 15 of 28.\n" +
+        "Tracking only: the app sets no weight, calorie-cutting or exercise goals for this user.",
+    );
+    expect(renderPlanForPrompt(plan(), TODAY, [])).not.toContain("Tracking only");
+  });
+
   it("never sends the safety intake, the liability record or the program", () => {
     const p = plan({
       safety: { ageBand: "18_39", pregnant: true, cardiacFlag: true, injuries: ["knee"], activityLevel: "light" },
@@ -228,6 +293,20 @@ describe("renderWeekForPrompt", () => {
     expect(renderWeekForPrompt(f)).toContain("(5 in a row through yesterday)");
   });
 
+  it("does not say a run reaches today when today could not be read", () => {
+    const f = sampleFacts();
+    f.days.pop(); // today's snapshot failed
+    const out = renderWeekForPrompt(f);
+    expect(out).toContain("(5 in a row through yesterday)");
+    expect(out).not.toContain("through today");
+  });
+
+  it("leaves a day whose diary could not be read out of the food count", () => {
+    const f = sampleFacts();
+    f.days[3] = { ...snap(f.days[3]!.date, 0), unreadable: ["diary"] };
+    expect(renderWeekForPrompt(f)).toContain("Food: logged 5 of 6 days");
+  });
+
   it("flags logged days under the calorie floor", () => {
     const f = sampleFacts();
     f.days[2] = snap(f.days[2]!.date, 900);
@@ -254,7 +333,84 @@ describe("renderWeekForPrompt", () => {
   });
 });
 
+describe("renderGapsForPrompt", () => {
+  it("names every read that failed, in one line", () => {
+    const f = sampleFacts();
+    f.unreadable = ["plan", "weight", "rested"];
+    expect(renderGapsForPrompt(f)).toBe(
+      "COULD NOT READ THIS TIME\nTheir weigh-ins, their plan, how rested they felt.",
+    );
+  });
+
+  it("names the parts of today that failed, and an earlier day once", () => {
+    const f = sampleFacts();
+    f.days[f.days.length - 1] = { ...f.days[f.days.length - 1]!, unreadable: ["diary", "targets", "weight"] };
+    f.days[1] = { ...f.days[1]!, unreadable: ["water"] };
+    f.days[2] = { ...f.days[2]!, unreadable: ["symptoms"] };
+    expect(renderGapsForPrompt(f)).toBe(
+      "COULD NOT READ THIS TIME\nToday's food, their daily targets, some of the 7 days before today.",
+    );
+  });
+
+  it("ignores what an earlier day's summary does not use", () => {
+    const f = sampleFacts();
+    f.days[1] = { ...f.days[1]!, unreadable: ["targets", "weight"] };
+    expect(renderGapsForPrompt(f)).toBe("");
+  });
+
+  it("is empty when every read worked", () => {
+    expect(renderGapsForPrompt(sampleFacts())).toBe("");
+    expect(renderGapsForPrompt({ ...sampleFacts(), unreadable: [] })).toBe("");
+  });
+});
+
 describe("renderAskContext", () => {
+  /**
+   * The reviewers' case: a "lose" plan with a 60 kg goal, rebuilt after
+   * ticking pregnant. The wizard sends no direction or goal weight for a
+   * logging-only plan, so the profile keeps the old ones.
+   */
+  it("sends no weight-loss goal for a logging-only plan left with an earlier plan's goal", () => {
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, direction: "lose", goalWeightKg: 60 };
+    f.weights = [
+      { date: "2026-10-08", weightKg: 68 },
+      { date: "2026-09-20", weightKg: 67.2 },
+      { date: "2026-08-20", weightKg: 66 },
+    ];
+    f.plan = plan({
+      mode: "logging_only",
+      weeklyExerciseDays: 3,
+      safety: { ageBand: "18_39", pregnant: true, cardiacFlag: false, injuries: [], activityLevel: "light" },
+    });
+    const out = renderAskContext(f);
+    expect(out).toContain("Tracking only: the app sets no weight, calorie-cutting or exercise goals for this user.");
+    expect(out).toContain("Latest: 68 kg on 2026-10-08.");
+    expect(out).not.toMatch(/losing weight|Goal weight|60 kg|Pace:|pregnan/i);
+  });
+
+  it("sends no weight-loss goal for a 15-year-old", () => {
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, age: 15, direction: "lose", goalWeightKg: 72 };
+    const out = renderAskContext(f);
+    expect(out).toContain("Age: 15.");
+    expect(out).not.toMatch(/losing weight|Goal weight|72 kg|Pace:/);
+  });
+
+  it("ends with what could not be read, and is not empty when that is all there is", () => {
+    const out = renderAskContext({
+      today: TODAY,
+      units: "metric",
+      profile: null,
+      weights: [],
+      plan: null,
+      days: [],
+      sleep: [],
+      unreadable: ["today", "earlier", "weight"],
+    });
+    expect(out).toBe("COULD NOT READ THIS TIME\nToday's diary, some of the 7 days before today, their weigh-ins.");
+  });
+
   it("leaves out every section that has nothing in it", () => {
     const out = renderAskContext({
       today: TODAY,

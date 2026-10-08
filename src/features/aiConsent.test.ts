@@ -146,9 +146,19 @@ describe("the disclosure wording", () => {
     }
   });
 
-  it("says plainly that the coach never sends notes", () => {
+  it("says plainly that only Find patterns sends a symptom note, and only once", () => {
     const withholds = DISCLOSURE_WITHHOLDS.join("\n");
     expect(withholds).toContain("Notes you type on a night's sleep");
-    expect(withholds).toContain("the coach never sends it");
+    expect(withholds).toContain("then Find patterns sends it once, with the question that asked for it");
+    // The coach's earlier replies go with each question (coach/ask.ts), so
+    // nothing here may promise the coach never repeats something it was told.
+    expect(withholds).not.toMatch(/coach never sends/);
+  });
+
+  it("names the conversation each question resends, and that a Find patterns range is not in it", () => {
+    const sends = DISCLOSURE_SENDS.join("\n");
+    expect(sends).toMatch(/last \d+ messages of your conversation with it, its replies included/);
+    expect(sends).toContain("sent once with that question and not with later ones");
+    expect(DISCLOSURE_WITHHOLDS.join("\n")).toContain("what its earlier replies mention");
   });
 });

@@ -29,8 +29,10 @@
  *     to deliver something the consumer actually asked for.
  *   - Free-text symptom notes are a second, separate opt-in, because that is
  *     the field where someone eventually types the thing they would hate to
- *     send anywhere. Only Find patterns ever sends them; the coach summary
- *     never carries a note of any kind, sleep or symptom.
+ *     send anywhere. Only Find patterns sends them, once, with the question
+ *     that asked for it: the coach summary never carries a note of any kind,
+ *     and later questions resend the conversation without that journal
+ *     (coach/ask.ts historyForPrompt).
  *
  * Bump `DISCLOSURE_VERSION` whenever the wording below changes materially.
  * Consent to old wording is not consent to new wording, and a bump re-asks.
@@ -46,7 +48,7 @@ import { getRepository } from "../data/repository";
  * (2026-10) widened the coach to everything the user logs: a 7-day summary,
  * weight history and goal weight, body stats, targets and the plan, and said
  * plainly that Find patterns sends what the coach does too, because it opens
- * the same chat.
+ * the same chat, and that each question resends the recent conversation.
  */
 export const DISCLOSURE_VERSION = 3;
 
@@ -58,12 +60,13 @@ export const DISCLOSURE_VERSION = 3;
  * Two different scopes share this one list, called out explicitly rather than
  * averaged into something vaguer than either. Asking the coach always sends
  * today, the 2 days before and the summaries built in
- * features/coach/askSummary.ts. Find patterns sends a range you pick, and
+ * features/coach/askSummary.ts, plus the last MAX_CONTEXT_TURNS messages of
+ * the chat (coach/ask.ts). Find patterns sends a range you pick, once, and
  * because it asks through the coach chat, everything the coach sends as well.
  */
 export const DISCLOSURE_SENDS: string[] = [
-  "Asking your health coach: today in full, daily totals for the 2 days before, and a summary of the 7 days before today",
-  "Find patterns: everything the coach gets, plus each date in the range you asked about",
+  "Asking your health coach: today in full, daily totals for the 2 days before, a summary of the 7 days before today, and the last 10 messages of your conversation with it, its replies included",
+  "Find patterns: everything the coach gets, plus each date in the range you asked about, sent once with that question and not with later ones",
   "Daily totals and the 7-day summary: calories, protein, carbs, fat, water, sleep length and how rested you felt, exercise calories, and how many days you logged each",
   "Your daily calorie and macro targets",
   "Your weight: your latest weigh-in, how many you have logged, how it changed over the last week, the last month and since your first, and your goal weight (Find patterns also sends each weigh-in in its range)",
@@ -77,9 +80,9 @@ export const DISCLOSURE_SENDS: string[] = [
 export const DISCLOSURE_WITHHOLDS: string[] = [
   "Your name, email, or account details",
   "Notes you type on a night's sleep",
-  "The free-text note on a symptom, unless you turn that on below for Find patterns (the coach never sends it)",
+  "The free-text note on a symptom, unless you turn that on below; then Find patterns sends it once, with the question that asked for it",
   "Workout names and types, including any read from Apple Health or Health Connect",
-  "Asking the coach: anything logged more than 7 days before today, apart from the weight summary above",
+  "Asking the coach: anything logged more than 7 days before today, apart from the weight summary above and what its earlier replies mention",
 ];
 
 /**

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ASK_SUGGESTIONS } from "./ask";
-import { DISCLOSURE_VERSION } from "../aiConsent";
+import { ASK_SUGGESTIONS, MAX_CONTEXT_TURNS } from "./ask";
+import { DISCLOSURE_SENDS, DISCLOSURE_VERSION } from "../aiConsent";
 import { shiftDate, todayISO } from "../diary";
 import type { AiJournalConsent, Plan, Profile, SleepEntry, WeightEntry } from "../../types";
 
@@ -59,7 +59,10 @@ vi.mock("../../data/repository", () => ({
     ...Object.fromEntries(
       WRITE_METHODS.map((m) => [m, async () => void writes.push(m)]),
     ),
-    getGoals: async () => ({ calories: 2200, protein: 150, carbs: 200, fat: 70 }),
+    getGoals: async () => {
+      if (failing.has("getGoals")) throw new Error("goals unreadable");
+      return { calories: 2200, protein: 150, carbs: 200, fat: 70 };
+    },
     getProfile: async () => ({
       units: "imperial",
       weightKg: 81,
@@ -67,8 +70,9 @@ vi.mock("../../data/repository", () => ({
       aiJournalConsent: consent,
       ...profileExtra,
     }),
-    listDiary: async (d: string) =>
-      d === today
+    listDiary: async (d: string) => {
+      if (failing.has(`listDiary:${d}`)) throw new Error("diary unreadable");
+      return d === today
         ? [
             { id: "1", date: d, meal: "breakfast", quantity: 1, loggedAt: `${d}T08:00:00Z`,
               food: food("Greek yogurt", 150, 25) },
@@ -78,7 +82,8 @@ vi.mock("../../data/repository", () => ({
         : d >= shiftDate(today, -7) && d !== shiftDate(today, -3)
           ? [{ id: `f${d}`, date: d, meal: "dinner", quantity: 1, loggedAt: `${d}T19:00:00Z`,
                food: food("Lentil soup", 1650, 90) }]
-          : [],
+          : [];
+    },
     listWater: async () => [],
     listSleep: async (d: string) => sleepRange.filter((n) => n.date === d),
     listSleepRange: async () => {
@@ -441,9 +446,40 @@ describe("widened scope", () => {
     expect(sys).toMatch(/Never suggest a calorie target below what the app already set/);
     expect(sys).toMatch(/purging, fasting as weight control, or "earning" food with exercise/);
     expect(sys).toMatch(/1% of body weight a week/);
+    // Exercise is in scope, and the coach is told nothing about injuries.
+    expect(sys).toMatch(/You are not told about injuries or health conditions/);
+    expect(sys).toMatch(/Never prescribe a workout, specific exercises or an\s+intensity/);
+    expect(sys).toMatch(/check\s+with a doctor or physio/);
+    // Logging-only plans and minors, and a goal weight below a healthy range.
+    expect(sys).toMatch(/tracking only, or gives an age under 18, do not suggest weight loss, a goal weight, eating\s+less or exercise/);
+    expect(sys).toMatch(/goal weight is below a healthy range, never help them toward it or say how long it\s+would take/);
   });
 
-  it("loses only the section whose read failed", async () => {
+  it("does not deny the one streak it is sent", async () => {
+    const sys = await systemFor();
+    expect(sys).not.toMatch(/Streaks and body\s+measurements are not tracked/);
+    expect(sys).toMatch(/only streak the app keeps is the "in a row" count of days with food logged/);
+  });
+
+  /**
+   * A logging-only plan (forced by the safety intake for pregnancy, a heart
+   * condition or an under-18) used to reach the model as "Logging plan" with
+   * no meaning attached, next to a goal direction and goal weight left over
+   * from the user's earlier food plan.
+   */
+  it("tells the model a logging-only plan sets no goals, and sends none, without saying why", async () => {
+    fill();
+    plan = { ...plan!, mode: "logging_only" };
+    const ctx = (await systemFor("How has my weight changed this month?")).split("ABOUT THIS USER")[1]!;
+    expect(ctx).toContain("Logging plan");
+    expect(ctx).toContain("Tracking only: the app sets no weight, calorie-cutting or exercise goals for this user.");
+    expect(ctx).toContain("WEIGHT\nLatest: 176.4 lb");
+    expect(ctx).not.toMatch(/losing weight|Goal weight|Pace:|158\.7/);
+    // The fixture's intake is pregnant and cardiac with a knee injury.
+    expect(ctx).not.toMatch(/pregnan|cardiac|under.?18|injur|knee/i);
+  });
+
+  it("loses only the section whose read failed, and says it could not read it", async () => {
     fill();
     failing = new Set(["getPlan", "listWeights"]);
     const sys = await systemFor();
@@ -451,11 +487,143 @@ describe("widened scope", () => {
     expect(sys).toContain("PROFILE");
     expect(sys).toContain("LAST 7 DAYS");
     expect(sys).not.toMatch(/\nWEIGHT\n|\nPLAN\n/);
+    // Not "no weigh-ins": the prompt reads a missing section as nothing logged.
+    expect(sys).toMatch(/\nCOULD NOT READ THIS TIME\nTheir weigh-ins, their plan\.$/);
   });
 
   it("writes no em-dashes into what the model reads", async () => {
     fill();
     const sys = await systemFor();
     expect(sys).not.toContain("\u2014");
+  });
+});
+
+/**
+ * A read that fails leaves the same empty value as a store with nothing in
+ * it, and the prompt tells the model to say "nothing logged" for a missing
+ * section. These check a failure is named as one instead.
+ */
+describe("a failed read is not 'nothing logged'", () => {
+  const systemFor = async (question = "What should I eat with what I have left today?") => {
+    const { askCoach } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    await askCoach(question);
+    return (complete.mock.calls[0]![0] as { system: string }).system;
+  };
+
+  it("tells the model what a COULD NOT READ section means", async () => {
+    const sys = await systemFor();
+    expect(sys).toMatch(/COULD NOT READ THIS TIME failed to load for this question: say you could not read it just\s+now, never that it was not logged/);
+  });
+
+  it("keeps the whole diary when the targets cannot be read", async () => {
+    failing = new Set(["getGoals"]);
+    const sys = await systemFor();
+    // Today and the week survive: one failed goals read used to throw away
+    // all eight day snapshots.
+    expect(sys).toContain("Greek yogurt");
+    expect(sys).toMatch(/LAST 7 DAYS \(before today\)\nFood: logged 6 of 7 days/);
+    expect(sys).toContain("RECENT DAYS");
+    // No made-up targets, and no "what's left" worked out from them.
+    expect(sys).not.toMatch(/Targets:|Remaining, negative/);
+    expect(sys).toMatch(/\nCOULD NOT READ THIS TIME\nTheir daily targets\.$/);
+  });
+
+  it("never says nothing was logged today when today's diary could not be read", async () => {
+    failing = new Set([`listDiary:${today}`]);
+    const sys = await systemFor();
+    expect(sys).not.toMatch(/Nothing logged yet today|Eaten so far|Remaining, negative/);
+    expect(sys).toContain("Targets: 2200 cal");
+    expect(sys).toMatch(/\nCOULD NOT READ THIS TIME\nToday's food\.$/);
+    // The logging run is counted through yesterday, the last day it can see.
+    expect(sys).toContain("(2 in a row through yesterday)");
+  });
+
+  it("names an earlier day whose diary could not be read, and leaves it out of the count", async () => {
+    failing = new Set([`listDiary:${shiftDate(today, -2)}`]);
+    const sys = await systemFor();
+    expect(sys).toMatch(/Food: logged 5 of 6 days/);
+    expect(sys).toMatch(/\nCOULD NOT READ THIS TIME\nSome of the 7 days before today\.$/);
+  });
+
+  it("adds nothing when every read worked", async () => {
+    expect(await systemFor()).not.toMatch(/\nCOULD NOT READ THIS TIME\n/);
+  });
+});
+
+/**
+ * Find patterns opens this chat with a whole range of the journal (and any
+ * symptom notes the user opted in to) as its question. That question is saved
+ * with the rest of the conversation, which goes with every later question.
+ */
+describe("the conversation sent with a question", () => {
+  const NOTE = "after a fight with my partner";
+  const JOURNAL = [
+    `2026-09-03: 2140 cal from 9 items; 118g protein; symptoms: Headache at 14:00 (3/5) \u2014 ${NOTE}; ate: coffee, oats`,
+    "2026-09-04: 1800 cal from 6 items; 95g protein",
+  ].join("\n");
+  type Req = { messages: { role: string; content: string }[] };
+
+  it("sends a Find patterns journal once, with its own question, and never again", async () => {
+    const { askCoach, loadAskHistory, saveAskHistory, patternsQuestion } = await import("./ask");
+    const opening = patternsQuestion("2026-09-01", "2026-09-30", JOURNAL);
+    complete.mockResolvedValue("Your headaches land on busy days.");
+    await askCoach(opening, await loadAskHistory());
+    // Positive control: the run itself carries the range, note included.
+    expect((complete.mock.calls[0]![0] as Req).messages.at(-1)!.content).toContain(NOTE);
+
+    await saveAskHistory([
+      { role: "user", content: opening },
+      { role: "assistant", content: "Your headaches land on busy days." },
+    ]);
+    complete.mockClear();
+    await askCoach("Is my water on track today?", await loadAskHistory());
+    const req = complete.mock.calls[0]![0] as Req;
+    const sent = JSON.stringify(req.messages);
+    expect(sent).not.toContain(NOTE);
+    expect(sent).not.toMatch(/2026-09-0[34]:|cal from|Headache at/);
+    expect(req.messages).toHaveLength(3);
+    expect(req.messages[0]!.content).toBe(
+      "Here is my journal for 2026-09-01 to 2026-09-30. What patterns do you notice? Anything that seems to go together?" +
+        "\n\n[Their journal for 2026-09-01 to 2026-09-30 went with that question only, and is not repeated here.]",
+    );
+    expect(req.messages[1]!.content).toBe("Your headaches land on busy days.");
+    expect(req.messages[2]!.content).toBe("Is my water on track today?");
+  });
+
+  it("also leaves out the journal from a Find patterns question saved by an earlier build", async () => {
+    const { askCoach } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    const old = `Here is my journal for 2026-08-01 to 2026-08-31. What patterns do you notice \u2014 anything that seems to go together?\n\n${JOURNAL}`;
+    await askCoach("How has my sleep been this week?", [
+      { role: "user", content: old },
+      { role: "assistant", content: "ok" },
+    ]);
+    const sent = JSON.stringify((complete.mock.calls[0]![0] as Req).messages);
+    expect(sent).not.toContain(NOTE);
+    expect(sent).not.toContain("cal from");
+    expect(sent).toContain("[Their journal for 2026-08-01 to 2026-08-31 went with that question only");
+  });
+
+  it("leaves every other turn word for word, and keeps only the last few", async () => {
+    const { askCoach, patternsQuestion } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    const typed = "Here is my journal for today: eggs and toast. Is that enough protein?";
+    const reply = patternsQuestion("2026-09-01", "2026-09-30", JOURNAL); // as if the model echoed one
+    const history = [
+      ...Array.from({ length: 6 }, (_, i) => ({ role: "user" as const, content: `old ${i}` })),
+      { role: "user" as const, content: typed },
+      { role: "assistant" as const, content: reply },
+      ...Array.from({ length: 8 }, (_, i) => ({ role: "user" as const, content: `q${i}` })),
+    ];
+    await askCoach("and now?", history);
+    const msgs = (complete.mock.calls[0]![0] as Req).messages;
+    expect(msgs).toHaveLength(MAX_CONTEXT_TURNS + 1);
+    expect(msgs[0]!.content).toBe(typed);
+    expect(msgs[1]!.content).toBe(reply);
+  });
+
+  it("is the conversation the consent wording describes", () => {
+    expect(DISCLOSURE_SENDS.join("\n")).toContain(`the last ${MAX_CONTEXT_TURNS} messages of your conversation`);
   });
 });

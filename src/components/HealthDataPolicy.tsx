@@ -134,8 +134,8 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
               decline.
             </li>
             <li>
-              The free-text note on a symptom is a separate choice, off unless you turn it on,
-              and only Find patterns sends it.
+              The free-text note on a symptom is a separate choice, off unless you turn it on.
+              Then only Find patterns sends it, once, with the question that asked for it.
             </li>
             <li>
               You can withdraw that agreement at any time in Settings, under Privacy. Future
