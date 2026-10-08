@@ -66,5 +66,10 @@
  *      Its history already goes through `redactHistory` (coach/ask.ts), so a
  *      Find patterns journal and any answer that can quote its notes are not
  *      resent; keep it that way, since both share coach-chat.json.
+ *   6. The health coach's summary (coach/askSummary.ts isTrackingOnly) treats
+ *      a get_fit plan as tracking only: it sets no weight or calorie goals
+ *      and never asks height. Its tracking-only line says the app sets no
+ *      exercise goals either, which stops being true of a get_fit plan once
+ *      workouts are on, so give that plan a line of its own.
  */
 export const COACH_AND_WORKOUTS_ENABLED: boolean = false;

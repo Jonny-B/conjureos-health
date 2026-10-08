@@ -73,6 +73,31 @@ describe("commitNewPlan preserves pre-plan profile data", () => {
     expect((await repo.getProfile())?.age).toBe(45);
   });
 
+  /**
+   * Builds before 1.40.4 dropped the sex picked on a plan that does not track
+   * food, so the coach goes by this mark to know the sex on file is theirs.
+   */
+  it("marks a plan whose wizard answers it saved onto the profile, on disk too", async () => {
+    const res = await commitNewPlan(
+      { ...plan, mode: "logging_only", targets: { dailyCalories: null } },
+      {
+        body: { sex: "male", age: 16, activityLevel: "moderate", units: "metric" },
+        currentProfile: null,
+        currentGoals: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+      },
+    );
+    expect(res.profile?.sex).toBe("male");
+    expect(Number.isFinite(Date.parse(res.plan.bodySavedAt ?? ""))).toBe(true);
+    const repo = await getRepository();
+    expect((await repo.getPlan())?.bodySavedAt).toBe(res.plan.bodySavedAt);
+    // Nothing merged, nothing to mark.
+    const bare = await commitNewPlan(plan, {
+      currentProfile: cogProfile,
+      currentGoals: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+    });
+    expect(bare.plan.bodySavedAt).toBeUndefined();
+  });
+
   it("never overwrites a cog field the wizard body leaves undefined", async () => {
     // e.g. a "get fit" (workouts-only) plan collects no sex/height/weight.
     const res = await commitNewPlan(plan, {
@@ -165,6 +190,27 @@ describe("modifyPlanInPlace", () => {
     expect(res.plan.program?.workouts[0]?.completedAt).toBe("2026-07-23T10:00:00Z");
     expect(res.plan.program?.benchmarks[0]?.baseline).toBe(20);
     expect(res.plan.program?.currentGroup).toBe(1);
+  });
+
+  /**
+   * The weight typed in Edit plan goes onto the profile and no weigh-in is
+   * logged, while the plan keeps its createdAt. The health coach judges the
+   * profile's weight by how new it is (coach/askSummary profileWeightToJudge),
+   * so the edit has to say when it saved it, on disk as well.
+   */
+  it("records when it saved the wizard's answers onto the profile", async () => {
+    const before = Date.now();
+    const res = await modifyPlanInPlace(
+      both,
+      { ...cur, weightKg: 80 },
+      { endDate: both.endDate },
+      { currentProfile: cur, currentGoals: { calories: 0, protein: 0, carbs: 0, fat: 0 } },
+    );
+    expect(res.profile?.weightKg).toBe(80);
+    expect(res.plan.createdAt).toBe(both.createdAt);
+    expect(Date.parse(res.plan.bodySavedAt ?? "")).toBeGreaterThanOrEqual(before - 1000);
+    const repo = await getRepository();
+    expect((await repo.getPlan())?.bodySavedAt).toBe(res.plan.bodySavedAt);
   });
 
   it("leaves the calorie target null for a workouts-only plan", async () => {

@@ -616,6 +616,16 @@ export interface Plan {
   liability: LiabilityAck;
   /** ISO timestamp the plan was created. */
   createdAt: string;
+  /**
+   * ISO timestamp the plan wizard's answers were last saved onto the profile
+   * for this plan: when it was made (commitNewPlan) and at each edit that
+   * keeps it (modifyPlanInPlace), which keeps `createdAt` but can change the
+   * profile's weight. The health coach reads it to know how new that weight
+   * is, and that the sex on file is the one picked: builds before 1.40.4 left
+   * sex off a plan that does not track food, so a first one stored
+   * DEFAULT_PROFILE's. Additive; absent on plans from those builds.
+   */
+  bodySavedAt?: string;
   /** The free-text goal the user typed in the wizard ("get better at the half
    *  Murph"). Additive — absent on pre-1.17 plans; the plan-edit diff then can't
    *  compare goal text for those and only mode/start-date fork a new plan. */

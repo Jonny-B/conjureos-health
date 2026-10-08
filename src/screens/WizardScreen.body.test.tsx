@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ReactNode } from "react";
-import type { Plan, WeightEntry } from "../types";
-import { DEFAULT_PROFILE } from "../types";
+import type { Plan, Profile, WeightEntry } from "../types";
+import { DEFAULT_GOALS } from "../types";
 import type { WizardBody } from "../features/plan/planService";
 import { button, elements, runtime, textOf } from "../testing/hooks";
 
@@ -30,8 +30,17 @@ vi.mock("../features/plan/generate", () => ({
   createPlan: async () => ({ plan: built, gen: { summary: "Log what you eat.", goals: [] }, usedFallback: false }),
   regenerateProgram: async () => ({}),
 }));
+// Enough of a repository for the wizard's weigh-in prefill and for
+// commitNewPlan, which the test runs the committed plan through.
+const stored: { plan?: Plan; profile?: Profile } = {};
 vi.mock("../data/repository", () => ({
-  getRepository: async () => ({ listWeights: async (): Promise<WeightEntry[]> => [] }),
+  getRepository: async () => ({
+    listWeights: async (): Promise<WeightEntry[]> => [],
+    getProfile: async () => stored.profile ?? null,
+    saveProfile: async (p: Profile) => void (stored.profile = p),
+    savePlan: async (p: Plan) => void (stored.plan = p),
+    saveGoals: async () => {},
+  }),
 }));
 
 const press = (tree: ReactNode, name: string) => (button(tree, name).props.onClick as () => unknown)();
@@ -44,6 +53,8 @@ function child(tree: ReactNode, type: unknown) {
 
 beforeEach(() => {
   runtime.reset();
+  delete stored.plan;
+  delete stored.profile;
 });
 
 /**
@@ -57,12 +68,19 @@ describe("a plan the safety intake makes logging-only", () => {
     const { WizardScreen } = await import("./WizardScreen");
     const { DisclaimerCard } = await import("../components/DisclaimerCard");
     const { AgeField, SexField } = await import("../components/PlanFields");
-    const { mergeBodyIntoProfile } = await import("../features/plan/planService");
+    const { commitNewPlan } = await import("../features/plan/planService");
     const { renderAskContext } = await import("../features/coach/askSummary");
     const { shiftDate } = await import("../features/diary");
 
     let committed: WizardBody | null = null;
-    const props = { onComplete: (_plan: Plan, body: WizardBody) => void (committed = body), profile: null };
+    let plan: Plan | null = null;
+    const props = {
+      onComplete: (p: Plan, body: WizardBody) => {
+        plan = p;
+        committed = body;
+      },
+      profile: null,
+    };
     const render = () => runtime.render(WizardScreen, props);
 
     let tree = await render();
@@ -85,8 +103,12 @@ describe("a plan the safety intake makes logging-only", () => {
     expect(body.age).toBe(15);
     expect(body.sex).toBe("male");
 
-    // The first plan, so it merges onto the default profile, as commitNewPlan does.
-    const profile = mergeBodyIntoProfile(DEFAULT_PROFILE, body);
+    // The first plan, so it merges onto the default profile; and the plan is
+    // marked as one whose answers went onto it (Plan.bodySavedAt), which is
+    // how the coach knows the sex on file is the one picked.
+    const res = await commitNewPlan(plan!, { body, currentProfile: null, currentGoals: DEFAULT_GOALS });
+    expect(stored.profile?.sex).toBe("male");
+    expect(stored.plan?.bodySavedAt).toBeTruthy();
     const today = "2026-10-08";
     const days = Array.from({ length: 8 }, (_, i) => {
       const date = shiftDate(today, -(7 - i));
@@ -106,9 +128,9 @@ describe("a plan the safety intake makes logging-only", () => {
     const ctx = renderAskContext({
       today,
       units: "metric",
-      profile,
+      profile: res.profile,
       weights: [],
-      plan: { ...built, liability: { acknowledged: true, acceptedAt: "2026-10-08T00:00:00Z" } },
+      plan: res.plan,
       days,
       sleep: [],
     });

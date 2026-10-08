@@ -128,7 +128,8 @@ export function mergeBodyIntoProfile(base: Profile, b: WizardBody): Profile {
 /**
  * Persist a newly-created plan and reconcile the other two stores:
  *  - merge the wizard's body stats into the Profile (so Trends/BMI work and the
- *    user never re-enters height/weight in settings), and
+ *    user never re-enters height/weight in settings), marking the plan with
+ *    when it did (Plan.bodySavedAt), and
  *  - project the plan's targets into stored Goals (so the diary rings match even
  *    on code paths that read Goals directly).
  */
@@ -137,13 +138,13 @@ export async function commitNewPlan(
   ctx: { body?: WizardBody; currentProfile: Profile | null; currentGoals: Goals },
 ): Promise<CommitResult> {
   const repo = await getRepository();
-  await persist("your plan", repo.savePlan(plan));
+  const b = ctx.body;
+  const merges = !!b && (b.heightCm != null || b.weightKg != null || b.sex != null || b.age != null);
+  const saved: Plan = merges ? { ...plan, bodySavedAt: new Date().toISOString() } : plan;
+  await persist("your plan", repo.savePlan(saved));
 
   let profile = ctx.currentProfile;
-  const b = ctx.body;
-  if (b && (b.heightCm != null || b.weightKg != null || b.sex != null || b.age != null)) {
-    profile = mergeBodyIntoProfile(ctx.currentProfile ?? DEFAULT_PROFILE, b);
-  }
+  if (merges) profile = mergeBodyIntoProfile(ctx.currentProfile ?? DEFAULT_PROFILE, b!);
   // ALWAYS persist a profile once a plan exists — never leave store.json.profile
   // null. A null profile makes the cog fall back to DEFAULT_PROFILE (and older
   // code could then cement those defaults), which reads as "my stats reverted to
@@ -153,11 +154,11 @@ export async function commitNewPlan(
   await persist("your profile", repo.saveProfile(finalProfile));
   profile = finalProfile;
 
-  const goals = targetsToGoals(plan, ctx.currentGoals);
-  if (plan.targets?.dailyCalories != null) {
+  const goals = targetsToGoals(saved, ctx.currentGoals);
+  if (saved.targets?.dailyCalories != null) {
     await persist("your daily targets", repo.saveGoals(goals));
   }
-  return { plan, profile, goals };
+  return { plan: saved, profile, goals };
 }
 
 /** Persist a program edit. (ProgramEditor validates before calling this.) */
@@ -179,6 +180,8 @@ export interface PlanPatch {
   startDate?: string;
   endDate?: string;
   durationWeeks?: number;
+  /** When the wizard's answers went onto the profile (see Plan.bodySavedAt). */
+  bodySavedAt?: string;
 }
 
 const PLAN_ARCHIVE_PATH = "plan-archive.json";
@@ -265,6 +268,10 @@ export function decidePlanEdit(plan: Plan, next: PlanEditAnswers): PlanEditDecis
  * only moved `profile.direction` and never touched the calorie target, so the
  * diary ring never changed. Targets only recompute when the mode tracks food; a
  * workouts-only plan keeps whatever (null) target it had.
+ *
+ * The plan keeps its createdAt, so it records when this edit saved the
+ * profile (Plan.bodySavedAt): the weight typed here logs no weigh-in, and
+ * can be newer than every weigh-in on file.
  */
 export async function modifyPlanInPlace(
   plan: Plan,
@@ -284,7 +291,7 @@ export async function modifyPlanInPlace(
   // preserves them, so group progress and benchmark history survive untouched.
   const { plan: next, goals } = await updatePlan(
     plan,
-    { targets, ...patch },
+    { targets, ...patch, bodySavedAt: new Date().toISOString() },
     { currentGoals: ctx.currentGoals },
   );
   return { plan: next, profile, goals };

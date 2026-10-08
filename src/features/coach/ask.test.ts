@@ -343,6 +343,18 @@ describe("ASK_SUGGESTIONS", () => {
   it("ask nothing that needs the daily targets", () => {
     for (const q of ASK_SUGGESTIONS) expect(q).not.toMatch(/\bleft\b|budget|target|remaining/i);
   });
+
+  /**
+   * A tracking-only user (a heart condition, a pregnancy, under 18) is told
+   * neither to drink more nor less, and nobody under 18 or below a healthy
+   * weight is helped to eat less. A one-tap question the coach is told to
+   * turn down is no example of a good one.
+   */
+  it("ask nothing the safety rules tell the coach to turn down for some users", () => {
+    for (const q of ASK_SUGGESTIONS) {
+      expect(q).not.toMatch(/on track|under \d+ cal|fewer calories|\bcut\b|low.?cal|\bdiet\b|lose|drink more/i);
+    }
+  });
 });
 
 /**
@@ -498,6 +510,8 @@ describe("widened scope", () => {
     expect(sys).toMatch(/doctor or dietitian/);
     expect(sys).toMatch(/chest pain, shortness of breath or dizziness/);
     expect(sys).toMatch(/Never suggest a calorie target below what the app already set/);
+    // A target typed in below the app's floor is not one to plan food around.
+    expect(sys).toMatch(/calorie target is below the app's minimum, never plan food around it/);
     expect(sys).toMatch(/purging, fasting as weight control, or "earning" food with exercise/);
     expect(sys).toMatch(/1% of body weight a week/);
     // Exercise is in scope, and the coach is told nothing about injuries.
@@ -579,7 +593,11 @@ describe("widened scope", () => {
     const ctx = sys.split("ABOUT THIS USER")[1]!;
     expect(ctx).toContain("Eaten so far: 750 cal");
     expect(ctx).toContain(`WEIGHT\nLatest: 176.4 lb on ${today}.`);
-    expect(ctx).not.toMatch(/losing weight|Goal weight|158\.7|Targets:|Remaining, negative|2200 cal|\nPLAN\n/);
+    expect(ctx).not.toMatch(/losing weight|Goal weight|158\.7|Targets:|Remaining, negative|2200 cal|Height:|Pace:/);
+    // It may have been a logging-only plan, and nothing says it was not.
+    expect(ctx).toContain(
+      "PLAN\nTracking only: they have no current plan, so the app sets them no weight, calorie-cutting or exercise goals.",
+    );
     expect(ctx).not.toContain("COULD NOT READ");
   });
 
@@ -929,6 +947,32 @@ describe("the conversation sent with a question", () => {
     ]);
     expect(sent[1]!.content).toMatch(/^\[/);
     expect(sent[1]!.content).not.toMatch(/carried symptom notes|journal with symptom notes/);
+  });
+
+  /**
+   * A follow-up to Find patterns arrives with the journal and perhaps the
+   * answer swapped for bracketed placeholders, about a month the 7-day
+   * summary does not cover. Read as "a section missing from the summary",
+   * that month would come back as nothing logged.
+   */
+  it("tells the model what the bracketed placeholders mean, so a follow-up is not 'nothing logged'", async () => {
+    const { askCoach, historyForPrompt, patternsQuestion } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    await askCoach("Which evenings was that?");
+    const sys = (complete.mock.calls[0]![0] as { system: string }).system;
+    const scope = sys.split("SCOPE")[1]!.split("LIMITS")[0]!;
+    expect(scope).toMatch(/\[square brackets\]/);
+    expect(scope).toMatch(/Find patterns\s+again/);
+    expect(scope).toMatch(/never say nothing was logged/i);
+    // Every placeholder it explains is bracketed.
+    const sent = historyForPrompt([
+      { role: "user", content: patternsQuestion("2026-09-01", "2026-09-30", `2026-09-03: 900 cal (note: ${NOTE})`) },
+      { role: "assistant", content: "Heartburn came up on 5 evenings." },
+      { role: "assistant", content: "An answer from an earlier build." },
+    ]);
+    expect(sent[0]!.content.split("\n\n")[1]).toMatch(/^\[.*\]$/);
+    expect(sent[1]!.content).toMatch(/^\[.*\]$/);
+    expect(sent[2]!.content).toMatch(/^\[.*\]$/);
   });
 
   it("is the conversation the consent wording describes", () => {

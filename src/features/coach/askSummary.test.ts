@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   isTrackingOnly,
+  namesAWeight,
   renderAskContext,
   renderGapsForPrompt,
   renderPlanForPrompt,
@@ -201,7 +202,9 @@ describe("renderProfileForPrompt", () => {
       renderProfileForPrompt({ ...PROFILE, age: 15 }, "metric", { goalsWithheld: true, trackingOnly: true }),
     ).toBe("PROFILE\nSex: female. Age: 15.");
     const f = sampleFacts();
-    f.plan = plan({ mode: "logging_only" });
+    // Saved by a build that keeps the sex picked (see "sex from a plan that
+    // may not have kept it" below).
+    f.plan = plan({ mode: "logging_only", bodySavedAt: "2026-09-24T00:00:00Z" });
     const out = renderAskContext(f);
     expect(out).toContain("PROFILE\nSex: female. Age: 41.");
     expect(out).not.toMatch(/Height:|Activity:/);
@@ -209,8 +212,9 @@ describe("renderProfileForPrompt", () => {
 });
 
 describe("isTrackingOnly", () => {
-  it("is a logging-only plan or an age under 18, and nothing else", () => {
+  it("is a plan that tracks no food or an age under 18, and nothing else", () => {
     expect(isTrackingOnly(plan({ mode: "logging_only" }), PROFILE)).toBe(true);
+    expect(isTrackingOnly(plan({ mode: "get_fit" }), PROFILE)).toBe(true);
     expect(isTrackingOnly(null, { ...PROFILE, age: 15 })).toBe(true);
     expect(isTrackingOnly(plan(), { ...PROFILE, age: 17 })).toBe(true);
     // Too low to state as fact, but still treated with care.
@@ -1127,9 +1131,237 @@ describe("a plan that was deleted", () => {
     expect(renderAskContext(f)).not.toMatch(/daily targets/);
   });
 
-  it("still says a current weight is below a healthy range", () => {
+  /**
+   * The deleted plan may have been a logging-only one, which never asked
+   * height, so a weight is not judged against the height on file; the
+   * tracking-only rule rules out any help to lose weight instead.
+   */
+  it("gives no help to lose weight, without judging it against a height that may not be theirs", () => {
     const f = deleted();
     f.weights = [{ date: "2026-10-08", weightKg: 48 }];
-    expect(renderAskContext(f)).toContain("Their current weight is below a healthy range for their height.");
+    const out = renderAskContext(f);
+    expect(out).toContain("Tracking only: they have no current plan");
+    expect(out).not.toMatch(/healthy range|Height:/);
+  });
+});
+
+/**
+ * Review round 6. A deleted plan may have been a logging-only one, set for a
+ * pregnancy or a heart condition, and a logging-only plan never asks height,
+ * so the 170 cm on file can be DEFAULT_PROFILE's. Once the plan is gone
+ * nothing says which: the summary treats them as tracking only.
+ */
+describe("a plan that was deleted, round 6", () => {
+  // A first plan forced to logging-only, merged onto DEFAULT_PROFILE, then
+  // deleted. Her real height is 185 cm, so 60 kg is a BMI of 17.5; judged at
+  // 170 cm it reads as 20.8.
+  const gone = (): AskFacts => {
+    const f = sampleFacts();
+    f.profile = {
+      sex: "female",
+      age: 31,
+      heightCm: 170,
+      weightKg: 70,
+      activityLevel: "moderate",
+      direction: "maintain",
+      units: "metric",
+    };
+    f.weights = [
+      { date: "2026-10-08", weightKg: 60 },
+      { date: "2026-09-10", weightKg: 61.6 },
+    ];
+    f.plan = null;
+    return f;
+  };
+
+  it("says tracking only, with no height, activity or pace a plan may never have asked", () => {
+    const out = renderAskContext(gone());
+    expect(out).toContain(
+      "PLAN\nTracking only: they have no current plan, so the app sets them no weight, calorie-cutting or exercise goals.",
+    );
+    expect(out).not.toMatch(/Height:|Activity:|Pace:|Targets:|Remaining, negative/);
+    // Judged at a height that may not be theirs, a weight says nothing either way.
+    expect(out).not.toContain("healthy range");
+    expect(out).toContain("Latest: 60 kg on 2026-10-08.");
+    expect(out).not.toContain("COULD NOT READ");
+  });
+});
+
+/**
+ * Review round 6. A legacy get_fit plan never asked height or weight (the
+ * wizard sent neither for a plan that does not track food), so a first one
+ * stored DEFAULT_PROFILE's 170 cm and 70 kg. It sets no weight or calorie
+ * goals either, so it is tracking only, like a logging-only plan.
+ */
+describe("a legacy get_fit plan", () => {
+  const getFit = (kg: number): AskFacts => {
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, heightCm: 170, weightKg: 70, direction: "maintain", goalWeightKg: undefined };
+    f.weights = [
+      { date: "2026-10-08", weightKg: kg },
+      { date: "2026-09-10", weightKg: kg + 0.6 },
+    ];
+    f.plan = plan({ mode: "get_fit", targets: { dailyCalories: null } });
+    return f;
+  };
+
+  it("states no height it never asked, and judges no weight against it", () => {
+    // 155 cm and 50 kg is a BMI of 20.8; at the default 170 cm it reads 17.3.
+    const out = renderAskContext(getFit(50));
+    expect(out).not.toMatch(/Height:|healthy range/);
+    expect(out).toContain("Tracking only: the app sets no weight, calorie-cutting or exercise goals for this user.");
+  });
+
+  it("gives no weight-loss help either way round", () => {
+    // 188 cm and 62 kg is a BMI of 17.5; at 170 cm it reads 21.5.
+    const out = renderAskContext(getFit(62));
+    expect(out).toContain("Tracking only");
+    expect(out).not.toMatch(/Targets:|Remaining, negative|Goal: |Pace:/);
+  });
+
+});
+
+/**
+ * Review round 6. Builds before 1.40.4 dropped the sex picked on a plan that
+ * does not track food, so a first logging-only or get_fit plan stored
+ * DEFAULT_PROFILE's "female". Such a plan carries no bodySavedAt.
+ */
+describe("sex from a plan that may not have kept it", () => {
+  const teen = (stamped: boolean): AskFacts => {
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, sex: "female", age: 16, direction: "maintain", goalWeightKg: undefined };
+    f.days = Array.from({ length: 7 }, (_, i) => snap(shiftDate(TODAY, -(7 - i)), 1300)).concat(snap(TODAY, 0));
+    f.plan = plan({
+      mode: "logging_only",
+      ...(stamped ? { bodySavedAt: "2026-09-24T00:00:00Z" } : {}),
+    });
+    return f;
+  };
+
+  it("states no sex, and uses the higher floor, for a plan from an earlier build", () => {
+    const out = renderAskContext(teen(false));
+    expect(out).not.toContain("Sex:");
+    expect(out).toContain("Age: 16.");
+    expect(out).toContain("Logged days under 1500 cal: 7.");
+  });
+
+  it("states the sex a plan from this build kept", () => {
+    const out = renderAskContext(teen(true));
+    expect(out).toContain("Sex: female. Age: 16.");
+    expect(out).not.toContain("Logged days under");
+  });
+
+  it("states it for a food plan from any build, which always kept it", () => {
+    expect(renderAskContext(sampleFacts())).toContain("Sex: female.");
+  });
+});
+
+/**
+ * Review round 6. An in-place plan edit saves the weight typed in the wizard
+ * onto the profile and keeps the plan's createdAt, and logs no weigh-in. 170
+ * cm: 52 kg is a BMI of 18.0, the 57 kg weigh-in 19.7.
+ */
+describe("a weight saved by an in-place plan edit", () => {
+  it("judges it when the edit is newer than the latest weigh-in", () => {
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, age: 30, heightCm: 170, weightKg: 52, direction: "maintain", goalWeightKg: undefined };
+    f.weights = [{ date: "2026-10-01", weightKg: 57 }];
+    f.plan = plan({ createdAt: "2026-09-01T12:00:00Z", startDate: "2026-09-01", bodySavedAt: "2026-10-07T09:00:00Z" });
+    const out = renderAskContext(f);
+    expect(out).toContain("Their current weight is below a healthy range for their height.");
+    expect(out).not.toMatch(/Targets:|Remaining, negative|Goal: maintaining/);
+    // A weigh-in after the edit is what counts again.
+    f.weights = [{ date: "2026-10-08", weightKg: 57 }, ...f.weights];
+    expect(renderAskContext(f)).not.toContain("healthy range");
+  });
+});
+
+/**
+ * Review round 6. Daily targets > Adjust on the Plan tab saves any calorie
+ * figure, below the floor the app itself never goes under, and the prompt
+ * answers "what should I eat" from what is left of the targets it is given.
+ */
+describe("a calorie target below the app's minimum", () => {
+  const low = (calories: number): AskFacts => {
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, age: 30, heightCm: 168, weightKg: 58, direction: "lose", goalWeightKg: 56 };
+    f.weights = [
+      { date: "2026-10-08", weightKg: 58 },
+      { date: "2026-09-10", weightKg: 58.4 },
+    ];
+    const targets = { calories, protein: 40, carbs: 60, fat: 20 };
+    f.days = f.days.map((d) => ({ ...d, targets }));
+    f.days[f.days.length - 1] = snap(TODAY, 450, {
+      targets,
+      remaining: { calories: calories - 450, protein: 0, carbs: 0, fat: 0 },
+    });
+    return f;
+  };
+
+  it("is not sent as a target to plan food around, and says why", () => {
+    const out = renderAskContext(low(600));
+    expect(out).not.toMatch(/Targets:|Remaining, negative/);
+    expect(out).toContain("Their daily calorie target is below the app's minimum of 1200 cal.");
+    expect(out).toContain("Eaten so far: 450 cal");
+  });
+
+  it("goes by the floor for their sex, and leaves a target at or above it alone", () => {
+    const male = low(1400);
+    male.profile = { ...male.profile!, sex: "male" };
+    expect(renderAskContext(male)).toContain("Their daily calorie target is below the app's minimum of 1500 cal.");
+    const ok = renderAskContext(low(1200));
+    expect(ok).toMatch(/Targets: 1200 cal[\s\S]*Remaining, negative means over \(750 cal/);
+    expect(ok).not.toContain("below the app's minimum");
+  });
+});
+
+/**
+ * Review round 6. The healthy-range check reads the numeric goal weight
+ * only, so a weight in the goal's words in any form has to keep the goal out.
+ */
+describe("a weight named in words", () => {
+  it("is known in number words, a stone, hyphenated units and shares of body weight", () => {
+    for (const t of [
+      "Lose twenty pounds before summer",
+      "Get down to ninety pounds",
+      "Lose a stone",
+      "lose ten kilos",
+      "Be a 100-pound bride",
+      "Lose 15% body weight",
+      "lose 10 percent of my body weight",
+      "drop 5% by June",
+      "lose half a stone",
+      "Get down to a hundred and ten",
+      "lose twenty-five lbs",
+      "lose a couple of kilos",
+      "get to nine stone",
+    ]) {
+      expect(namesAWeight(t), t).toBe(true);
+    }
+    for (const t of [
+      "Eat five portions of veg a day",
+      "Walk twenty minutes after dinner",
+      "Hit 30% protein",
+      "Keep carbs under 40% of calories",
+      "Sleep eight hours",
+      "Drink two litres of water",
+      "Run a 5k",
+      "Feel stronger before my sister's wedding",
+    ]) {
+      expect(namesAWeight(t), t).toBe(false);
+    }
+  });
+
+  it("keeps a goal like that out of the summary", () => {
+    const f = sampleFacts();
+    f.units = "imperial";
+    f.profile = { ...PROFILE, age: 22, heightCm: 165, units: "imperial", direction: "maintain", goalWeightKg: undefined };
+    f.weights = [
+      { date: "2026-10-08", weightKg: 52.2 },
+      { date: "2026-09-10", weightKg: 52.4 },
+    ];
+    f.plan = plan({ goalText: "Get down to ninety pounds before the meet" });
+    const out = renderAskContext(f);
+    expect(out).not.toMatch(/ninety|Goal in their words/);
   });
 });

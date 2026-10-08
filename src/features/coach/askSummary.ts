@@ -20,8 +20,9 @@
  *
  * Safety is applied here as well as in the prompt. For a user the app sets no
  * weight, calorie or exercise goals (a logging-only plan, which the safety
- * intake forces for under-18s, pregnancy and heart conditions, or an age
- * under 18) the summary says "Tracking only" and leaves out the goal
+ * intake forces for under-18s, pregnancy and heart conditions, a legacy
+ * get_fit plan, a profile left with no plan, or an age under 18) the summary says
+ * "Tracking only" and leaves out the goal
  * direction, goal weight, weekly pace, today's targets and what is left of
  * them, and the plan's goals in any words, its weekly exercise target
  * included, as well as a height and activity level the plan never asked
@@ -45,7 +46,14 @@
  *
  * A profile with no plan is one whose plan was deleted: its goal direction
  * and goal weight, and the stored daily targets, are what that plan left
- * behind, so none of them are sent (see gateFor).
+ * behind, and the plan may have been a logging-only one, so the user is
+ * treated as tracking only (see gateFor).
+ *
+ * A daily calorie target under the app's own floor (kcalFloor), which only
+ * the Plan tab's manual override can set, is not sent as a target either,
+ * and is said outright instead (see renderAskContext). Sex is stated, and
+ * sets that floor and the under-eating line, only when the plan is known to
+ * have kept the one picked (see sexToGoBy).
  *
  * What may appear here is bounded by the AI consent wording in
  * features/aiConsent.ts (DISCLOSURE_SENDS). A new field means new wording
@@ -67,7 +75,7 @@ import {
 import { shiftDate, todayISO } from "../diary";
 import { weekToDate } from "../exercise";
 import { bmi } from "../goals";
-import { kcalFloor } from "../plan/model";
+import { kcalFloor, modeTracksFood } from "../plan/model";
 import { planModeLabel, visiblePlanGoals } from "../plan/display";
 import { formatSleep } from "../sleep";
 import { fmtHeight, fmtWeight, weightToDisplay, weightUnit } from "../units";
@@ -114,6 +122,13 @@ const TRACKING_ONLY = "Tracking only: the app sets no weight, calorie-cutting or
  *  that read in words, "their plan" and so on (see gateFor). */
 const trackingUnread = (what: string) =>
   `Tracking only for this question: ${what} could not be read, so treat them as having no weight, calorie-cutting or exercise goals.`;
+
+/** The same rule for a profile whose plan was deleted (see gateFor). */
+const NO_PLAN =
+  "Tracking only: they have no current plan, so the app sets them no weight, calorie-cutting or exercise goals.";
+
+/** The line the prompt's low-target rule keys on, with the floor it is under. */
+const targetTooLow = (floor: number) => `Their daily calorie target is below the app's minimum of ${floor} cal.`;
 
 const GOAL_TOO_LOW = "Their goal weight is below a healthy range for their height.";
 
@@ -200,13 +215,35 @@ export async function loadAskFacts(today = todayISO()): Promise<AskFacts> {
 
 /**
  * Whether the app sets this user no weight, calorie-cutting or exercise
- * goals: their plan is logging-only, or their profile gives an age under 18.
- * An age too low to state as fact (see renderProfileForPrompt) still counts,
- * since being careful with an adult costs far less than the reverse.
+ * goals: their plan does not track food, or their profile gives an age under
+ * 18. An age too low to state as fact (see renderProfileForPrompt) still
+ * counts, since being careful with an adult costs far less than the reverse.
+ *
+ * A plan that does not track food is a logging-only one, or a legacy get_fit
+ * one, whose workouts are paused (features/flags). Neither sets a weight or
+ * calorie goal, and neither asked height or weight: the wizard sent neither
+ * for them, so after a first plan of either kind the profile holds
+ * DEFAULT_PROFILE's 170 cm and 70 kg, and its goal direction, goal weight and
+ * the stored targets are left over from another plan or are that default's.
  */
 export function isTrackingOnly(plan: Plan | null, profile: Profile | null): boolean {
-  if (plan?.mode === "logging_only") return true;
+  if (plan && !modeTracksFood(plan.mode)) return true;
   return !!profile && Number.isFinite(profile.age) && profile.age < 18;
+}
+
+/**
+ * The sex to state and to set the calorie floor by: the profile's, when the
+ * plan is known to have kept the one they picked, or undefined. A plan that
+ * tracks food always kept it. Builds before 1.40.4 left it off a plan that
+ * does not, so a first logging-only or get_fit plan stored DEFAULT_PROFILE's
+ * "female"; a plan saved by a later build carries bodySavedAt. With no plan
+ * (deleted, or unread) there is no telling. Undefined errs toward the higher
+ * floor, which costs a real female user one gentle check-in at most.
+ */
+function sexToGoBy(f: AskFacts): Profile["sex"] | undefined {
+  const plan = f.plan;
+  if (!plan || !(modeTracksFood(plan.mode) || plan.bodySavedAt)) return undefined;
+  return f.profile?.sex;
 }
 
 /**
@@ -224,7 +261,7 @@ export function isTrackingOnly(plan: Plan | null, profile: Profile | null): bool
  *     have withheld anything, so its failed read withholds nothing either.
  *
  * `goalsWithheld` (no goal direction, targets, what is left of them, or plan
- * goals) is tracking only, a deleted plan, a goal weight they would have to
+ * goals) is tracking only, a goal weight they would have to
  * lose weight to reach below a healthy range (goalTooLow), or a current
  * weight below that range unless they are set to gain. The current weight is
  * the latest weigh-in, or the profile's when that can be newer and is lower
@@ -242,7 +279,12 @@ export function isTrackingOnly(plan: Plan | null, profile: Profile | null): bool
  * stored daily targets, and deleting the plan keeps all three, so they are
  * the deleted plan's: possibly a deficit set before a pregnancy the deleted
  * plan knew about. None of them go as goals: `direction` is undefined then,
- * for every check here and for WEIGHT.
+ * for every check here and for WEIGHT. The plan itself may have been a
+ * logging-only one, which never asked height, so the height the healthy-range
+ * check needs can be DEFAULT_PROFILE's, and nothing is left to say whether a
+ * pregnancy or a heart condition made it one. So a deleted plan is tracking
+ * only, like an unread one, and `noPlan` says why (unless an age under 18
+ * already makes them tracking only).
  */
 function gateFor(f: AskFacts): {
   trackingOnly: boolean;
@@ -252,6 +294,8 @@ function gateFor(f: AskFacts): {
   direction: Profile["direction"] | undefined;
   /** The profile's weight, when it is judged beside the weigh-ins (profileWeightToJudge). */
   profileWeightKg: number | undefined;
+  /** No plan, from a plan read that worked, for an adult (see NO_PLAN). */
+  noPlan: boolean;
 } {
   const gaps = f.unreadable ?? [];
   const p = f.profile;
@@ -262,23 +306,32 @@ function gateFor(f: AskFacts): {
   if (!f.plan && gaps.includes("plan")) lost.push("their plan");
   if (!p && gaps.includes("profile")) lost.push("their profile");
   const ws = weighIns(f.weights);
-  if (!known && p && heightKnown(p.heightCm) && direction !== "gain" && gaps.includes("weight") && !ws.length) {
+  if (
+    !known &&
+    !planGone &&
+    p &&
+    heightKnown(p.heightCm) &&
+    direction !== "gain" &&
+    gaps.includes("weight") &&
+    !ws.length
+  ) {
     lost.push("their weigh-ins");
   }
   const unread = lost.length > 1 ? `${lost.slice(0, -1).join(", ")} and ${lost[lost.length - 1]}` : lost[0] ?? "";
-  const trackingOnly = known || !!unread;
+  const trackingOnly = known || planGone || !!unread;
+  const noPlan = planGone && !known;
   const profileWeightKg = profileWeightToJudge(f, ws);
-  if (trackingOnly) return { trackingOnly, unread, goalsWithheld: true, direction, profileWeightKg };
+  if (trackingOnly) return { trackingOnly, unread, goalsWithheld: true, direction, profileWeightKg, noPlan };
   const nowKg = currentWeightKg(ws, profileWeightKg);
   const goal = activeGoalKg(p?.goalWeightKg, direction);
   const underweight = belowHealthyRange(nowKg, p?.heightCm);
   return {
     trackingOnly,
     unread,
-    goalsWithheld:
-      planGone || goalTooLow(goal, p?.heightCm, direction, nowKg) || (underweight && direction !== "gain"),
+    goalsWithheld: goalTooLow(goal, p?.heightCm, direction, nowKg) || (underweight && direction !== "gain"),
     direction,
     profileWeightKg,
+    noPlan,
   };
 }
 
@@ -319,20 +372,23 @@ function goalTooLow(
  * The profile's weight when it can be newer than the latest weigh-in, for
  * currentWeightKg to judge, or undefined when a weigh-in is known to be newer.
  * The plan wizard keeps the weight it built the plan from on the profile and
- * logs no weigh-in, so a plan made on or after the latest weigh-in's date was
- * made from a weight at least as new; with no weigh-in at all, the profile's
- * is the only one. A plan with no usable creation time, or no plan (deleted,
- * see gateFor), cannot say which is newer, so the profile's counts then too.
- * An edit that keeps the plan keeps its creation time, but the wizard starts
- * that edit from the latest weigh-in.
+ * logs no weigh-in, so a plan saved on or after the latest weigh-in's date was
+ * saved with a weight at least as new; with no weigh-in at all, the profile's
+ * is the only one. Saved is the later of when it was made and when an edit
+ * that kept it last saved the profile (bodySavedAt): such an edit keeps the
+ * creation time, and saves whatever weight was typed into it. A plan with no
+ * usable time, or no plan (deleted, see gateFor), cannot say which is newer,
+ * so the profile's counts then too.
  */
 function profileWeightToJudge(f: AskFacts, ws: WeightEntry[]): number | undefined {
   const kg = f.profile?.weightKg;
   const latest = ws[0];
   if (!latest) return kg;
-  const made = Date.parse(f.plan?.createdAt ?? "");
-  if (!Number.isFinite(made)) return kg;
-  return todayISO(new Date(made)) >= latest.date ? kg : undefined;
+  const saved = [f.plan?.createdAt, f.plan?.bodySavedAt]
+    .map((t) => Date.parse(t ?? ""))
+    .filter((t) => Number.isFinite(t));
+  if (!saved.length) return kg;
+  return todayISO(new Date(Math.max(...saved))) >= latest.date ? kg : undefined;
 }
 
 /**
@@ -437,19 +493,21 @@ const ACTIVITY_WORDS: Record<Profile["activityLevel"], string> = {
  * DEFAULT_PROFILE, so the height on file is that default's 170 cm rather than
  * theirs; the activity level can be one worked out from a training-days
  * question they were never shown. Nothing the coach does for them needs
- * either. Sex and age are asked on every plan.
+ * either. Sex and age are asked on every plan, but builds before 1.40.4 kept
+ * the sex only on a plan that tracks food: with `sexUnknown` (see sexToGoBy)
+ * the one on file may be DEFAULT_PROFILE's, and is not stated.
  */
 export function renderProfileForPrompt(
   p: Profile | null,
   units: Units,
-  opts: { goalsWithheld?: boolean; trackingOnly?: boolean } = {},
+  opts: { goalsWithheld?: boolean; trackingOnly?: boolean; sexUnknown?: boolean } = {},
 ): string {
   if (!p) return "";
   const bits: string[] = [];
   if (!opts.goalsWithheld && p.direction && DIRECTION_WORDS[p.direction]) {
     bits.push(`Goal: ${DIRECTION_WORDS[p.direction]}.`);
   }
-  if (p.sex === "female" || p.sex === "male") bits.push(`Sex: ${p.sex}.`);
+  if (!opts.sexUnknown && (p.sex === "female" || p.sex === "male")) bits.push(`Sex: ${p.sex}.`);
   if (Number.isFinite(p.age) && p.age >= 13 && p.age <= 110) bits.push(`Age: ${Math.round(p.age)}.`);
   if (!opts.trackingOnly) {
     if (heightKnown(p.heightCm)) bits.push(`Height: ${fmtHeight(p.heightCm, units)}.`);
@@ -589,25 +647,63 @@ export function renderWeightForPrompt(
 
 // ── PLAN ──────────────────────────────────────────────────────────────
 
-/** A figure in kilograms or pounds: "50 kg", "42kg", "20 lbs", "3 pounds". */
-const WEIGHT_IN_UNITS = /\d(?:[.,]\d+)?\s*(?:kgs?|kilos?|kilogra(?:m|mme)s?|lbs?|pounds?)(?![a-z])/i;
+/** Units a body weight is given in, besides stone. */
+const WEIGHT_UNIT = "(?:kgs?|kilos?|kilogra(?:m|mme)s?|lbs?|pounds?)";
 
-/** A figure in stone, "9 stone", "8.5 st", "9st 4lb". From 4 up, so an
- *  ordinal ("1st") is not one. */
-const WEIGHT_IN_STONE = /\b(?:[4-9]|[1-3]\d)(?:[.,]\d+)?\s*(?:st|stones?)(?![a-z])/i;
+/** A figure in kilograms or pounds: "50 kg", "42kg", "20 lbs", "3 pounds",
+ *  "a 100-pound bride". */
+const WEIGHT_IN_UNITS = new RegExp(`\\d(?:[.,]\\d+)?\\s*-?\\s*${WEIGHT_UNIT}(?![a-z])`, "i");
 
-/** A bare figure it says to weigh, reach, get down to or lose ("get down to
- *  50 by summer", "weigh 50", "lose 10"), unless a unit that is not a weight
- *  follows it ("hit 120 g protein", "under 2000 calories", "reach 10k
+/** A figure in stone, "9 stone", "8.5 st", "9st 4lb", "9-stone". From 4 up,
+ *  so an ordinal ("1st") is not one. */
+const WEIGHT_IN_STONE = /\b(?:[4-9]|[1-3]\d)(?:[.,]\d+)?\s*-?\s*(?:st|stones?)(?![a-z])/i;
+
+/** Number words, small and large. A compound one ("twenty-five", "a hundred
+ *  and ten") ends in one of these, so its last word is enough to find. */
+const SMALL_NUMBER_WORD =
+  "(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)";
+const LARGE_NUMBER_WORD = "(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)";
+
+/** A figure in words before a weight unit: "twenty pounds", "a stone", "half
+ *  a stone", "ten kilos", "a couple of kilos", "a few pounds". */
+const WEIGHT_IN_WORDS = new RegExp(
+  `\\b(?:one|${SMALL_NUMBER_WORD}|${LARGE_NUMBER_WORD}|half|an?|couple\\s+of|few|several)[\\s-]+(?:${WEIGHT_UNIT}|stones?)(?![a-z])`,
+  "i",
+);
+
+/** What a bare figure it says to weigh, reach, get down to or lose ("get
+ *  down to 50 by summer", "weigh 50", "lose 10") is followed by when it is
+ *  not a weight ("hit 120 g protein", "under 2000 calories", "reach 10k
  *  steps"). */
-const WEIGHT_BARE =
-  /\b(?:weigh(?:t|s|ing)?|(?:down|get|back|drop|go)\s+to|reach|hit|under|below|less\s+than|be|lose|losing|drop|shed)\s+(?:(?:about|around|roughly|another|to|of|at|under|below)\s+){0,2}\d+(?:[.,]\d+)?(?!\s*(?:[.,]?\d|%|(?:g|grams?|k|km|kcal|cals?|calories|steps?|mins?|minutes?|h|hrs?|hours?|days?|nights?|weeks?|months?|times?|reps?|sets?|workouts?|sessions?|runs?|walks?|classes?|ml|l|litres?|liters?|oz|cups?|glass(?:es)?|drinks?|units?|servings?|portions?|meals?|snacks?|mi|miles?|bpm|am|pm)(?![a-z])))/i;
+const NOT_A_WEIGHT_AFTER =
+  "(?!\\s*(?:[.,]?\\d|%|(?:g|grams?|k|km|kcal|cals?|calories|steps?|mins?|minutes?|h|hrs?|hours?|days?|nights?|weeks?|months?|times?|reps?|sets?|workouts?|sessions?|runs?|walks?|classes?|ml|l|litres?|liters?|oz|cups?|glass(?:es)?|drinks?|units?|servings?|portions?|meals?|snacks?|mi|miles?|bpm|am|pm)(?![a-z])))";
 
-/** Whether text names a body weight (see renderPlanForPrompt). Errs toward
- *  yes: a goal left out costs a little context, one sent can be a target
- *  below a healthy range that nothing checked. */
+/** The verbs a bare figure follows when it is a body weight, and the words
+ *  that can come between. */
+const WEIGHT_VERB =
+  "\\b(?:weigh(?:t|s|ing)?|(?:down|get|back|drop|go)\\s+to|reach|hit|under|below|less\\s+than|be|lose|losing|drop|shed)\\s+(?:(?:about|around|roughly|another|to|of|at|under|below)\\s+){0,2}";
+
+/** A bare figure, in digits or words: "get down to 50", "lose ten by
+ *  summer", "get down to a hundred and ten". */
+const WEIGHT_BARE = new RegExp(`${WEIGHT_VERB}\\d+(?:[.,]\\d+)?${NOT_A_WEIGHT_AFTER}`, "i");
+const WEIGHT_BARE_WORDS = new RegExp(
+  `${WEIGHT_VERB}(?:an?\\s+)?(?:${SMALL_NUMBER_WORD}|${LARGE_NUMBER_WORD})\\b${NOT_A_WEIGHT_AFTER}`,
+  "i",
+);
+
+/** A share of body weight: "15% body weight", "10 percent of my body
+ *  weight", or a share to lose, drop or shed ("drop 5%"). */
+const WEIGHT_SHARE =
+  /\d(?:[.,]\d+)?\s*(?:%|per\s*cent)\s*(?:of\s+)?(?:(?:my|their|your|her|his|total)\s+)?body\s*-?\s*weight|\b(?:lose|losing|drop|dropping|shed|shedding)\s+(?:(?:about|around|roughly|another)\s+)?\d+(?:[.,]\d+)?\s*(?:%|per\s*cent)/i;
+
+/** Whether text names a body weight (see renderPlanForPrompt): in digits or
+ *  words, in any unit, bare after a verb that makes it one, or as a share of
+ *  body weight. Errs toward yes: a goal left out costs a little context, one
+ *  sent can be a target below a healthy range that nothing checked. */
 export function namesAWeight(text: string): boolean {
-  return WEIGHT_IN_UNITS.test(text) || WEIGHT_IN_STONE.test(text) || WEIGHT_BARE.test(text);
+  return [WEIGHT_IN_UNITS, WEIGHT_IN_STONE, WEIGHT_IN_WORDS, WEIGHT_BARE, WEIGHT_BARE_WORDS, WEIGHT_SHARE].some((r) =>
+    r.test(text),
+  );
 }
 
 /**
@@ -626,7 +722,10 @@ export function namesAWeight(text: string): boolean {
  * whatever the plan is, and with no plan at all, since an age too young to
  * state in PROFILE would otherwise reach the model as nothing. With
  * `unread` (see gateFor) it says what could not be read and to treat them
- * the same way, unless the plan is logging-only, which says so for itself.
+ * the same way, unless the plan does not track food, which says so for
+ * itself. With `noPlan` (see gateFor) it says they have no plan, so the
+ * coach neither invents one nor reads the missing section as a plan with
+ * nothing in it.
  * Tracking only, or with `goalsWithheld` (see gateFor), none of the
  * goals are sent: their goal in their own words and the plan's goals can name
  * the weight the rest of the summary leaves out, and the weekly exercise
@@ -646,11 +745,12 @@ export function renderPlanForPrompt(
   plan: Plan | null,
   today: string,
   days: DaySnapshot[],
-  opts: { trackingOnly?: boolean; unread?: string; goalsWithheld?: boolean } = {},
+  opts: { trackingOnly?: boolean; unread?: string; goalsWithheld?: boolean; noPlan?: boolean } = {},
 ): string {
-  const tracking = !!opts.trackingOnly || plan?.mode === "logging_only";
+  const tracking = !!opts.trackingOnly || isTrackingOnly(plan, null);
   if (!plan || !plan.startDate || !plan.endDate) {
     if (opts.unread) return `PLAN\n${trackingUnread(opts.unread)}`;
+    if (!plan && opts.noPlan) return `PLAN\n${NO_PLAN}`;
     return tracking ? `PLAN\n${TRACKING_ONLY}` : "";
   }
   const lines: string[] = [];
@@ -666,7 +766,7 @@ export function renderPlanForPrompt(
     `${planModeLabel(plan)} plan, ${plan.startDate} to ${plan.endDate}${where ? `, ${where}` : ""}.`,
   );
   if (tracking) {
-    lines.push(plan.mode === "logging_only" || !opts.unread ? TRACKING_ONLY : trackingUnread(opts.unread));
+    lines.push(isTrackingOnly(plan, null) || !opts.unread ? TRACKING_ONLY : trackingUnread(opts.unread));
   }
   const goalsSent = !tracking && !opts.goalsWithheld;
 
@@ -755,7 +855,7 @@ export function renderWeekForPrompt(f: AskFacts): string {
       `Food: logged ${food.length} of ${diaryDays.length} days${streak}, avg ${avg("calories")} cal, ` +
         `${avg("protein")}g protein, ${avg("carbs")}g carbs, ${avg("fat")}g fat.`,
     );
-    const floor = kcalFloor(f.profile?.sex);
+    const floor = kcalFloor(sexToGoBy(f));
     const low = food.filter((d) => d.consumed.calories < floor).length;
     if (low > 0) lines.push(`Logged days under ${floor} cal: ${low}.`);
   }
@@ -874,10 +974,11 @@ export function renderGapsForPrompt(f: AskFacts): string {
 /** PROFILE, WEIGHT, PLAN and LAST 7 DAYS, in that order, each only when it
  *  has something to say. Split out so its size can be held to a budget. */
 export function renderSummaryBlocks(f: AskFacts): string {
-  const { trackingOnly, unread, goalsWithheld, direction, profileWeightKg } = gateFor(f);
+  const { trackingOnly, unread, goalsWithheld, direction, profileWeightKg, noPlan } = gateFor(f);
   const p = f.profile;
+  const sexUnknown = sexToGoBy(f) === undefined;
   return [
-    section(() => renderProfileForPrompt(p, f.units, { goalsWithheld, trackingOnly })),
+    section(() => renderProfileForPrompt(p, f.units, { goalsWithheld, trackingOnly, sexUnknown })),
     section(() =>
       renderWeightForPrompt(f.weights, p?.goalWeightKg, f.units, {
         heightCm: p?.heightCm,
@@ -887,11 +988,24 @@ export function renderSummaryBlocks(f: AskFacts): string {
         profileWeightKg,
       }),
     ),
-    section(() => renderPlanForPrompt(f.plan, f.today, f.days, { trackingOnly, unread, goalsWithheld })),
+    section(() => renderPlanForPrompt(f.plan, f.today, f.days, { trackingOnly, unread, goalsWithheld, noPlan })),
     section(() => renderWeekForPrompt(f)),
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+/**
+ * The app's calorie floor for them (kcalFloor) when today's calorie target
+ * is below it, or undefined. The app never sets one that low itself; Daily
+ * targets on the Plan tab saves any figure typed in. Not judged from a
+ * targets read that failed, which leaves DEFAULT_GOALS behind.
+ */
+function floorAboveTarget(day: DaySnapshot | undefined, sex: Profile["sex"] | undefined): number | undefined {
+  if (!day || day.unreadable?.includes("targets")) return undefined;
+  const cal = day.targets?.calories;
+  const floor = kcalFloor(sex);
+  return typeof cal === "number" && Number.isFinite(cal) && cal < floor ? floor : undefined;
 }
 
 /** The whole ABOUT THIS USER block, ending with what could not be read.
@@ -899,15 +1013,24 @@ export function renderSummaryBlocks(f: AskFacts): string {
  *  TODAY carries no targets, and so nothing "left", when goals are withheld
  *  (see gateFor): for a tracking-only user those can be a deficit left over
  *  from an earlier plan, and beside a weight below a healthy range they are
- *  the deficit that leads there. */
+ *  the deficit that leads there. Nor when the calorie target is below the
+ *  app's floor (floorAboveTarget): the prompt plans what to eat from what is
+ *  left, and that would help them keep to it. TODAY says so instead. */
 export function renderAskContext(f: AskFacts): string {
   const today = f.days.find((d) => d.date === f.today);
   const { goalsWithheld } = gateFor(f);
+  const floor = goalsWithheld ? undefined : floorAboveTarget(today, sexToGoBy(f));
   const prior = section(() =>
     renderRecentForPrompt(f.days.filter((d) => d.date < f.today).slice(-RECENT_DAYS)),
   );
+  const todayBlock = (day: DaySnapshot) =>
+    [
+      "TODAY",
+      renderDayForPrompt(day, f.units, { targets: !goalsWithheld && floor === undefined }),
+      ...(floor === undefined ? [] : [targetTooLow(floor)]),
+    ].join("\n");
   return [
-    today ? section(() => `TODAY\n${renderDayForPrompt(today, f.units, { targets: !goalsWithheld })}`) : "",
+    today ? section(() => todayBlock(today)) : "",
     renderSummaryBlocks(f),
     prior ? `RECENT DAYS\n${prior}` : "",
     section(() => renderGapsForPrompt(f)),
