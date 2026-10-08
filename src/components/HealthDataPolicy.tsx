@@ -14,13 +14,26 @@
  * agreement covers new wording.
  *
  * Plain-language policy written against how the app behaves. Final copy as of
- * 2026-10-01 (POLICY_UPDATED); keep it true when a data flow changes.
+ * 2026-10-08 (POLICY_UPDATED); keep it true when a data flow changes.
  */
 
 import { DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features/aiConsent";
+import { COACH_AND_WORKOUTS_ENABLED } from "../features/flags";
 
 /** Last material revision. Shown so a reader can tell what they agreed to. */
-export const POLICY_UPDATED = "2026-10-01";
+export const POLICY_UPDATED = "2026-10-08";
+
+/**
+ * What building a plan sends, matching `buildUserPrompt` in plan/generate.ts.
+ * Training experience goes only with a workout plan, and the injury avoid-list
+ * only when the wizard asked about injuries (see `intakeInjuries`). The wizard
+ * asks for neither while workouts are paused (COACH_AND_WORKOUTS_ENABLED), so
+ * the paused wording leaves both out.
+ */
+export const PLAN_BUILD_SENDS = COACH_AND_WORKOUTS_ENABLED
+  ? "your goal in your own words, the plan length, your training experience, height, weight, " +
+    "goal weight, age and sex, and, if you told us about an injury, a list of movements to avoid"
+  : "your goal in your own words, the plan length, height, weight, goal weight, age and sex";
 
 export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
   return (
@@ -65,9 +78,7 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
           </p>
           <ul className="consent-list">
             <li>
-              <strong>Building or changing your plan</strong> sends your goal in your own words,
-              the plan length, your training experience, height, weight, goal weight, age and
-              sex, and, if you told us about an injury, a list of movements to avoid.
+              <strong>Building or changing your plan</strong> sends {PLAN_BUILD_SENDS}.
             </li>
             <li>
               <strong>Logging food by describing it or with a photo</strong>, or reading a

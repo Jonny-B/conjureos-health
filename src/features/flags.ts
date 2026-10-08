@@ -21,6 +21,9 @@
  * - The evening "how did your day go?" check-in banner + sheet
  * - The Plan tab's program section (assigned workouts + benchmark progress)
  * - The plan wizard's mode picker — plans are forced to `eat_better`
+ * - The plan wizard's "Any injuries to work around?" question (2026-10-08,
+ *   owner decision). Plans built while paused record `safety.injuries: []`
+ *   (`intakeInjuries`), so no avoid-list reaches the plan prompt.
  * - The coach/workout rows in Settings → Reset health data
  *
  * ## What deliberately stays on
@@ -30,8 +33,10 @@
  *   corrected or removed — see `WorkoutsScreen`'s `exerciseOnly` mode.
  * - **The `logWorkout` cross-app action**, for the same reason: an assistant or
  *   wearable logging a burn still has to reach the calorie budget.
- * - **All stored data.** Existing plans keep their `program`, and `coach.json` /
- *   session history are untouched on disk. Nothing migrates, nothing is wiped.
+ * - **All stored data.** Existing plans keep their `program` and the
+ *   `safety.injuries` they recorded (which still guard that program), and
+ *   `coach.json` / session history are untouched on disk. Nothing migrates,
+ *   nothing is wiped.
  * - **All the paused code and its tests**, so it keeps compiling and can't rot
  *   silently while it's switched off.
  *
@@ -42,5 +47,8 @@
  *   1. `package.json` → `conjureos.description` + `promptSuggestions`, which
  *      were rewritten to describe a nutrition-only app.
  *   2. The wizard's step numbering/titles, which assume a nutrition-only flow.
+ *   3. The edit-mode wizard starts the injuries question empty instead of
+ *      reloading `editPlan.safety.injuries`. Add that reload behind this flag;
+ *      while paused it would copy old injuries into new food-only plans.
  */
 export const COACH_AND_WORKOUTS_ENABLED: boolean = false;

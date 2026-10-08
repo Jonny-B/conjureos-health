@@ -11,7 +11,7 @@ import type {
   Sex,
 } from "../types";
 import { INJURY_REGIONS } from "../features/safety/injuryExclusions";
-import { requiresLoggingOnly, resolveSafeMode } from "../features/safety/intakeGate";
+import { intakeInjuries, requiresLoggingOnly, resolveSafeMode } from "../features/safety/intakeGate";
 import { activityForDaysPerWeek, daysPerWeekForActivity, deriveDirection, recommendGoals } from "../features/goals";
 import { fmtSeconds } from "../features/units";
 import { shiftDate, todayISO } from "../features/diary";
@@ -144,6 +144,8 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
   const [age, setAge] = useState<number | undefined>(profile?.age ?? 30);
   const [pregnant, setPregnant] = useState(false);
   const [cardiacFlag, setCardiacFlag] = useState(false);
+  // Asked only while workouts are on (see intakeInjuries): while they are
+  // paused the question is hidden and the intake records no injuries.
   const [injuries, setInjuries] = useState<Set<string>>(new Set());
   // Step 3 (inputs)
   const [goalText, setGoalText] = useState(editPlan?.goalText ?? "");
@@ -196,7 +198,7 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
     if (!preview || rebuilding) return;
     setRebuilding(true);
     try {
-      const res = await regenerateProgram(buildInput(), preview.gen.goals, [...injuries]);
+      const res = await regenerateProgram(buildInput(), preview.gen.goals, intake.injuries);
       if (res.program) {
         setPreview((prev) =>
           prev
@@ -227,7 +229,7 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
     ageBand,
     pregnant,
     cardiacFlag,
-    injuries: [...injuries],
+    injuries: intakeInjuries(injuries),
     activityLevel: effectiveActivity,
   };
   const gated = requiresLoggingOnly(intake);
@@ -454,20 +456,22 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
             <span>A heart condition, or a doctor has told me to be careful with exercise</span>
           </label>
 
-          <div className="field">
-            <span className="field-label">Any injuries to work around?</span>
-            <div className="chip-row">
-              {INJURY_REGIONS.map((r) => (
-                <button
-                  key={r.id}
-                  className={`chip${injuries.has(r.id) ? " active" : ""}`}
-                  onClick={() => toggleInjury(r.id)}
-                >
-                  {r.label}
-                </button>
-              ))}
+          {COACH_AND_WORKOUTS_ENABLED && (
+            <div className="field">
+              <span className="field-label">Any injuries to work around?</span>
+              <div className="chip-row">
+                {INJURY_REGIONS.map((r) => (
+                  <button
+                    key={r.id}
+                    className={`chip${injuries.has(r.id) ? " active" : ""}`}
+                    onClick={() => toggleInjury(r.id)}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {gated && (
             <div className="notice notice-soft">

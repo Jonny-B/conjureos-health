@@ -452,7 +452,10 @@ export interface SafetyIntake {
   pregnant: boolean;
   /** Any cardiac condition / doctor advisory — forces logging_only. */
   cardiacFlag: boolean;
-  /** Injury regions to exclude movements for (keys into the exclusion map). */
+  /** Injury regions to exclude movements for (keys into the exclusion map).
+   *  `[]` on plans the wizard builds while workouts are paused: it asks only
+   *  while COACH_AND_WORKOUTS_ENABLED is on (see `intakeInjuries`). Older plans
+   *  keep what they recorded. */
   injuries: string[];
   /** Self-reported baseline, reuses the profile scale. */
   activityLevel: ActivityLevel;

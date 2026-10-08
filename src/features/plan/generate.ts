@@ -2,7 +2,8 @@
  * Plan generation (P2 / THE HOOK). One `ai.complete` call turns the wizard's
  * inputs into a structured plan, guarded by the safety layers:
  *   - the system prompt opens "wellness coach, not a doctor",
- *   - the user's injury-excluded movements are injected as a hard avoid-list,
+ *   - the user's injury-excluded movements are injected as a hard avoid-list
+ *     (empty while workouts are paused: the wizard does not ask then),
  *   - the result is validated (validate.ts); on failure we retry once, then
  *     drop to a hardcoded fallback template.
  *

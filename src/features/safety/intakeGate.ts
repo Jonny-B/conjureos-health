@@ -9,6 +9,7 @@
  */
 
 import type { PlanMode, SafetyIntake } from "../../types";
+import { COACH_AND_WORKOUTS_ENABLED } from "../flags";
 
 /**
  * True when the intake forces logging-only. Under-18, pregnancy, and cardiac
@@ -36,4 +37,21 @@ export function resolveSafeMode(requested: PlanMode, intake: SafetyIntake): Plan
  */
 export function workoutSurfaceHidden(intake: SafetyIntake): boolean {
   return requiresLoggingOnly(intake);
+}
+
+/**
+ * The injury regions a new plan's intake records. Injuries exist to keep
+ * movements out of what a plan prescribes (the prompt's avoid-list, program
+ * validation, the fallback program), so the wizard asks about them only while
+ * workouts are on (COACH_AND_WORKOUTS_ENABLED). While workouts are paused a new
+ * plan records `[]`, whatever the wizard's chip state holds, and no avoid-list
+ * reaches the plan prompt. This shapes NEW intakes only: a plan saved earlier
+ * keeps the injuries it recorded, which still guard its program if workouts
+ * return.
+ */
+export function intakeInjuries(
+  selected: Iterable<string>,
+  workoutsOn: boolean = COACH_AND_WORKOUTS_ENABLED,
+): string[] {
+  return workoutsOn ? [...selected] : [];
 }
