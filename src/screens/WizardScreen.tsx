@@ -34,6 +34,7 @@ import type { WizardBody } from "../features/plan/planService";
 import { decidePlanEdit } from "../features/plan/planService";
 import type { ExerciseSet, ProgramWorkout } from "../types";
 import { COACH_AND_WORKOUTS_ENABLED } from "../features/flags";
+import { PLAN_BUILD_SENDS } from "../components/HealthDataPolicy";
 
 type Step = "disclaimer" | "mode" | "safety" | "inputs" | "review";
 
@@ -415,8 +416,11 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
       {step === "safety" && (
         <div className="mode-body wizard-step">
           <WizardHead n={2} title="About you" />
+          {/* Says what leaves, in the policy's own words: this step collects
+              what plan building sends, so it must not promise that nothing
+              does. PLAN_BUILD_SENDS widens with workouts, and so does this. */}
           <p className="muted small">
-            Everything about your body in one place. Nothing leaves your device.
+            Everything about your body in one place. Building your plan sends the AI {PLAN_BUILD_SENDS}.
           </p>
 
           <div className="form-grid">

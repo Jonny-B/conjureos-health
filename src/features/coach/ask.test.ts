@@ -291,6 +291,16 @@ describe("ASK_SUGGESTIONS", () => {
     expect(ASK_SUGGESTIONS.length).toBeGreaterThan(3);
     expect(ASK_SUGGESTIONS.every((q) => q.trim().endsWith("?"))).toBe(true);
   });
+
+  /**
+   * Every user sees every suggestion, and some are sent no targets (tracking
+   * only, or a goal below a healthy range), so a question that needs what is
+   * left of them cannot be answered for them, while the Diary still shows a
+   * calorie budget behind the sheet.
+   */
+  it("ask nothing that needs the daily targets", () => {
+    for (const q of ASK_SUGGESTIONS) expect(q).not.toMatch(/\bleft\b|budget|target|remaining/i);
+  });
 });
 
 /**
@@ -453,6 +463,9 @@ describe("widened scope", () => {
     // Logging-only plans and minors, and a goal weight below a healthy range.
     expect(sys).toMatch(/tracking only, or gives an age under 18, do not suggest weight loss, a goal weight, eating\s+less or exercise/);
     expect(sys).toMatch(/goal weight is below a healthy range, never help them toward it or say how long it\s+would take/);
+    // A current weight below a healthy range: no help losing, help gaining.
+    expect(sys).toMatch(/current weight is below a healthy range, never help them lose weight or eat\s+less/);
+    expect(sys).toMatch(/Helping them gain weight or eat enough is fine/);
   });
 
   it("does not deny the one streak it is sent", async () => {
@@ -517,7 +530,16 @@ describe("a failed read is not 'nothing logged'", () => {
 
   it("tells the model what a COULD NOT READ section means", async () => {
     const sys = await systemFor();
-    expect(sys).toMatch(/COULD NOT READ THIS TIME failed to load for this question: say you could not read it just\s+now, never that it was not logged/);
+    expect(sys).toMatch(/COULD NOT READ THIS TIME failed to load for this question: say you could not read it this\s+time, never that it was not logged/);
+  });
+
+  /** The model answers in the prompt's own words, so what it is told to say
+   *  keeps to the copy rules: "could not read it just now" came back as "now". */
+  it("tells the model to say nothing the copy rules ban", async () => {
+    failing = new Set(["listWeights"]);
+    const sys = await systemFor();
+    expect(sys).toContain("COULD NOT READ THIS TIME\nTheir weigh-ins.");
+    expect(sys).not.toMatch(/\bnow\b|\byet\b|no longer/i);
   });
 
   it("keeps the whole diary when the targets cannot be read", async () => {
@@ -536,7 +558,7 @@ describe("a failed read is not 'nothing logged'", () => {
   it("never says nothing was logged today when today's diary could not be read", async () => {
     failing = new Set([`listDiary:${today}`]);
     const sys = await systemFor();
-    expect(sys).not.toMatch(/Nothing logged yet today|Eaten so far|Remaining, negative/);
+    expect(sys).not.toMatch(/Nothing logged|Eaten so far|Remaining, negative/);
     expect(sys).toContain("Targets: 2200 cal");
     expect(sys).toMatch(/\nCOULD NOT READ THIS TIME\nToday's food\.$/);
     // The logging run is counted through yesterday, the last day it can see.

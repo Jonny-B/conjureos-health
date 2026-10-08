@@ -191,7 +191,8 @@ export function renderDayForPrompt(
   // An unreadable diary gets no line at all: "nothing logged" is the one
   // thing we do not know.
   if (s.foods.length === 0) {
-    if (!lost.has("diary")) lines.push("Nothing logged yet today.");
+    // The model repeats this back, so it keeps to the copy rules (no "yet").
+    if (!lost.has("diary")) lines.push("Nothing logged today so far.");
   } else {
     const byMeal = MEAL_TYPES.map((m) => {
       const inMeal = s.foods.filter((f) => f.meal === m);

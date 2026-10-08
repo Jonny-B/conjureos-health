@@ -37,10 +37,21 @@
  *
  * Bump `DISCLOSURE_VERSION` whenever the wording below changes materially.
  * Consent to old wording is not consent to new wording, and a bump re-asks.
+ *
+ * Where the agreement lives: on the profile, once there is one. A new user
+ * has no profile until they build a plan, but can log and ask the coach from
+ * the first day, so until then it waits in a file of its own (PENDING_PATH),
+ * the way healthConsent.ts keeps the consent to collect. The first profile
+ * written (every write goes through withStoredConsent) carries it over. Once
+ * a profile exists, the profile's answer is the only one read.
  */
 
 import type { AiJournalConsent, Profile } from "../types";
 import { getRepository } from "../data/repository";
+import { readJson, writeJsonOrThrow } from "../bridge/vfs";
+
+/** The agreement while there is no profile to keep it on. */
+const PENDING_PATH = "ai-consent.json";
 
 /**
  * Current disclosure wording. Bump on any material change to `DISCLOSURE_*`
@@ -114,6 +125,25 @@ export function consentIsCurrent(consent: AiJournalConsent | undefined): boolean
   return consent !== undefined && consent.version === DISCLOSURE_VERSION;
 }
 
+/** The agreement waiting in PENDING_PATH, or undefined. Never throws: a file
+ *  that cannot be read holds no agreement. */
+async function readPending(): Promise<AiJournalConsent | undefined> {
+  const raw = await readJson<AiJournalConsent | null>(PENDING_PATH, null).catch(() => null);
+  return raw && typeof raw === "object" && typeof raw.version === "number" ? raw : undefined;
+}
+
+/**
+ * The agreement on file: the profile's once there is a profile, the pending
+ * file's until then. Throws when the profile cannot be read, so each caller
+ * fails closed: an unreadable profile may hold a withdrawal the file does
+ * not know about.
+ */
+async function consentOnFile(): Promise<AiJournalConsent | undefined> {
+  const repo = await getRepository();
+  const profile = await repo.getProfile();
+  return profile ? profile.aiJournalConsent : readPending();
+}
+
 /**
  * Whether the AI pattern-finder may run without asking first.
  *
@@ -122,9 +152,7 @@ export function consentIsCurrent(consent: AiJournalConsent | undefined): boolean
  */
 export async function hasAiJournalConsent(): Promise<boolean> {
   try {
-    const repo = await getRepository();
-    const profile = await repo.getProfile();
-    return consentIsCurrent(profile?.aiJournalConsent);
+    return consentIsCurrent(await consentOnFile());
   } catch {
     return false;
   }
@@ -133,9 +161,7 @@ export async function hasAiJournalConsent(): Promise<boolean> {
 /** The stored consent, or undefined when there is none (or none readable). */
 export async function readAiJournalConsent(): Promise<AiJournalConsent | undefined> {
   try {
-    const repo = await getRepository();
-    const profile = await repo.getProfile();
-    return profile?.aiJournalConsent;
+    return await consentOnFile();
   } catch {
     return undefined;
   }
@@ -152,14 +178,16 @@ export async function readAiJournalConsent(): Promise<AiJournalConsent | undefin
  * the coach re-asked after every plan edit. Only this module changes the
  * agreement; everything else keeps the stored one.
  *
+ * The first profile written carries over an agreement made before there was
+ * one (PENDING_PATH).
+ *
  * Fails CLOSED like hasAiJournalConsent: a profile that cannot be read keeps
  * no agreement, and the next question asks again.
  */
 export async function withStoredConsent(next: Profile): Promise<Profile> {
   let onFile: AiJournalConsent | undefined;
   try {
-    const repo = await getRepository();
-    onFile = (await repo.getProfile())?.aiJournalConsent;
+    onFile = await consentOnFile();
   } catch {
     onFile = undefined;
   }
@@ -168,23 +196,28 @@ export async function withStoredConsent(next: Profile): Promise<Profile> {
 }
 
 /**
- * Record an accept. Returns false when there is no profile to attach it to —
- * the caller must then treat consent as absent rather than proceeding, or the
- * agreement would exist only in memory for this session.
+ * Record an accept: on the profile, or in PENDING_PATH while there is no
+ * profile. Returns false when the pending file cannot be written; the caller
+ * must then treat consent as absent rather than proceeding, or the agreement
+ * would exist only in memory for this session.
  */
 export async function recordAiJournalConsent(includeNotes: boolean): Promise<boolean> {
+  const consent: AiJournalConsent = {
+    acceptedAt: new Date().toISOString(),
+    version: DISCLOSURE_VERSION,
+    includeNotes,
+  };
   const repo = await getRepository();
   const profile = await repo.getProfile();
-  if (!profile) return false;
-  const next: Profile = {
-    ...profile,
-    aiJournalConsent: {
-      acceptedAt: new Date().toISOString(),
-      version: DISCLOSURE_VERSION,
-      includeNotes,
-    },
-  };
-  await repo.saveProfile(next);
+  if (!profile) {
+    try {
+      await writeJsonOrThrow(PENDING_PATH, consent);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  await repo.saveProfile({ ...profile, aiJournalConsent: consent });
   return true;
 }
 
@@ -196,7 +229,12 @@ export async function recordAiJournalConsent(includeNotes: boolean): Promise<boo
 export async function setAiJournalNotes(includeNotes: boolean): Promise<void> {
   const repo = await getRepository();
   const profile = await repo.getProfile();
-  if (!profile?.aiJournalConsent) return;
+  if (!profile) {
+    const pending = await readPending();
+    if (pending) await writeJsonOrThrow(PENDING_PATH, { ...pending, includeNotes });
+    return;
+  }
+  if (!profile.aiJournalConsent) return;
   await repo.saveProfile({
     ...profile,
     aiJournalConsent: { ...profile.aiJournalConsent, includeNotes },
@@ -207,11 +245,19 @@ export async function setAiJournalNotes(includeNotes: boolean): Promise<void> {
  * Withdraw consent. The next pattern-finder run asks again from scratch.
  * Withdrawal has to be as easy as granting, which is why it sits in Settings
  * next to the other health-data controls rather than behind a support email.
+ *
+ * Clears the pending file as well as the profile, so an agreement made
+ * before there was a profile cannot come back. That clear only matters
+ * without a profile, so only then can its failure fail the withdrawal.
  */
 export async function withdrawAiJournalConsent(): Promise<void> {
   const repo = await getRepository();
   const profile = await repo.getProfile();
-  if (!profile) return;
+  if (!profile) {
+    await writeJsonOrThrow(PENDING_PATH, null);
+    return;
+  }
   const { aiJournalConsent: _dropped, ...rest } = profile;
   await repo.saveProfile(rest as Profile);
+  await writeJsonOrThrow(PENDING_PATH, null).catch(() => {});
 }

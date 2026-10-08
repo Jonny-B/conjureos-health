@@ -45,8 +45,10 @@ export const MAX_CONTEXT_TURNS = 10;
  * good question, so they lean concrete and everyday rather than clever. Half
  * are about the user's own numbers and half are general food questions,
  * alternating, so a few seconds of watching shows both kinds. Only ask what
- * the coach can answer from what it is sent: nothing about body measurements,
- * which the app does not track, or streaks beyond the food-logging run.
+ * the coach can answer from what it is sent, for every user, since every user
+ * sees them: nothing about body measurements, which the app does not track,
+ * streaks beyond the food-logging run, or what is left of the daily targets,
+ * which some users are not sent (askSummary.ts gateFor).
  */
 export const ASK_SUGGESTIONS: readonly string[] = [
   "How has my weight changed this month?",
@@ -58,7 +60,7 @@ export const ASK_SUGGESTIONS: readonly string[] = [
   "Is my water on track today?",
   "Is Greek yogurt worth it over regular?",
   "How has my sleep been this week?",
-  "What should I eat with what I have left today?",
+  "What should I eat next, given what I've had today?",
 ];
 
 const SYSTEM = `You are the health coach inside Conjure Health, a calorie and health tracking app.
@@ -76,8 +78,8 @@ SCOPE
   dates, and, when TODAY gives their targets, answer what to eat from what is left of them.
 - Never ask them to paste in data you were given, and never claim you cannot see their diary.
 - A section missing from the summary means nothing of that kind was logged: say so and answer generally. What
-  is listed under COULD NOT READ THIS TIME failed to load for this question: say you could not read it just
-  now, never that it was not logged.
+  is listed under COULD NOT READ THIS TIME failed to load for this question: say you could not read it this
+  time, never that it was not logged.
 - The only streak the app keeps is the "in a row" count of days with food logged; do not invent any other.
   Body measurements are not tracked. Water is shown against a 2 litre (64 oz) rule of thumb.
 - A question that is odd, vague or a joke still gets a straight, good-humoured answer. Do not lecture.
@@ -98,6 +100,9 @@ LIMITS
 - If the summary says their goal weight is below a healthy range, never help them toward it or say how long it
   would take. Say gently that it is worth talking over with a doctor or dietitian. Treat a weight they name
   themselves the same way when it is below a healthy range for their height.
+- If the summary says their current weight is below a healthy range, never help them lose weight or eat
+  less, whatever they ask. Helping them gain weight or eat enough is fine. Say gently, once, that it is worth
+  talking over with a doctor or dietitian.
 - If the summary says tracking only, or gives an age under 18, do not suggest weight loss, a goal weight, eating
   less or exercise to do. Answer from what they logged, keep the rest general, and suggest their doctor.
 - You are not told about injuries or health conditions. Never prescribe a workout, specific exercises or an

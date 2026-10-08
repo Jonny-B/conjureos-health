@@ -185,8 +185,8 @@ describe("renderProfileForPrompt", () => {
     expect(renderProfileForPrompt(null, "metric")).toBe("");
   });
 
-  it("states no goal direction when tracking only", () => {
-    expect(renderProfileForPrompt({ ...PROFILE, age: 15 }, "metric", { trackingOnly: true })).toBe(
+  it("states no goal direction when goals are withheld", () => {
+    expect(renderProfileForPrompt({ ...PROFILE, age: 15 }, "metric", { goalsWithheld: true })).toBe(
       `PROFILE\nSex: female. Age: 15. Height: 165 cm. Activity: lightly active.`,
     );
   });
@@ -247,6 +247,24 @@ describe("renderPlanForPrompt", () => {
     ];
     expect(renderPlanForPrompt(plan({ weeklyExerciseDays: 3 }), TODAY, days)).toContain(
       "Exercise: 2 of 3 target days this week (Mon to Sun).",
+    );
+  });
+
+  /**
+   * The wizard asks "Want to move most days?" on every plan without workouts,
+   * a logging-only one included, so a cardiac, pregnant or under-18 user can
+   * carry a weekly target that the tracking-only line says the app never set.
+   */
+  it("sends no weekly exercise target to a tracking-only user", () => {
+    const days = [snap("2026-10-05", 0, { exerciseCalories: 300 }), snap(TODAY, 0)];
+    const loggingOnly = renderPlanForPrompt(plan({ mode: "logging_only", weeklyExerciseDays: 5 }), TODAY, days);
+    expect(loggingOnly).toContain("Tracking only");
+    expect(loggingOnly).not.toMatch(/target days|Exercise:/);
+    const minor = renderPlanForPrompt(plan({ weeklyExerciseDays: 5 }), TODAY, days, { trackingOnly: true });
+    expect(minor).not.toMatch(/target days|Exercise:/);
+    // An ordinary plan keeps it (positive control).
+    expect(renderPlanForPrompt(plan({ weeklyExerciseDays: 5 }), TODAY, days)).toContain(
+      "Exercise: 1 of 5 target days this week (Mon to Sun).",
     );
   });
 
@@ -390,14 +408,19 @@ describe("renderAskContext", () => {
     expect(out).toContain("Tracking only: the app sets no weight, calorie-cutting or exercise goals for this user.");
     expect(out).toContain("Latest: 68 kg on 2026-10-08.");
     expect(out).not.toMatch(/losing weight|Goal weight|60 kg|Pace:|pregnan/i);
+    // The plan's weekly exercise target is a goal too, and the coach is told
+    // not to suggest exercise to do.
+    expect(out).not.toMatch(/target days/);
   });
 
   it("sends no weight-loss goal for a 15-year-old", () => {
     const f = sampleFacts();
     f.profile = { ...PROFILE, age: 15, direction: "lose", goalWeightKg: 72 };
+    f.plan = plan({ weeklyExerciseDays: 5 });
     const out = renderAskContext(f);
     expect(out).toContain("Age: 15.");
     expect(out).not.toMatch(/losing weight|Goal weight|72 kg|Pace:/);
+    expect(out).not.toMatch(/target days/);
   });
 
   it("ends with what could not be read, and is not empty when that is all there is", () => {
@@ -427,6 +450,9 @@ describe("renderAskContext", () => {
     expect(out).toMatch(/^TODAY\n/);
     expect(out).not.toMatch(/PROFILE|WEIGHT|PLAN|LAST 7 DAYS|RECENT DAYS/);
     expect(out).not.toMatch(/undefined|NaN|null/);
+    // The model repeats this line back, so it keeps to the copy rules.
+    expect(out).toContain("Nothing logged today so far.");
+    expect(out).not.toMatch(/\byet\b|\bnow\b|no longer/i);
   });
 
   it("stays within its budget on a heavy week", () => {
@@ -638,5 +664,103 @@ describe("the food-logging run", () => {
     const days = eightDays();
     days[3] = snap(days[3]!.date, 0);
     expect(renderWeekForPrompt({ ...sampleFacts(), days })).toContain("(4 in a row through today)");
+  });
+});
+
+/**
+ * Below a healthy range for their height (BMI under 18.5), worked out in code
+ * because the model can get the arithmetic wrong. 165 cm throughout: 44 kg is
+ * a BMI of about 16.2, 47 kg 17.3, 48 kg 17.6, 50 kg 18.4, 52 kg 19.1.
+ */
+describe("a weight below a healthy range", () => {
+  const at = (latest: number, earlier: number) => [
+    { date: "2026-10-08", weightKg: latest },
+    { date: "2026-09-10", weightKg: earlier },
+  ];
+
+  it("helps someone gain toward a goal that is still under it, and says where they are", () => {
+    const out = renderWeightForPrompt(at(44, 43), 48, "metric", { heightCm: 165, direction: "gain" });
+    expect(out).not.toContain("Their goal weight is below a healthy range");
+    expect(out).toContain("Goal weight: 48 kg (4.0 kg away).");
+    expect(out).toContain("Their current weight is below a healthy range for their height.");
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, direction: "gain", goalWeightKg: 48 };
+    f.weights = at(44, 43);
+    f.plan = plan({ goalText: "gain weight back after being ill" });
+    const ctx = renderAskContext(f);
+    expect(ctx).toContain("Goal: gaining weight.");
+    expect(ctx).toContain("Goal in their words: gain weight back after being ill");
+    expect(ctx).toMatch(/Targets: 1900 cal[\s\S]*Remaining, negative means over/);
+    expect(ctx).not.toContain("Their goal weight is below a healthy range");
+  });
+
+  it("still flags an underweight goal they would have to lose weight to reach", () => {
+    // Gained past it: getting back to it means losing.
+    const past = renderWeightForPrompt(at(52, 50), 48, "metric", { heightCm: 165, direction: "gain" });
+    expect(past).toContain("Their goal weight is below a healthy range for their height.");
+    expect(past).not.toMatch(/Goal weight:/);
+    // Heading down to it, with or without a weigh-in to compare.
+    expect(renderWeightForPrompt(at(52, 53), 45, "metric", { heightCm: 165, direction: "lose" })).toContain(
+      "Their goal weight is below a healthy range for their height.",
+    );
+    expect(renderWeightForPrompt([], 45, "metric", { heightCm: 165, direction: "lose" })).toBe(
+      "WEIGHT\nTheir goal weight is below a healthy range for their height.",
+    );
+  });
+
+  /**
+   * Withholding the goal weight is not enough when TODAY still budgets the day
+   * inside the deficit that was set to reach it, and the prompt says to answer
+   * what to eat from what is left.
+   */
+  it("sends no targets, what is left or goal direction beside a goal below a healthy range", () => {
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, age: 22, direction: "lose", goalWeightKg: 45 };
+    f.weights = at(55, 56);
+    const out = renderAskContext(f);
+    expect(out).toContain("Their goal weight is below a healthy range for their height.");
+    expect(out).toContain("Eaten so far: 900 cal");
+    expect(out).not.toMatch(/Targets:|Remaining, negative|losing weight/);
+    // Not sent, so a failed targets read is no gap either.
+    f.days[f.days.length - 1] = { ...f.days[f.days.length - 1]!, unreadable: ["targets"] };
+    expect(renderAskContext(f)).not.toMatch(/daily targets/);
+  });
+
+  it("says their current weight is below a healthy range, whatever their goal", () => {
+    // Maintaining, no goal weight, losing about 0.2 kg a week: under the 1% line.
+    const ws = [
+      { date: "2026-10-08", weightKg: 47 },
+      { date: "2026-09-17", weightKg: 47.6 },
+    ];
+    const out = renderWeightForPrompt(ws, undefined, "metric", { heightCm: 165, direction: "maintain" });
+    expect(out).toContain("Their current weight is below a healthy range for their height.");
+    expect(out).not.toContain("1% of body weight");
+    const f = sampleFacts();
+    f.profile = { ...PROFILE, direction: "maintain", goalWeightKg: undefined };
+    f.weights = ws;
+    expect(renderAskContext(f)).toContain("Their current weight is below a healthy range for their height.");
+    // Not at a healthy weight, and not with a height that cannot be believed.
+    expect(renderWeightForPrompt(WEIGHTS, undefined, "metric", { heightCm: 165 })).not.toContain("healthy range");
+    expect(renderWeightForPrompt(ws, undefined, "metric", { heightCm: 66 })).not.toContain("healthy range");
+  });
+
+  it("leaves it to the tracking-only rule, since adult ranges do not hold under 18 or in pregnancy", () => {
+    const ws = at(47, 47.6);
+    expect(renderWeightForPrompt(ws, undefined, "metric", { heightCm: 165, trackingOnly: true })).not.toContain(
+      "healthy range",
+    );
+  });
+
+  it("sends nothing to cut toward for someone under it who is not set to gain", () => {
+    for (const direction of ["lose", "maintain"] as const) {
+      const f = sampleFacts();
+      // A healthy goal of 52 kg, gone past to 50 kg.
+      f.profile = { ...PROFILE, direction, goalWeightKg: 52 };
+      f.weights = at(50, 50.4);
+      f.plan = plan({ weeklyExerciseDays: 5, goalText: "get lean" });
+      const out = renderAskContext(f);
+      expect(out, direction).toContain("Their current weight is below a healthy range for their height.");
+      expect(out, direction).not.toMatch(/Targets:|Remaining, negative|losing weight|maintaining|get lean|target days/);
+    }
   });
 });

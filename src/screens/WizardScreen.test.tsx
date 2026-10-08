@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { INJURY_REGIONS } from "../features/safety/injuryExclusions";
+import { PLAN_BUILD_SENDS } from "../components/HealthDataPolicy";
 
 // The wizard opens on its disclaimer, and getting past it takes a click, which
 // a server render cannot make. Steer the step state's first value to the
@@ -47,5 +48,18 @@ describe("plan wizard injuries question", () => {
     for (const region of INJURY_REGIONS) {
       expect(html).toContain(`>${region.label}</button>`);
     }
+  });
+});
+
+/**
+ * The step collects height, weight, goal weight, age and sex, and building
+ * the plan sends them to the AI, as the privacy policy says. Its intro said
+ * "Nothing leaves your device", on the screen collecting the data.
+ */
+describe("plan wizard About you step", () => {
+  it("says what building the plan sends, in the policy's own words", async () => {
+    const html = await renderAboutYouStep();
+    expect(html).not.toMatch(/Nothing leaves your device/i);
+    expect(html).toContain(`Building your plan sends the AI ${PLAN_BUILD_SENDS}.`);
   });
 });

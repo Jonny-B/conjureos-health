@@ -37,9 +37,30 @@ const repo = {
 };
 vi.mock("../data/repository", () => ({ getRepository: async () => repo }));
 
+// The app's file store, where an agreement waits while there is no profile.
+const files = new Map<string, string>();
+let failWrites = false;
+vi.mock("../bridge/vfs", () => ({
+  readJson: async <T,>(path: string, fallback: T): Promise<T> => {
+    const raw = files.get(path);
+    if (raw === undefined) return fallback;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return fallback;
+    }
+  },
+  writeJsonOrThrow: async (path: string, value: unknown): Promise<void> => {
+    if (failWrites) throw new Error("vfs down");
+    files.set(path, JSON.stringify(value));
+  },
+}));
+
 beforeEach(() => {
   stored = { ...base };
   throwOnRead = false;
+  files.clear();
+  failWrites = false;
 });
 
 describe("consent is required before anything is disclosed", () => {
@@ -64,11 +85,68 @@ describe("consent is required before anything is disclosed", () => {
     expect(Number.isNaN(Date.parse(c?.acceptedAt ?? ""))).toBe(false);
   });
 
-  it("reports failure rather than silently agreeing when there is no profile", async () => {
+  it("reports failure rather than silently agreeing when it cannot be written", async () => {
     // The agreement is the record. If it cannot be written there is no
     // record, and the caller must not proceed.
     stored = null;
+    failWrites = true;
     expect(await recordAiJournalConsent(true)).toBe(false);
+    expect(await hasAiJournalConsent()).toBe(false);
+  });
+});
+
+/**
+ * A new user has no profile until they build a plan, and can log food and
+ * ask the coach from the first day. Kept only on the profile, their agreement
+ * had nowhere to go: "Agree and ask" closed the sheet, dropped the question,
+ * and the next question opened the same sheet again.
+ */
+describe("before there is a profile", () => {
+  it("keeps the agreement in a file of its own, so agreeing works", async () => {
+    stored = null;
+    expect(await recordAiJournalConsent(true)).toBe(true);
+    expect(await hasAiJournalConsent()).toBe(true);
+    expect((await readAiJournalConsent())?.includeNotes).toBe(true);
+    expect(stored).toBeNull();
+  });
+
+  it("carries it onto the first profile saved", async () => {
+    stored = null;
+    await recordAiJournalConsent(false);
+    const first = await withStoredConsent({ ...base });
+    expect(consentIsCurrent(first.aiJournalConsent)).toBe(true);
+    stored = first;
+    expect(await hasAiJournalConsent()).toBe(true);
+  });
+
+  it("changes the notes choice and withdraws there too, leaving nothing to come back", async () => {
+    stored = null;
+    await recordAiJournalConsent(false);
+    await setAiJournalNotes(true);
+    expect((await readAiJournalConsent())?.includeNotes).toBe(true);
+    await withdrawAiJournalConsent();
+    expect(await hasAiJournalConsent()).toBe(false);
+    expect((await withStoredConsent({ ...base })).aiJournalConsent).toBeUndefined();
+  });
+
+  it("is not read once there is a profile, and not when the profile cannot be read", async () => {
+    stored = null;
+    await recordAiJournalConsent(true);
+    // A profile that holds no agreement has the answer, whatever the file says.
+    stored = { ...base };
+    expect(await hasAiJournalConsent()).toBe(false);
+    // Unknown is not agreed, even with an agreement in the file.
+    stored = null;
+    throwOnRead = true;
+    expect(await hasAiJournalConsent()).toBe(false);
+  });
+
+  it("is cleared by a withdrawal made once there is a profile", async () => {
+    stored = null;
+    await recordAiJournalConsent(true);
+    stored = await withStoredConsent({ ...base });
+    await withdrawAiJournalConsent();
+    stored = null;
     expect(await hasAiJournalConsent()).toBe(false);
   });
 });
