@@ -50,5 +50,13 @@
  *   3. The edit-mode wizard starts the injuries question empty instead of
  *      reloading `editPlan.safety.injuries`. Add that reload behind this flag;
  *      while paused it would copy old injuries into new food-only plans.
+ *   4. `POLICY_UPDATED` in components/HealthDataPolicy.tsx. The health data
+ *      policy's plan-build line (`PLAN_BUILD_SENDS`) reads this flag and
+ *      widens to name training experience and the injury avoid-list, so set
+ *      the date to the release that turns workouts on (HealthDataPolicy.test.tsx
+ *      fails until it is later than 2026-10-08). Also decide whether
+ *      `DISCLOSURE_VERSION` moves: it versions the consent sheet's wording,
+ *      which this line is not part of, and decd535 widened this line without
+ *      a bump.
  */
 export const COACH_AND_WORKOUTS_ENABLED: boolean = false;

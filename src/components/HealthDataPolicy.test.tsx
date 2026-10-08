@@ -1,6 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
+/**
+ * The date the paused plan-build wording went out. History, not a setting:
+ * the live wording is the wider one, so it must go out under a later date.
+ */
+const PAUSED_WORDING_DATE = "2026-10-08";
+
+/** Loads the policy fresh with the workouts flag set to `on`. */
+function withWorkouts(on: boolean) {
+  vi.resetModules();
+  vi.doMock("../features/flags", () => ({ COACH_AND_WORKOUTS_ENABLED: on }));
+}
+
 /** The policy's "Building or changing your plan" line, as a reader sees it. */
 async function planBuildLine(): Promise<string> {
   const { HealthDataPolicy } = await import("./HealthDataPolicy");
@@ -17,6 +29,7 @@ afterEach(() => {
 
 describe("health data policy, plan building", () => {
   it("lists only what a paused plan build sends: no injury avoid-list, no training experience", async () => {
+    withWorkouts(false);
     const line = await planBuildLine();
     expect(line).toBe(
       "sends your goal in your own words, the plan length, height, weight, goal weight, age and sex.",
@@ -24,27 +37,38 @@ describe("health data policy, plan building", () => {
     expect(line).not.toMatch(/injur|movements to avoid|training experience/i);
   });
 
-  it("carries the revision date of that change", async () => {
-    const { POLICY_UPDATED } = await import("./HealthDataPolicy");
-    expect(POLICY_UPDATED).toBe("2026-10-08");
-  });
-
   it("names both again once workouts are back", async () => {
-    vi.resetModules();
-    vi.doMock("../features/flags", () => ({ COACH_AND_WORKOUTS_ENABLED: true }));
+    withWorkouts(true);
     const line = await planBuildLine();
     expect(line).toContain("your training experience");
     expect(line).toContain("if you told us about an injury, a list of movements to avoid.");
   });
 
   it("keeps both wordings inside the copy rules", async () => {
+    withWorkouts(false);
     const paused = await planBuildLine();
-    vi.resetModules();
-    vi.doMock("../features/flags", () => ({ COACH_AND_WORKOUTS_ENABLED: true }));
+    withWorkouts(true);
     const live = await planBuildLine();
     for (const line of [paused, live]) {
       expect(line).not.toMatch(/—/);
       expect(line).not.toMatch(/\b(now|no longer|yet)\b/i);
+    }
+  });
+
+  // Reads the REAL flag on purpose. The wording above follows the flag on its
+  // own, the date does not, so this is what fails when workouts come back and
+  // POLICY_UPDATED still names the day the narrower wording went out.
+  it("dates the wording it shows: the paused wording's date only while paused", async () => {
+    const { COACH_AND_WORKOUTS_ENABLED } = await import("../features/flags");
+    const { POLICY_UPDATED } = await import("./HealthDataPolicy");
+    if (COACH_AND_WORKOUTS_ENABLED) {
+      expect(
+        POLICY_UPDATED > PAUSED_WORDING_DATE,
+        `Workouts are on, so the policy names training experience and the injury avoid-list. ` +
+          `Move POLICY_UPDATED (${POLICY_UPDATED}) to this release's date (flags.ts, item 4).`,
+      ).toBe(true);
+    } else {
+      expect(POLICY_UPDATED).toBe(PAUSED_WORDING_DATE);
     }
   });
 });

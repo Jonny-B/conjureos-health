@@ -20,7 +20,15 @@
 import { DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features/aiConsent";
 import { COACH_AND_WORKOUTS_ENABLED } from "../features/flags";
 
-/** Last material revision. Shown so a reader can tell what they agreed to. */
+/**
+ * Last material revision. Shown so a reader can tell what they agreed to.
+ *
+ * 2026-10-08 is the date of the PAUSED wording of `PLAN_BUILD_SENDS` below.
+ * That line reads COACH_AND_WORKOUTS_ENABLED, so turning workouts back on
+ * widens the policy without editing this file: move this date to the release
+ * that turns them on (flags.ts, "Turning it back on", item 4).
+ * HealthDataPolicy.test.tsx fails until it is later than 2026-10-08.
+ */
 export const POLICY_UPDATED = "2026-10-08";
 
 /**
@@ -28,7 +36,8 @@ export const POLICY_UPDATED = "2026-10-08";
  * Training experience goes only with a workout plan, and the injury avoid-list
  * only when the wizard asked about injuries (see `intakeInjuries`). The wizard
  * asks for neither while workouts are paused (COACH_AND_WORKOUTS_ENABLED), so
- * the paused wording leaves both out.
+ * the paused wording leaves both out. The live wording is the wider one: it
+ * must not go out under the paused wording's date (see `POLICY_UPDATED`).
  */
 export const PLAN_BUILD_SENDS = COACH_AND_WORKOUTS_ENABLED
   ? "your goal in your own words, the plan length, your training experience, height, weight, " +
