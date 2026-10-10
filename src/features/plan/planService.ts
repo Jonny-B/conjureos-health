@@ -31,9 +31,7 @@ import { measureSession, recordBenchmarkResult } from "./program";
 import { calibrateToBenchmark, maybeAdapt } from "./analyze";
 import { advanceToNextGroup, setWorkoutDone } from "./groups";
 import { modeTracksFood } from "./model";
-import { deriveDirection, macrosForCalories, recommendGoals } from "../goals";
-import { loadMemory, summarizeMemoryForProgram } from "../coach/memory";
-import { clamp } from "../num";
+import { recommendGoals } from "../goals";
 
 /** Body stats the wizard collects, reconciled into the Profile on commit. */
 export interface WizardBody {
@@ -334,15 +332,12 @@ export async function recordSessionAndAdapt(
 
   try {
     const sessions = await repo.listWorkoutSessions(200);
-    // Feed the coach's memory of the user (stated dislikes/constraints + recent
-    // reflections) into the program engine so adaptation honors their feedback.
-    const prefs = await coachPreferences();
     if (baselineJustSet) {
       // Benchmark-first: the assessment just set the baselines, so tune the
       // provisional workouts to the measured capacity before the periodic loop.
-      next = await calibrateToBenchmark(next, sessions, prefs);
+      next = await calibrateToBenchmark(next, sessions);
     } else {
-      const adapted = await maybeAdapt(next, sessions, prefs);
+      const adapted = await maybeAdapt(next, sessions);
       if (adapted) next = adapted;
     }
   } catch {
@@ -366,80 +361,13 @@ export async function toggleWorkoutDone(plan: Plan, programWorkoutId: string, do
 }
 
 /** Advance to the next group (generating it when needed) and persist. The next
- *  group's progression is shaped by recorded stats AND the coach's memory of the
- *  user's feedback/preferences. */
+ *  group's progression is shaped by the recorded stats. */
 export async function startNextGroup(plan: Plan): Promise<Plan> {
   const repo = await getRepository();
   const sessions = await repo.listWorkoutSessions(200).catch(() => [] as WorkoutSession[]);
-  const next = await advanceToNextGroup(plan, sessions, await coachPreferences());
+  const next = await advanceToNextGroup(plan, sessions);
   if (next !== plan) await persist("your plan", repo.savePlan(next));
   return next;
-}
-
-/** The coach-memory feedback block for the program engine, or "" if none/error. */
-async function coachPreferences(): Promise<string> {
-  try {
-    return summarizeMemoryForProgram(await loadMemory());
-  } catch {
-    return "";
-  }
-}
-
-/** A plan-level change the coach can apply from chat (ask-first, like program
- *  tweaks). All fields optional; kg + kcal are validated/clamped on apply. */
-export interface CoachPlanChange {
-  summary: string;
-  /** New goal weight in KILOGRAMS. Updates profile + recomputes calorie target. */
-  goalWeightKg?: number;
-  /** New daily calorie target. */
-  dailyCalories?: number;
-  /** New plan end date, YYYY-MM-DD. */
-  endDate?: string;
-}
-
-const weeksBetweenIso = (start: string, end: string): number => {
-  const ms = Date.parse(end) - Date.parse(start);
-  return Number.isFinite(ms) ? Math.min(52, Math.max(1, Math.round(ms / (7 * 86400000)))) : 1;
-};
-
-/**
- * Apply a coach-proposed PLAN-LEVEL change (goal weight, daily calories, end
- * date) — the confirmation-gated counterpart to program tweaks. Persists the
- * profile (for goal weight, which also recomputes the calorie target) and the
- * plan/goals. Returns the updated trio, or null when nothing valid changed.
- */
-export async function applyCoachPlanChange(
-  plan: Plan | null,
-  profile: Profile | null,
-  goals: Goals,
-  change: CoachPlanChange,
-): Promise<CommitResult | null> {
-  if (!plan) return null;
-  const repo = await getRepository();
-  let nextProfile = profile;
-  const patch: PlanPatch = {};
-
-  if (change.goalWeightKg != null && Number.isFinite(change.goalWeightKg) && profile) {
-    const gw = Math.round(clamp(change.goalWeightKg, 25, 400) * 10) / 10;
-    nextProfile = { ...profile, goalWeightKg: gw, direction: deriveDirection(profile.weightKg, gw) };
-    await persist("your profile", repo.saveProfile(nextProfile));
-    if (modeTracksFood(plan.mode)) patch.targets = goalsToTargets(recommendGoals(nextProfile));
-  }
-  if (change.dailyCalories != null && Number.isFinite(change.dailyCalories) && modeTracksFood(plan.mode)) {
-    const cal = clamp(Math.round(change.dailyCalories), 800, 10000);
-    const weightKg = nextProfile?.weightKg ?? 70;
-    patch.targets = { dailyCalories: cal, ...macrosForCalories(cal, weightKg) };
-  }
-  if (change.endDate && /^\d{4}-\d{2}-\d{2}$/.test(change.endDate) && change.endDate > plan.startDate) {
-    patch.endDate = change.endDate;
-    patch.durationWeeks = weeksBetweenIso(plan.startDate, change.endDate);
-  }
-
-  const changedProfile = nextProfile !== profile;
-  if (Object.keys(patch).length === 0 && !changedProfile) return null;
-
-  const { plan: next, goals: ng } = await updatePlan(plan, patch, { currentGoals: goals });
-  return { plan: next, profile: nextProfile, goals: ng };
 }
 
 /** One manually-entered benchmark result: the Benchmark id + the value in the
@@ -496,7 +424,6 @@ export async function recordManualBenchmarkEntry(
     date: now.slice(0, 10),
     planned: [],
     actual: [],
-    reprompts: [],
     ...(byExercise.length ? { byExercise } : {}),
     ...(cardio ? { cardio } : {}),
     benchmarkIds,

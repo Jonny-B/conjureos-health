@@ -13,7 +13,6 @@ const baseSession = (over: Partial<WorkoutSession>): WorkoutSession => ({
   date: "2026-07-30",
   planned: [],
   actual: [],
-  reprompts: [],
   completedAt: "2026-07-30T10:00:00Z",
   ...over,
 });

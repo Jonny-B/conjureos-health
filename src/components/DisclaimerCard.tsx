@@ -7,13 +7,13 @@
  * version) that lands on `plan.json.liability` — keeping the audit record where
  * the plan is persisted, not in the component.
  *
- * The other two disclaimer surfaces (plan-review inline, persistent coach
- * footer) reuse the same copy constants below so all three stay in sync.
+ * The plan-review step shows the short form inline (DISCLAIMER_SHORT); both
+ * read the copy constants below so they stay in sync.
  */
 
 import { AlertTriangle } from "./icons";
 
-/** Single source of truth for disclaimer copy across all three surfaces. */
+/** Single source of truth for disclaimer copy across both surfaces. */
 export const DISCLAIMER_HEADLINE = "Read this before we build your plan";
 
 /** The full disclaimer, one paragraph per entry. Legal copy — change it in
@@ -24,7 +24,7 @@ export const DISCLAIMER_BODY = [
   "Stop and seek help if you feel chest pain, shortness of breath, dizziness, or any symptom that worries you. You are always in control; skip anything that doesn't feel right.",
 ];
 
-/** Short one-liner reused on the plan-review surface and the coach footer. */
+/** Short one-liner shown on the plan-review surface. */
 export const DISCLAIMER_SHORT =
   "General guidance, not medical advice. Check with a professional and stop if anything hurts.";
 

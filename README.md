@@ -27,6 +27,10 @@ Phase 8 bundler. **Open source app, private backend** — see below.
   - **Recipes** — pull a saved recipe from the [Recipes app](https://github.com/Jonny-B/conjureos-app-recipes)
     (cross-app actions) and log its per-serving macros, marking it cooked.
 - **Trends** — weight tracking with a trend sparkline + BMI.
+- **Ask Health**: the app's own AI Q&A about what you eat and what you have
+  logged, from the home card or the journal's "Find patterns". It answers and
+  changes nothing, and asks for a separate agreement before it sends any of
+  your journal. (Coaching is a Conjure Fitness feature; Health has no coach.)
 - **Workouts** — built-in workout library with a guided player: timed sets,
   rep sets, rest countdowns, and synthesized audio cues.
 - **Profile & goals** — Mifflin-St Jeor recommendation with manual override.

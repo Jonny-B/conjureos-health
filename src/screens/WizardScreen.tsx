@@ -33,7 +33,7 @@ import { modeHasWorkouts, modeTracksFood } from "../features/plan/model";
 import type { WizardBody } from "../features/plan/planService";
 import { decidePlanEdit } from "../features/plan/planService";
 import type { ExerciseSet, ProgramWorkout } from "../types";
-import { COACH_AND_WORKOUTS_ENABLED } from "../features/flags";
+import { WORKOUTS_ENABLED } from "../features/flags";
 
 type Step = "disclaimer" | "mode" | "safety" | "inputs" | "review";
 
@@ -74,7 +74,7 @@ const MODE_CARDS: { mode: PlanMode; title: string; blurb: string; recommended?: 
 
 const STAGE_LABELS: Record<PlanStage, string> = {
   calories: "Calculating your calories…",
-  workouts: COACH_AND_WORKOUTS_ENABLED ? "Building your workouts…" : "Building your plan…",
+  workouts: WORKOUTS_ENABLED ? "Building your workouts…" : "Building your plan…",
   checking: "Checking it's safe for you…",
 };
 
@@ -132,7 +132,7 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
   // instead of patching the old one.
   const [mode, setMode] = useState<PlanMode>(() => {
     const existing = editPlan?.mode;
-    if (!COACH_AND_WORKOUTS_ENABLED) {
+    if (!WORKOUTS_ENABLED) {
       return existing === "logging_only" ? existing : "eat_better";
     }
     return existing ?? "both";
@@ -364,9 +364,9 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
         <div className="mode-body wizard-step">
           <WizardHead
             n={1}
-            title={COACH_AND_WORKOUTS_ENABLED ? "What do you want to focus on?" : "What's your goal?"}
+            title={WORKOUTS_ENABLED ? "What do you want to focus on?" : "What's your goal?"}
           />
-          {COACH_AND_WORKOUTS_ENABLED && (
+          {WORKOUTS_ENABLED && (
             <div className="mode-cards">
               {MODE_CARDS.map((c) => (
                 <button
@@ -390,7 +390,7 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
               className="text-area"
               rows={2}
               placeholder={
-                COACH_AND_WORKOUTS_ENABLED
+                WORKOUTS_ENABLED
                   ? "e.g. lose a few pounds and get better at the Murph"
                   : "e.g. lose a couple of pounds"
               }
@@ -398,7 +398,7 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
               onChange={(e) => setGoalText(e.target.value)}
             />
             <span className="muted small field-hint">
-              {COACH_AND_WORKOUTS_ENABLED
+              {WORKOUTS_ENABLED
                 ? "The more specific you are, the better your plan and benchmark fit."
                 : "The more specific you are, the better your plan fits."}
             </span>
@@ -456,7 +456,7 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
             <span>A heart condition, or a doctor has told me to be careful with exercise</span>
           </label>
 
-          {COACH_AND_WORKOUTS_ENABLED && (
+          {WORKOUTS_ENABLED && (
             <div className="field">
               <span className="field-label">Any injuries to work around?</span>
               <div className="chip-row">
@@ -477,7 +477,7 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
             <div className="notice notice-soft">
               <AlertTriangle />
               <span>
-                {COACH_AND_WORKOUTS_ENABLED
+                {WORKOUTS_ENABLED
                   ? "Based on your answers we'll keep this to food & habit tracking, with no workout prescriptions. You can always talk to your doctor about adding exercise."
                   : "Based on your answers we'll keep this to food & habit tracking. Talk to your doctor before adding exercise."}
               </span>

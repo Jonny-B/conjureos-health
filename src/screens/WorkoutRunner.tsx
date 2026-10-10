@@ -11,7 +11,6 @@ import { ExplainerDropdown } from "../components/ExplainerDropdown";
 import { CardioPlayer } from "./CardioPlayer";
 import { WorkoutSummary } from "./WorkoutSummary";
 import { WorkoutOverview } from "./WorkoutOverview";
-import { CoachReflect } from "./CoachReflect";
 import { BurnEstimate } from "./BurnEstimate";
 import { HoldButton } from "../components/HoldButton";
 import { ChevronLeft } from "../components/icons";
@@ -37,12 +36,11 @@ type RunnerView =
   | { screen: "player" }
   | { screen: "cardio" }
   | { screen: "summary"; byExercise: ExerciseActual[]; elapsedSec: number }
-  | { screen: "burn"; session: WorkoutSession }
-  | { screen: "reflect"; session: WorkoutSession };
+  | { screen: "burn"; session: WorkoutSession };
 
 /**
  * Runs a single workout end-to-end: overview splash → guided player (strength or
- * cardio) → summary → coach reflection, persisting the session and running the
+ * cardio) → summary → calories burned, persisting the session and running the
  * adaptive loop on the way out. Both the Workouts library and the Plan tab's
  * program section mount this to actually run a workout; when the flow ends (or
  * the user backs out of the splash) it calls `onExit` to return to the list.
@@ -129,11 +127,11 @@ export function WorkoutRunner({
   }
 
   // Estimate + confirm calories burned, THEN persist (the slow adaptive save
-  // runs here, behind the hold-to-finish's busy state) and go to reflection.
+  // runs here, behind the hold-to-finish's busy state) and return to the list.
   if (view.screen === "burn") {
     const commit = async (session: WorkoutSession) => {
       await saveSession(session);
-      setView({ screen: "reflect", session });
+      onExit();
     };
     return (
       <BurnEstimate
@@ -143,10 +141,6 @@ export function WorkoutRunner({
         onSkip={() => commit(view.session)}
       />
     );
-  }
-
-  if (view.screen === "reflect") {
-    return <CoachReflect session={view.session} onDone={onExit} onPlanChange={onPlanChange} />;
   }
 
   return (

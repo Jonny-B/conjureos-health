@@ -10,7 +10,7 @@ const program: WorkoutProgram = {
 };
 
 describe("buildAnalysisPrompt preferences", () => {
-  it("includes the coach-feedback block so progression honors it", () => {
+  it("includes the preferences block so progression honors it", () => {
     const out = buildAnalysisPrompt(program, [], "Preferences/constraints:\n  - hates burpees");
     expect(out).toMatch(/HONOR these/);
     expect(out).toMatch(/hates burpees/);

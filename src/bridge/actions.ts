@@ -270,7 +270,7 @@ async function todayTotals(): Promise<{
  *
  * The read another app actually wants: a recipe app suggesting dinner needs
  * the gap, not just the totals. Deliberately NUTRITION ONLY — sleep, symptoms
- * and weight are in the same snapshot the in-app coach sees, and are withheld
+ * and weight are in the same snapshot Ask Health sees, and are withheld
  * here. The user's own assistant seeing their symptoms is one thing; handing
  * them to any installed app that asks is another, and nothing outside this app
  * has a nutrition reason to want them.
@@ -349,7 +349,6 @@ async function logWorkout(raw?: unknown): Promise<{ id: string; caloriesBurned: 
     date,
     planned: [],
     actual: [],
-    reprompts: [],
     completedAt: new Date().toISOString(),
     caloriesBurned: calories,
     source: "logWorkout",

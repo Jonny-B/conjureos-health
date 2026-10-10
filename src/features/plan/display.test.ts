@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { planModeLabel, visiblePlanGoals } from "./display";
-import { COACH_AND_WORKOUTS_ENABLED } from "../flags";
+import { WORKOUTS_ENABLED } from "../flags";
 import type { Plan, PlanGoal } from "../../types";
 
 const goal = (kind: PlanGoal["kind"], label: string): PlanGoal => ({ id: label, label, kind });
@@ -25,7 +25,7 @@ const legacy = {
 
 describe("plan display while workouts are paused", () => {
   it("is only meaningful with the flag off (guards the rest of this suite)", () => {
-    expect(COACH_AND_WORKOUTS_ENABLED).toBe(false);
+    expect(WORKOUTS_ENABLED).toBe(false);
   });
 
   it("reads a legacy 'both' plan as the half we can still deliver", () => {

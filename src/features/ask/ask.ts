@@ -1,15 +1,14 @@
 /**
- * "Ask about food" — the small, always-available nutrition Q&A on the home
- * screen.
+ * Ask Health: the app's own AI conversation. A person asks about what they
+ * eat and what they have logged, and gets an answer. Opened from the home
+ * card and from the journal's "Find patterns".
  *
- * Deliberately NOT the trainer in coach.ts. That one proposes and applies plan
- * changes, adjusts programs and writes long-term memory, and it is paused with
- * the rest of the workout features (see features/flags). This is the narrow
- * thing that stayed useful without it: a question about food gets an answer,
- * and nothing about the user's plan moves.
+ * It answers and changes nothing: not the plan, not the targets, not the
+ * diary. The only thing it writes is its own conversation.
  *
- * History shares `coach-chat.json` with the full coach screen, so a
- * conversation started here is still there when the trainer comes back.
+ * Coaching is a Conjure Fitness feature. Health has no coach, and this is not
+ * one: it never proposes or applies a change, and it keeps no memory beyond
+ * the conversation.
  */
 
 import { aiErrorMessage, complete, isAiAvailable, type ChatMessage } from "../../bridge/ai";
@@ -18,8 +17,19 @@ import { getRepository } from "../../data/repository";
 import { daySnapshot, recentSnapshots, renderDayForPrompt, renderRecentForPrompt } from "../dataApi";
 import { hasAiJournalConsent } from "../aiConsent";
 import { fmtWeight } from "../units";
-import type { CoachChatItem } from "./model";
 
+/** One turn of the conversation, as stored and as sent. */
+export interface AskChatItem {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/**
+ * Where the conversation is stored. The name predates Ask Health and stays:
+ * renaming the file would orphan every existing user's questions. Older
+ * versions may have left extra fields on a turn here; only `role` and
+ * `content` are read.
+ */
 const CHAT_PATH = "coach-chat.json";
 
 /** Turns kept on disk. Old turns fall off the top; the cap keeps the doc small
@@ -32,7 +42,7 @@ const MAX_CONTEXT_TURNS = 10;
 
 /**
  * The rotating prompts under the ask box. They exist to teach the shape of a
- * good question, so they lean concrete and everyday rather than clever — the
+ * good question, so they lean concrete and everyday rather than clever: the
  * point is "oh, I can just ask it things", not a feature tour.
  */
 export const ASK_SUGGESTIONS: readonly string[] = [
@@ -59,7 +69,7 @@ SCOPE
 - You are given the user's targets and what they have logged today. USE IT. When they ask what
   to eat, answer against what is actually left for the day and what they have already had.
   Never ask them to paste in data you were given, and never claim you cannot see their diary.
-- If today shows nothing logged, say so plainly and answer generally — that is different from
+- If today shows nothing logged, say so plainly and answer generally. That is different from
   not having access.
 - A question that is odd, vague or a joke still gets a straight, good-humoured answer. Do not lecture.
 
@@ -72,28 +82,28 @@ LIMITS
 - You cannot change the user's plan, targets or diary. If asked, say that is done in the Plan tab.`;
 
 /**
- * Everything the coach should already know before the user says a word.
+ * Everything Ask Health should already know before the user says a word.
  *
- * This used to be three lines — targets, weight, direction — which meant
+ * This used to be three lines (targets, weight, direction), which meant
  * "what should I eat, based on what I've had today" got answered with "I
  * don't have today's diary loaded, paste it in". The user's own assistant
  * asking the user to copy out their own data is the wrong shape entirely.
  *
- * Now: today in full, plus a few days of context for trends. Silently
+ * So: today in full, plus a few days of context for trends. Silently
  * degrades to whatever it could read.
  *
  * THE CHOKEPOINT: today's symptoms, weight and goal direction are consumer
  * health data, and handing them to the AI is a disclosure exactly like
- * "Find patterns" — same consent, same DISCLOSURE_* wording (see
+ * "Find patterns": same consent, same DISCLOSURE_* wording (see
  * features/aiConsent.ts). askContext is the only place that builds this
- * string, and every caller of askCoach (the journal's coach chat, the
- * always-on "Ask about food" card, and whatever calls it next) goes through
- * askCoach, so gating here — instead of in each caller — is what makes it
- * impossible for a future caller to route around consent by forgetting to
- * check it. No consent, no context: not a trimmed-down context, because
- * deciding what's "safe enough" to leak without asking is the same mistake
- * with extra steps. Fails CLOSED like `hasAiJournalConsent` itself: any
- * failure to confirm consent is treated as no consent.
+ * string, and every caller (the home card, the journal's "Find patterns",
+ * and whatever calls it next) goes through askHealth, so gating here,
+ * instead of in each caller, is what makes it impossible for a future caller
+ * to route around consent by forgetting to check it. No consent, no context:
+ * not a trimmed-down context, because deciding what's "safe enough" to leak
+ * without asking is the same mistake with extra steps. Fails CLOSED like
+ * `hasAiJournalConsent` itself: any failure to confirm consent is treated as
+ * no consent.
  */
 async function askContext(): Promise<string> {
   if (!(await hasAiJournalConsent())) return "";
@@ -134,29 +144,14 @@ async function askContext(): Promise<string> {
   }
 }
 
-/**
- * Whether the next `askCoach()` call will run WITHOUT personal context,
- * because there's no current consent on file — so a caller can show
- * `AiConsentSheet` first instead of silently getting a generic answer.
- *
- * `askContext()` enforces the actual rule (see above); this just exposes the
- * same check under a name that makes sense to a caller who has never heard of
- * `aiConsent.ts`. `JournalScreen.askPatterns` checks the lower-level
- * `hasAiJournalConsent()` directly for the same reason — either is fine, this
- * one just lives next to `askCoach` for callers that only import from here.
- */
-export async function coachNeedsConsent(): Promise<boolean> {
-  return !(await hasAiJournalConsent());
-}
-
 /** Read the stored conversation, oldest first. Never throws. */
-export async function loadAskHistory(): Promise<CoachChatItem[]> {
-  const raw = await readJson<CoachChatItem[]>(CHAT_PATH, []).catch(() => []);
+export async function loadAskHistory(): Promise<AskChatItem[]> {
+  const raw = await readJson<AskChatItem[]>(CHAT_PATH, []).catch(() => []);
   return Array.isArray(raw) ? raw : [];
 }
 
 /** Persist the conversation, trimmed to the most recent MAX_STORED turns. */
-export async function saveAskHistory(items: CoachChatItem[]): Promise<void> {
+export async function saveAskHistory(items: AskChatItem[]): Promise<void> {
   await writeJson(CHAT_PATH, items.slice(-MAX_STORED)).catch(() => {});
 }
 
@@ -165,13 +160,13 @@ export async function saveAskHistory(items: CoachChatItem[]): Promise<void> {
  * the new question).
  *
  * Returns the reply text. Never throws and never mutates anything but the
- * chat doc — a failed call comes back as a sentence the user can read.
+ * conversation: a failed call comes back as a sentence the user can read.
  */
-export async function askCoach(question: string, history: CoachChatItem[] = []): Promise<string> {
+export async function askHealth(question: string, history: AskChatItem[] = []): Promise<string> {
   const q = question.trim();
   if (!q) return "";
   if (!isAiAvailable()) {
-    return "I need the ConjureOS AI service to answer, and it isn't available right now. Open Conjure Health inside ConjureOS and try again.";
+    return "I need the ConjureOS AI service to answer, and I can't reach it from here. Open Conjure Health inside ConjureOS and try again.";
   }
 
   const ctx = await askContext();

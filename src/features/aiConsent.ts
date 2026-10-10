@@ -11,12 +11,11 @@
  * disclosure to a processor.
  *
  * Two features gate on this, sharing one consent: "Find patterns" in the
- * journal (a chosen date range), and asking the coach a question (today plus
- * the two days before, always — see features/coach/ask.ts, which is the one
- * chokepoint both the "Ask about food" card and the journal's coach chat run
- * through). One agreement, one wording, because a user who consents to the
- * AI reading their journal is consenting to the same disclosure regardless of
- * which button triggered it.
+ * journal (a chosen date range), and Ask Health (today plus the two days
+ * before, always; see features/ask/ask.ts, the one chokepoint both the home
+ * card and the conversation Find patterns opens run through). One agreement,
+ * one wording, because a user who consents to the AI reading their journal is
+ * consenting to the same disclosure regardless of which button triggered it.
  *
  * So this module exists to make that disclosure deliberate:
  *
@@ -38,8 +37,14 @@ import { getRepository } from "../data/repository";
 
 /**
  * Current disclosure wording. Bump on any material change to `DISCLOSURE_*`
- * below — v2 (2026-09) added the coach path (it was disclosing today's data
- * and the user's goal direction with no wording covering either).
+ * below. v2 (2026-09) added the ask path (it was disclosing today's data and
+ * the user's goal direction with no wording covering either).
+ *
+ * Not bumped for the 2026-10-10 rename of "asking the coach" to "Ask Health".
+ * The same fields, the same windows and the same two entry points are
+ * disclosed, and the old line always named exactly this path: the card it was
+ * renamed from was titled "Ask your health coach". Nothing new is sent and
+ * nothing new is named, so v2 agreements still cover what goes.
  */
 export const DISCLOSURE_VERSION = 2;
 
@@ -50,16 +55,16 @@ export const DISCLOSURE_VERSION = 2;
  *
  * Two different scopes share this one list, called out explicitly rather than
  * averaged into something vaguer than either: "Find patterns" sends a range
- * you pick, the coach (both "Ask about food" and the journal's coach chat)
- * always sends today plus the 2 days before. See features/coach/ask.ts.
+ * you pick, Ask Health always sends today plus the 2 days before. See
+ * features/ask/ask.ts.
  */
 export const DISCLOSURE_SENDS: string[] = [
   "Find patterns: the dates in the range you asked about",
-  "Asking the coach: today in full, plus daily totals from the 2 days before",
+  "Ask Health: today in full, plus daily totals from the 2 days before",
   "Daily totals: calories, protein, water, sleep length, exercise calories",
   "Your weight on days you recorded one, and your goal (losing, gaining, or maintaining)",
   "Symptoms you logged, with the severity you picked (Find patterns also sends the time of day)",
-  "The names of foods you ate (up to 12 a day for Find patterns; up to 25 for today, when asking the coach)",
+  "The names of foods you ate (up to 12 a day for Find patterns; up to 25 for today, with Ask Health)",
 ];
 
 /** What is held back regardless, so the sheet can be specific about limits. */
@@ -67,13 +72,13 @@ export const DISCLOSURE_WITHHOLDS: string[] = [
   "Your name, email, or account details",
   "The free-text note on a symptom, unless you turn that on below",
   "Find patterns: anything outside the range you asked about",
-  "Asking the coach: anything from more than 2 days before today",
+  "Ask Health: anything from more than 2 days before today",
 ];
 
 /**
  * A realistic sample of one line, so the user can see the shape of what they
  * are agreeing to rather than trusting a description of it. Matches what
- * `summarizeRange` actually produces for "Find patterns" — the coach path
+ * `summarizeRange` actually produces for "Find patterns". Ask Health
  * renders its own day differently (see `renderDayForPrompt`), but sends the
  * same underlying fields, so one honest sample stands in for both rather than
  * the sheet showing two blocks nobody reads in full.

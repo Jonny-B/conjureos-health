@@ -328,35 +328,8 @@ export interface WeightEntry {
 
 // ── Fitness / workouts (scaffolded slice) ────────────────────────────
 
-/**
- * Attribution for trainer/coach-authored content. Forward-compatible hook for
- * the planned "fitness coach" ConjureOS user type: licensed trainers author
- * workouts/programs that import into a user's fitness app and display with the
- * coach's name, photo, and credit.
- *
- * Optional everywhere today — built-in seeds and user-made content omit it and
- * nothing depends on it yet. Kept here so the eventual coach feature is purely
- * additive (no migration of the Workout shape). See the GitHub "coach" epic.
- */
-export interface CoachProfile {
-  /** Stable coach id — a ConjureOS user id once coach accounts exist. */
-  id: string;
-  /** Display name for the "designed by" credit. */
-  name: string;
-  /** Headshot/avatar URL or data URL. */
-  photoUrl?: string;
-  /** Short credential line, e.g. "NASM-CPT · 8 yrs". */
-  credentials?: string;
-  /** One-paragraph bio for a future coach profile page. */
-  bio?: string;
-  /** Optional external link (site / booking). */
-  link?: string;
-  /** True once licensed-trainer status has been verified. */
-  verified?: boolean;
-}
-
 /** Where a workout came from. Treated as "built-in" when omitted. */
-export type WorkoutOrigin = "built-in" | "coach" | "user";
+export type WorkoutOrigin = "built-in" | "user";
 
 /** One prescribed set. Exactly one of `reps`/`durationSec` is non-null:
  *  reps for countable work, durationSec for holds and timed intervals. */
@@ -395,9 +368,7 @@ export interface ExerciseExplainer {
   worksMuscles?: string[];
   /** Tips, typical ranges, common mistakes. */
   usefulData?: string;
-  source: "user" | "coach" | "ai";
-  /** Set when source === "coach". */
-  author?: CoachProfile;
+  source: "user" | "ai";
   /** ISO timestamp — set for AI-generated entries so the cache can age out. */
   cachedAt?: string;
 }
@@ -422,11 +393,9 @@ export interface Workout {
   cardioTarget?: { distanceKm?: number; durationSec?: number };
   /** Provenance — defaults to built-in when omitted. */
   origin?: WorkoutOrigin;
-  /** Coach credit, present when origin === "coach". Additive — see CoachProfile. */
-  author?: CoachProfile;
 }
 
-// ── v2: plans, check-off, coached sessions ───────────────────────────
+// ── v2: plans, check-off, workout sessions ───────────────────────────
 //
 // These persist as VFS app data in the on-device store on every backend
 // (owner call, DECISIONS 2026-06-24), with no Supabase tables. All shapes are additive and
@@ -454,7 +423,7 @@ export interface SafetyIntake {
   cardiacFlag: boolean;
   /** Injury regions to exclude movements for (keys into the exclusion map).
    *  `[]` on plans the wizard builds while workouts are paused: it asks only
-   *  while COACH_AND_WORKOUTS_ENABLED is on (see `intakeInjuries`). Older plans
+   *  while WORKOUTS_ENABLED is on (see `intakeInjuries`). Older plans
    *  keep what they recorded. */
   injuries: string[];
   /** Self-reported baseline, reuses the profile scale. */
@@ -639,6 +608,11 @@ export interface Plan {
  * A single day's plan progress. Meals are NOT duplicated here — they live in
  * the diary and are read by date; this record only holds what the diary can't
  * express (which plan goals were ticked, the day's weigh-in).
+ *
+ * Day logs saved by older versions may also carry a `checkin`, the answers to
+ * the removed coach's evening check-in. Nothing reads it, and saves merge, so
+ * it stays as stored until the user clears workout history (its own row, or
+ * "Clear all history" while workouts are paused and that row is hidden).
  */
 export interface DailyCheckoff {
   /** YYYY-MM-DD. */
@@ -647,8 +621,6 @@ export interface DailyCheckoff {
   goalsCompleted: string[];
   /** Optional weigh-in for the day, kg. */
   weightKg?: number;
-  /** The evening "how did your day go?" coach check-in, once submitted. */
-  checkin?: DayCheckin;
   /** Wearable/Apple-Health workouts the user removed from THIS day's exercise
    *  total. Keyed by `${start}-${workoutType}` (HealthKit gives no id). We can't
    *  delete from Apple Health, so we exclude locally (reversible). Additive. */
@@ -656,25 +628,6 @@ export interface DailyCheckoff {
   /** Per-wearable-workout calorie overrides (same key), when the user edited the
    *  burned number. Additive/optional. */
   wearableKcalOverrides?: Record<string, number>;
-}
-
-/** A submitted end-of-day check-in — the answers as shown, verbatim. */
-export interface DayCheckin {
-  /** ISO timestamp of submission. */
-  at: string;
-  answers: { question: string; answer: string }[];
-}
-
-/** One mid-session "Tell coach" exchange logged on a WorkoutSession. */
-export interface CoachReprompt {
-  /** ISO timestamp. */
-  at: string;
-  /** What the user told the coach. */
-  userText: string;
-  /** The coach's adjustment / reply. */
-  coachText: string;
-  /** True when the symptom classifier (layer 3) ended the session here. */
-  endedSession?: boolean;
 }
 
 /**
@@ -723,7 +676,9 @@ export interface CardioActual {
  * A completed (or abandoned) workout run. `planned`/`actual` are the legacy
  * flat snapshots (kept populated for back-compat); the structured
  * `byExercise` (strength) and `cardio` fields are the v2 record. Readers prefer
- * the structured fields when present.
+ * the structured fields when present. Sessions saved by older versions also
+ * carry an always-empty `reprompts` list from the removed coach; nothing reads
+ * it.
  */
 export interface WorkoutSession {
   id: string;
@@ -735,7 +690,6 @@ export interface WorkoutSession {
   workoutName?: string;
   planned: ExerciseSet[];
   actual: ExerciseSet[];
-  reprompts: CoachReprompt[];
   /** Structured strength result — recorded sets grouped by exercise. */
   byExercise?: ExerciseActual[];
   /** Structured cardio result, for run/bike sessions. */

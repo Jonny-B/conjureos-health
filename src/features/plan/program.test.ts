@@ -82,7 +82,6 @@ describe("recordBenchmarkResult — an assessment sets several baselines at once
       date: "2026-07-18",
       planned: [],
       actual: [],
-      reprompts: [],
       benchmarkIds: prog.benchmarks.map((b) => b.id),
       byExercise: [
         { exerciseKey: normalizeExerciseKey("Pull-ups"), name: "Pull-ups", sets: [{ reps: 8, startedAt: T, completedAt: T }] },

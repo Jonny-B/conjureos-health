@@ -188,9 +188,11 @@ function fmtSet(s: { reps?: number; weightKg?: number; durationSec?: number; rpe
 
 /**
  * Summarize the program + recent actuals + benchmark trend for the model.
- * `preferences` (optional) is the coach-memory feedback block — the user's
- * stated dislikes/constraints and recent reflections — so progression/adaptation
- * respects what they've told the coach, not just the raw numbers.
+ * `preferences` (optional) is a block of the user's stated dislikes and
+ * constraints, so progression/adaptation can respect them and not just the raw
+ * numbers. Health supplies none: the memory that used to fill it belonged to
+ * the coach, which lives in Conjure Fitness. The hook stays with the rest of
+ * the paused workout engine, prompts unchanged.
  */
 export function buildAnalysisPrompt(
   program: WorkoutProgram,

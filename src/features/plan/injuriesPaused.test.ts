@@ -16,7 +16,7 @@ vi.mock("../../bridge/ai", async (orig) => ({
 import { createPlan } from "./generate";
 import { archivePlan, commitNewPlan, loadPlan, modifyPlanInPlace } from "./planService";
 import { intakeInjuries } from "../safety/intakeGate";
-import { COACH_AND_WORKOUTS_ENABLED } from "../flags";
+import { WORKOUTS_ENABLED } from "../flags";
 import { getRepository, __resetRepository } from "../../data/repository";
 import { readJson } from "../../bridge/vfs";
 
@@ -71,7 +71,7 @@ beforeEach(() => {
 
 describe("plan generation with the injuries question hidden", () => {
   it("is running with workouts paused", () => {
-    expect(COACH_AND_WORKOUTS_ENABLED).toBe(false);
+    expect(WORKOUTS_ENABLED).toBe(false);
   });
 
   it("records no injuries for a new plan while paused, whatever the chips held", () => {

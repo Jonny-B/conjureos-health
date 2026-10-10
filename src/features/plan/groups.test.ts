@@ -233,7 +233,6 @@ describe("manual benchmark entry", () => {
       date: "2026-07-22",
       planned: [],
       actual: [],
-      reprompts: [],
       byExercise: [
         { exerciseKey: "pull-up", name: "Pull-up", sets: [{ reps: 12, startedAt: now, completedAt: now }] },
       ],

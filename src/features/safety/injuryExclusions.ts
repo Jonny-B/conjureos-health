@@ -2,10 +2,10 @@
  * Safety layer 2 — the injury-region exclusion list.
  *
  * A static map from an injury region the user declared in their SafetyIntake to
- * the movement patterns we must NOT prescribe for that region. Consumed by both
- * the plan-generation validator (P2) and the coach-reprompt validator (P4): any
- * generated or coach-suggested exercise whose name matches an excluded pattern
- * for one of the user's injuries is rejected.
+ * the movement patterns we must NOT prescribe for that region. Consumed by plan
+ * generation (the prompt's avoid-list), the program validator and the fallback
+ * program: any exercise whose name matches an excluded pattern for one of the
+ * user's injuries is rejected.
  *
  * Matching is deliberately name-substring based (case-insensitive): the workout
  * library is name-keyed and has no movement taxonomy, so patterns are the

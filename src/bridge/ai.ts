@@ -7,7 +7,7 @@
 
 /**
  * Which model ConjureOS routes a request to. `cheap` for high-volume parsing,
- * `capable` for reasoning (plan generation, coaching), `epic` for the rare
+ * `capable` for reasoning (plan generation, Ask Health), `epic` for the rare
  * heavyweight call. Costs the user more as it climbs, so default to the
  * cheapest tier that produces a usable answer.
  */

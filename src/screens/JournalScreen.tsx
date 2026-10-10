@@ -20,7 +20,7 @@ import {
 import { shiftDate, todayISO } from "../features/diary";
 import { fmtWater } from "../features/water";
 import { formatSleep } from "../features/sleep";
-import { CoachChatModal } from "../components/CoachChatModal";
+import { AskHealthSheet } from "../components/AskHealthSheet";
 import { AiConsentSheet } from "../components/AiConsentSheet";
 import {
   hasAiJournalConsent,
@@ -28,7 +28,7 @@ import {
   recordAiJournalConsent,
 } from "../features/aiConsent";
 import { JournalEntrySheet } from "../components/JournalEntrySheet";
-import { ChevronLeft, ChevronRight, CoachIcon } from "../components/icons";
+import { ChevronLeft, ChevronRight, DiamondIcon } from "../components/icons";
 
 type Units = Profile["units"];
 
@@ -127,8 +127,8 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
     const range = `${from} to ${to}`;
     setAsking(
       summary
-        ? `Here is my journal for ${range}. What patterns do you notice — anything that seems to go together?\n\n${summary}`
-        : `I have nothing recorded for ${range} yet. What would be worth tracking to spot patterns?`,
+        ? `Here is my journal for ${range}. What patterns do you notice? Anything that seems to go together?\n\n${summary}`
+        : `I have nothing recorded for ${range}. What would be worth tracking to spot patterns?`,
     );
   };
 
@@ -164,7 +164,7 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
         </div>
         <div className="journal-actions">
           <button className="btn small" onClick={askPatterns}>
-            <CoachIcon size={15} /> Find patterns
+            <DiamondIcon size={15} /> Find patterns
           </button>
           <button className="btn small" onClick={() => setPrintOpen(true)}>
             Print
@@ -220,7 +220,7 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
           }}
         />
       )}
-      {asking !== null && <CoachChatModal initialQuestion={asking} onClose={() => setAsking(null)} />}
+      {asking !== null && <AskHealthSheet initialQuestion={asking} onClose={() => setAsking(null)} />}
       {editing && (
         <JournalEntrySheet
           event={editing}

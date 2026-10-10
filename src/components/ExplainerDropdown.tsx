@@ -10,13 +10,12 @@ interface Props {
 
 const SOURCE_LABEL: Record<ExerciseExplainer["source"], string> = {
   user: "Your note",
-  coach: "Coach",
   ai: "AI",
 };
 
 /**
  * Collapsible "how to do it / what it works" panel for an exercise. Resolves
- * the explainer lazily on first expand (VFS user → trainer → AI-cached), shows
+ * the explainer lazily on first expand (VFS user → AI-cached), shows
  * a source badge, and lets the user write/override their own note (saved to
  * VFS, wins over AI on next open).
  */

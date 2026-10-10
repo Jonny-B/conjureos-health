@@ -201,14 +201,6 @@ export const CameraIcon = (p: IconProps) => (
   </Svg>
 );
 
-/** The AI coach — a speech bubble with a spark. */
-export const CoachIcon = (p: IconProps) => (
-  <Svg {...p}>
-    <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.1 0-2.15-.2-3.1-.58L4 21l1.62-4.86A8.5 8.5 0 1 1 21 11.5z" />
-    <path d="M8.5 10.5h7M8.5 13.5h4.5" />
-  </Svg>
-);
-
 /** AI mark — a four-point sparkle/diamond, the ConjureOS "this is AI" motif. */
 export const DiamondIcon = (p: IconProps) => (
   <Svg {...p}>

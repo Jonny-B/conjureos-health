@@ -41,7 +41,7 @@ describe("plan wizard injuries question", () => {
 
   it("comes back with workouts, because it is gated and not deleted", async () => {
     vi.resetModules();
-    vi.doMock("../features/flags", () => ({ COACH_AND_WORKOUTS_ENABLED: true }));
+    vi.doMock("../features/flags", () => ({ WORKOUTS_ENABLED: true }));
     const html = await renderAboutYouStep();
     expect(html).toContain(QUESTION);
     for (const region of INJURY_REGIONS) {

@@ -2,9 +2,7 @@
  * Layered exercise-explainer resolution (W2). For a given exercise key we try,
  * in order:
  *   1. the user's own note in VFS  (explainers/user/<key>.json)
- *   2. a trainer/DB entry          (stub — no table yet; where CoachProfile
- *      and WorkoutOrigin:"coach" will attach once trainers exist)
- *   3. an AI-generated explainer, cached to VFS (explainers/ai/<key>.json)
+ *   2. an AI-generated explainer, cached to VFS (explainers/ai/<key>.json)
  * The AI path is only hit on a cache miss, so the second view of an exercise
  * is instant and free.
  */
@@ -49,11 +47,6 @@ function parseExplainer(raw: string, exerciseKey: string): ExerciseExplainer | n
   };
 }
 
-/** Trainer/DB lookup — stub until the exercise_explainers table exists. */
-async function fetchTrainerExplainer(_exerciseKey: string): Promise<ExerciseExplainer | null> {
-  return null;
-}
-
 /**
  * Resolve the best explainer for an exercise, generating + caching an AI one on
  * a miss. `inline` is an optional override carried on the Exercise itself.
@@ -67,9 +60,6 @@ export async function resolveExplainer(
 
   const user = await readJson<ExerciseExplainer | null>(userPath(exerciseKey), null);
   if (user) return user;
-
-  const trainer = await fetchTrainerExplainer(exerciseKey);
-  if (trainer) return trainer;
 
   const cached = await readJson<ExerciseExplainer | null>(aiPath(exerciseKey), null);
   if (cached) return cached;

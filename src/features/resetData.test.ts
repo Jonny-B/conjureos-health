@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { HISTORY_ITEMS, clearAllHistories, visibleHistoryItems, type HistoryKind } from "./resetData";
 
 const calls: string[] = [];
@@ -29,7 +29,7 @@ describe("every clearable slice is actually offered", () => {
   it("lists a row for each HistoryKind", () => {
     const listed = new Set(HISTORY_ITEMS.map((i) => i.kind));
     const known: HistoryKind[] = [
-      "diary", "weights", "workouts", "coach", "coachChat",
+      "diary", "weights", "workouts", "askHealth",
       "sleep", "water", "symptoms", "planHistory", "plan",
     ];
     for (const k of known) expect(listed.has(k)).toBe(true);
@@ -64,17 +64,57 @@ describe("clearAllHistories", () => {
   });
 });
 
+/**
+ * Older versions kept a trainer's memory in `coach.json` and the questions
+ * asked in-app in `coach-chat.json`. Nothing reads the first any more, and
+ * nothing deletes a user's stored data for them, so both stay on disk until
+ * the user clears them here.
+ */
+describe("stored files from older versions", () => {
+  afterEach(() => {
+    vi.doUnmock("./flags");
+    vi.resetModules();
+  });
+
+  it("offers Ask Health as its own row, and it clears the stored conversation", async () => {
+    const { clearHistory } = await import("./resetData");
+    const row = HISTORY_ITEMS.find((i) => i.kind === "askHealth");
+    expect(row?.label).toBe("Ask Health");
+    expect(row?.desc).toMatch(/Find patterns/);
+    await clearHistory("askHealth");
+    expect(calls).toEqual(["rm:coach-chat.json"]);
+  });
+
+  it.each([false, true])(
+    "clears the old coach memory with Current plan (workouts on: %s)",
+    async (on) => {
+      vi.resetModules();
+      vi.doMock("./flags", () => ({ WORKOUTS_ENABLED: on }));
+      const { clearHistory } = await import("./resetData");
+      await clearHistory("plan");
+      expect(calls).toEqual(["plan", "rm:coach.json"]);
+    },
+  );
+
+  it("names no coach in any row a person reads", () => {
+    for (const i of HISTORY_ITEMS) {
+      expect(`${i.kind} ${i.label} ${i.desc}`).not.toMatch(/coach/i);
+    }
+  });
+});
+
 describe("visibleHistoryItems", () => {
-  it("still offers the wellbeing rows while the coach is paused", () => {
+  it("still offers the wellbeing rows while workouts are paused", () => {
     const kinds = visibleHistoryItems().map((i) => i.kind);
     expect(kinds).toContain("sleep");
     expect(kinds).toContain("water");
     expect(kinds).toContain("symptoms");
   });
 
-  it("hides only the paused coach + workout slices", () => {
+  it("hides only the paused workout slice, and keeps Ask Health", () => {
     const kinds = visibleHistoryItems().map((i) => i.kind);
-    expect(kinds).not.toContain("coach");
     expect(kinds).not.toContain("workouts");
+    expect(kinds).toContain("askHealth");
+    expect(HISTORY_ITEMS.length - kinds.length).toBe(1);
   });
 });

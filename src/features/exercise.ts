@@ -190,7 +190,6 @@ export async function addManualExercise(date: string, input: ManualExerciseInput
     workoutName: input.name.trim().slice(0, 60),
     planned: [],
     actual: [],
-    reprompts: [],
     completedAt: new Date().toISOString(),
     caloriesBurned: Math.round(input.calories),
     ...(input.durationMin ? { durationSec: Math.round(input.durationMin * 60) } : {}),

@@ -1385,7 +1385,7 @@ body {
   text-align: center;
 }
 
-/* Plan tab — Trends graph + Coach session launcher. */
+/* Plan tab: plan, Trends graph and weigh-ins. */
 .plan-screen {
   display: flex;
   flex-direction: column;
@@ -1407,22 +1407,6 @@ body {
 .trends-empty {
   padding: 8px 0;
   text-align: center;
-}
-.coach-launch-hint {
-  margin: 0 0 12px;
-}
-.coach-launch-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.coach-launch-compose {
-  align-items: flex-end;
-}
-.coach-launch-compose .text-input {
-  flex: 1;
-  resize: none;
 }
 .weigh-in {
   margin: 14px 0;
@@ -2489,7 +2473,7 @@ html.modal-open .screen {
   margin-bottom: 12px;
 }
 
-/* ── Home cards (Weight, Coach/Plan) ──────────────────────────────────── */
+/* ── Home cards (Weight, Plan, Ask Health) ────────────────────────────── */
 .home-card {
   display: block;
   width: 100%;
@@ -2556,29 +2540,24 @@ button.home-card:hover {
   font-size: 14px;
   padding: 8px 0 14px;
 }
-.coach-card-plan {
+.plan-card-plan {
   display: flex;
   align-items: baseline;
   gap: 6px;
   margin-bottom: 6px;
 }
-.coach-card-mode {
+.plan-card-mode {
   font-size: 15px;
   font-weight: 600;
 }
-.coach-card-goals {
+.plan-card-goals {
   margin: 0;
   padding-left: 18px;
   font-size: 13px;
   color: var(--muted);
 }
-.coach-card-goals li {
+.plan-card-goals li {
   margin: 1px 0;
-}
-.coach-card-summary {
-  margin-top: 8px;
-  border-top: 1px solid var(--line);
-  padding-top: 8px;
 }
 
 /* Source-app pill on cross-app recipe search results. */
@@ -3111,6 +3090,7 @@ input[type="date"].text-input {
 .reset-btn {
   flex: 0 0 auto;
   min-width: 96px;
+  min-height: 44px;
   padding: 6px 10px;
   font-size: 12px;
 }
@@ -3140,7 +3120,6 @@ input[type="date"].text-input {
 }
 .explainer-source.src-ai { color: var(--accent-2); background: color-mix(in srgb, var(--accent-2) 14%, transparent); }
 .explainer-source.src-user { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
-.explainer-source.src-coach { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .explainer-howto { font-size: 13px; line-height: 1.5; margin: 0 0 8px; }
 .explainer-muscles { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .muscle-chip {
@@ -3315,136 +3294,6 @@ input[type="date"].text-input {
   .scanner-flash { animation: none; opacity: 0; }
 }
 
-/* ── Coach (Phase 2): check-ins + trainer chat ─────────────────────── */
-
-.checkin-form { display: flex; flex-direction: column; gap: 18px; }
-.checkin-q { display: flex; flex-direction: column; gap: 8px; }
-.checkin-q-text { font-size: 15px; font-weight: 600; }
-.checkin-scale { display: flex; align-items: center; gap: 10px; }
-.checkin-scale-label { font-size: 11px; color: var(--muted); flex: 0 0 auto; max-width: 72px; }
-.checkin-scale .chip-row { flex: 1; justify-content: center; flex-wrap: nowrap; }
-.checkin-scale .chip,
-.coach-suggestions .chip {
-  padding: 8px 14px;
-  font-size: 14px;
-  text-transform: none;
-  letter-spacing: normal;
-  border: 1px solid var(--line);
-  background: var(--bg-2);
-  color: var(--text);
-  cursor: pointer;
-}
-.checkin-scale .chip.active {
-  border-color: var(--accent);
-  background: var(--cui-accent-mute, rgba(124, 106, 247, 0.14));
-  color: var(--accent);
-}
-.checkin-text { resize: vertical; }
-.checkin-sheet .center-fill { min-height: 160px; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; }
-.checkin-banner .setup-banner-text::before { content: "💬 "; }
-
-.coach-reply-card {
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--radius);
-  background: var(--bg-2);
-  padding: 14px 16px;
-  margin: 8px 0 16px;
-}
-.coach-reply-card p { margin: 6px 0 0; line-height: 1.5; }
-.coach-reply-tag {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--accent);
-  font-weight: 700;
-}
-.coach-plan-note { margin-top: 10px; font-size: 13px; color: var(--good); }
-.coach-reflect .center-fill { display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; min-height: 200px; }
-
-/* Trainer chat */
-.coach-screen {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-}
-.coach-thread {
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 16px 0 12px;
-}
-.coach-empty { text-align: center; padding: 32px 12px 8px; }
-.coach-empty h2 { margin: 0 0 8px; }
-.coach-empty p { margin: 0 auto 16px; max-width: 420px; line-height: 1.5; }
-.coach-suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
-.coach-msg {
-  max-width: 85%;
-  padding: 10px 14px;
-  border-radius: 16px;
-  line-height: 1.45;
-  font-size: 15px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.coach-msg.user {
-  align-self: flex-end;
-  background: var(--accent);
-  color: var(--cui-on-accent);
-  border-bottom-right-radius: 6px;
-}
-.coach-msg.assistant {
-  align-self: flex-start;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-bottom-left-radius: 6px;
-}
-.coach-msg.typing { color: var(--muted); letter-spacing: 2px; }
-/* Plan-change proposal card — the coach asks before it changes anything. */
-.coach-proposal {
-  align-self: stretch;
-  background: var(--bg-2);
-  border: 1px solid var(--accent);
-  border-radius: 14px;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.coach-proposal.done {
-  border-color: var(--line);
-  padding: 6px 12px;
-}
-.coach-proposal-why { margin: 0; }
-.coach-proposal-q { margin: 0; font-weight: 600; }
-.coach-proposal-opts { display: flex; flex-wrap: wrap; gap: 8px; }
-.coach-proposal-opts .chip.selected {
-  background: var(--accent);
-  color: var(--cui-on-accent);
-  border-color: var(--accent);
-}
-.coach-proposal-other { min-height: 38px; }
-.coach-proposal-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.coach-input-row {
-  display: flex;
-  gap: 8px;
-  align-items: flex-end;
-  padding: 10px 0 12px;
-  border-top: 1px solid var(--line);
-  background: var(--bg);
-  position: sticky;
-  bottom: 0;
-}
-.coach-input { flex: 1; resize: none; min-height: 42px; max-height: 120px; }
-
 /* ── Pre-workout overview / splash (tap a workout → overview → Start) ───── */
 
 .workout-overview { display: flex; flex-direction: column; gap: 14px; padding-bottom: 96px; }
@@ -3534,8 +3383,9 @@ input[type="date"].text-input {
   min-height: 44px;
 }
 
-/* ── Ask about food ──────────────────────────────────────────────────────
-   The home card and its conversation sheet. */
+/* ── Ask Health ──────────────────────────────────────────────────────────
+   The home card and its conversation sheet. Every control here is at least
+   44px tall: the card sits on the home screen of a phone app. */
 .ask-row {
   display: flex;
   gap: 8px;
@@ -3544,6 +3394,7 @@ input[type="date"].text-input {
 .ask-input {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 44px;
   /* 16px keeps iOS Safari from zooming the viewport on focus. */
   font-size: 16px;
 }
@@ -3557,10 +3408,11 @@ input[type="date"].text-input {
 @keyframes ask-fade {
   from { opacity: 0; }
 }
-.ask-send { flex: 0 0 auto; width: auto; padding: 10px 18px; }
+.ask-send { flex: 0 0 auto; width: auto; min-height: 44px; padding: 10px 18px; }
 .ask-hint { margin-top: 8px; }
 
 .chat-sheet { height: 88vh; height: 88dvh; }
+.chat-sheet .sheet-head .icon-btn { width: 44px; height: 44px; }
 .chat-body {
   display: flex;
   flex-direction: column;
@@ -3944,6 +3796,7 @@ input[type="date"].text-input {
 .journal-actions { display: flex; gap: 8px; }
 .journal-actions .btn.small {
   width: auto;
+  min-height: 44px;
   padding: 8px 13px;
   font-size: 13px;
   display: inline-flex;

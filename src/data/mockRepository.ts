@@ -580,7 +580,7 @@ export class MockRepository implements Repository {
     });
   }
 
-  // ── v2: plans + daily check-off + coached sessions ──────────────────
+  // ── v2: plans + daily check-off + workout sessions ──────────────────
 
   async getPlan(): Promise<Plan | null> {
     return this.store.plan;

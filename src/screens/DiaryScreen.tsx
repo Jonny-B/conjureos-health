@@ -6,10 +6,10 @@ import { buildDayView, shiftDate, todayISO } from "../features/diary";
 import { CalorieRing, MacroBars } from "../components/rings";
 import { ChevronLeft, ChevronRight, WorkoutsIcon } from "../components/icons";
 import { WeightCard } from "../components/WeightCard";
-import { CoachPlanCard } from "../components/CoachPlanCard";
-import { AskCoachCard } from "../components/AskCoachCard";
+import { PlanCard } from "../components/PlanCard";
+import { AskHealthCard } from "../components/AskHealthCard";
 import { WellbeingCard } from "../components/WellbeingCard";
-import { CoachChatModal } from "../components/CoachChatModal";
+import { AskHealthSheet } from "../components/AskHealthSheet";
 import { exerciseCaloriesForDate } from "../features/exercise";
 
 interface Props {
@@ -153,11 +153,11 @@ export function DiaryScreen({
           nonce={nonce}
           onMutated={onMutated}
         />
-        <CoachPlanCard plan={plan} goals={goals} onOpen={onOpenPlan} />
-        <AskCoachCard onAsk={setAsking} />
+        <PlanCard plan={plan} goals={goals} onOpen={onOpenPlan} />
+        <AskHealthCard onAsk={setAsking} />
       </div>
 
-      {asking !== null && <CoachChatModal initialQuestion={asking} onClose={() => setAsking(null)} />}
+      {asking !== null && <AskHealthSheet initialQuestion={asking} onClose={() => setAsking(null)} />}
     </div>
   );
 }

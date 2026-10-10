@@ -1,7 +1,7 @@
 /**
  * How a plan should be DESCRIBED while parts of the app are paused.
  *
- * Pausing the coach and workouts (see features/flags) deliberately kept every
+ * Pausing workouts (see features/flags) deliberately kept every
  * existing plan intact so flipping the flag back restores them — nothing was
  * migrated. The cost is that a plan created before the pause still carries its
  * mode and its workout goals, and those leak into anything that renders a plan
@@ -12,7 +12,7 @@
  */
 
 import type { Plan, PlanGoal } from "../../types";
-import { COACH_AND_WORKOUTS_ENABLED } from "../flags";
+import { WORKOUTS_ENABLED } from "../flags";
 
 const MODE_LABEL: Record<string, string> = {
   both: "Eat better + train",
@@ -25,7 +25,7 @@ const MODE_LABEL: Record<string, string> = {
  *  the food half of itself while training is paused, since that is the only
  *  half the app can still act on. */
 export function planModeLabel(plan: Plan): string {
-  if (!COACH_AND_WORKOUTS_ENABLED && (plan.mode === "both" || plan.mode === "get_fit")) {
+  if (!WORKOUTS_ENABLED && (plan.mode === "both" || plan.mode === "get_fit")) {
     return MODE_LABEL.eat_better!;
   }
   return MODE_LABEL[plan.mode] ?? plan.mode;
@@ -34,6 +34,6 @@ export function planModeLabel(plan: Plan): string {
 /** The plan's goals minus anything the app can't currently deliver. Workout
  *  goals stay ON the plan — they are just not shown while workouts are off. */
 export function visiblePlanGoals(plan: Plan): PlanGoal[] {
-  if (COACH_AND_WORKOUTS_ENABLED) return plan.goals;
+  if (WORKOUTS_ENABLED) return plan.goals;
   return plan.goals.filter((g) => g.kind !== "workout");
 }

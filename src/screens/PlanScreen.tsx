@@ -30,17 +30,16 @@ import { useScrollLock } from "../hooks/useScrollLock";
 import { WorkoutRunner, metaLine } from "./WorkoutRunner";
 import { toIntInRange } from "../features/num";
 import { weekExerciseProgress, type WeekExerciseProgress } from "../features/exercise";
-import { COACH_AND_WORKOUTS_ENABLED } from "../features/flags";
+import { WORKOUTS_ENABLED } from "../features/flags";
 
 /**
- * Plan hub — the home for the user's plan, tracking + coaching, condensing what
- * used to be the separate Trends and Coach tabs and now also owning the plan's
- * workouts (moved off the Workouts tab, which is a pure library). Sections:
- *   1. Your plan: benchmarks + plan workouts, each tappable into the runner.
- *   2. Trends: the weight graph + weigh-in + history, with a graceful empty
+ * Plan hub: the home for the user's plan and its tracking, and (with workouts
+ * on) the plan's workouts. Sections:
+ *   1. Your plan: the headline and "Edit plan"; with workouts on, benchmarks +
+ *      plan workouts, each tappable into the runner.
+ *   2. Daily targets and the weekly exercise goal, when the plan has them.
+ *   3. Trends: the weight graph + weigh-in + history, with a graceful empty
  *      state that keeps the graph's footprint fixed (no layout jump).
- *   3. Coach session: prefilled starter questions + a free-text box that open
- *      the full Coach chat with the question already submitted.
  */
 export function PlanScreen({
   profile,
@@ -48,7 +47,6 @@ export function PlanScreen({
   goals,
   units,
   onPlanChange,
-  onAskCoach,
   onEditPlan,
   onEditWorkouts,
   onStartPlan,
@@ -59,7 +57,6 @@ export function PlanScreen({
   goals: Goals;
   units: Profile["units"];
   onPlanChange: (plan: Plan | null) => void;
-  onAskCoach: (question: string) => void;
   /** Edit the whole plan — re-opens the wizard questions (goals, dates, stats). */
   onEditPlan: () => void;
   /** Edit just the workouts/sets — opens the program editor. */
@@ -69,7 +66,7 @@ export function PlanScreen({
   /** Bumped by the app after any write, so derived views re-read. */
   nonce?: number;
 }) {
-  // A plan workout mid-run: overview → player → summary → reflect via the runner.
+  // A plan workout mid-run: overview → player → summary via the runner.
   const [running, setRunning] = useState<ProgramWorkout | null>(null);
 
   if (running) {
@@ -93,7 +90,7 @@ export function PlanScreen({
   // ProgramSection carries its own "Your plan / Edit plan" header, but renders
   // nothing without a workout program — so a food-only plan needs its own
   // header or there is no way to reach the plan editor at all.
-  const showProgram = COACH_AND_WORKOUTS_ENABLED && !!plan?.program;
+  const showProgram = WORKOUTS_ENABLED && !!plan?.program;
 
   return (
     <div className="plan-screen">
@@ -116,15 +113,14 @@ export function PlanScreen({
         <ExerciseGoalSection target={plan.weeklyExerciseDays!} nonce={nonce} />
       )}
       <TrendsPanel profile={profile} />
-      {COACH_AND_WORKOUTS_ENABLED && <CoachLauncher onAsk={onAskCoach} />}
     </div>
   );
 }
 
 /**
  * The plan's headline + the "Edit plan" entry point, for plans that render no
- * program section (any food-only plan, and every plan while the coach and
- * workout program are paused — see features/flags).
+ * program section (any food-only plan, and every plan while the workout
+ * program is paused: see features/flags).
  */
 function PlanHeaderSection({ plan, onEditPlan }: { plan: Plan; onEditPlan: () => void }) {
   return (
@@ -266,8 +262,8 @@ function PlanCtaCard({ onStartPlan }: { onStartPlan: () => void }) {
       <div className="summary-card column plan-cta-card">
         <div className="plan-cta-title">Build your plan</div>
         <p className="muted small plan-cta-blurb">
-          {COACH_AND_WORKOUTS_ENABLED
-            ? "A personalized plan sets your daily targets and, if you want, your workouts and benchmarks. It takes a minute, and anything you've already entered — your stats and weigh-ins — is carried straight in."
+          {WORKOUTS_ENABLED
+            ? "A personalized plan sets your daily targets and, if you want, your workouts and benchmarks. It takes a minute, and your stats and weigh-ins carry straight in."
             : "A plan sets your daily calorie and macro targets from your goal, and tracks your weight against it. It takes a minute, and your stats and weigh-ins carry straight in."}
         </p>
         <button className="btn primary block" onClick={onStartPlan}>
@@ -330,8 +326,8 @@ function ProgramSection({
   // ── Benchmark-first gate ─────────────────────────────────────────────
   // Until the benchmark is done, the Plan tab shows ONE thing: a single,
   // clearly-labeled Benchmark card (the old four benchmark cards stacked above
-  // workout cards read as seven workouts). Training stays visibly locked —
-  // the coach can't calibrate it until the scores exist.
+  // workout cards read as seven workouts). Training stays visibly locked:
+  // the program can't be calibrated until the scores exist.
   if (evaluating && needsAssessment && !complete) {
     const evalWorkouts = groupWorkouts.filter((w) => w.isBenchmark);
     const nextEval = evalWorkouts.find((w) => w.completedAt == null) ?? evalWorkouts[0];
@@ -357,8 +353,8 @@ function ProgramSection({
             <h3 className="benchmark-hero-title">First, measure where you are</h3>
           </div>
           <p className="muted small benchmark-hero-blurb">
-            One test session — it sets your starting numbers so your coach can size every
-            training workout to you. Not a workout to beat, just an honest measurement.
+            One test session. It sets your starting numbers so every training workout is sized
+            to you. Not a workout to beat, just an honest measurement.
           </p>
           <ul className="benchmark-hero-rows">
             {program.benchmarks.map((b) => (
@@ -384,8 +380,8 @@ function ProgramSection({
         </div>
 
         <div className="muted small program-locked">
-          Your training workouts unlock once the benchmark is done — the coach adjusts them to
-          your scores.
+          Your training workouts unlock once the benchmark is done, and they adjust to your
+          scores.
         </div>
 
         {entryFor && (
@@ -838,58 +834,6 @@ function TrendsPanel({ profile }: { profile: Profile | null }) {
           ))}
         </ul>
       )}
-    </section>
-  );
-}
-
-// ── Coach session launcher ─────────────────────────────────────────────
-
-const STARTERS = [
-  "How am I doing this week?",
-  "What should I focus on tomorrow?",
-  "This plan feels too hard",
-  "What should I eat before a workout?",
-];
-
-function CoachLauncher({ onAsk }: { onAsk: (question: string) => void }) {
-  const [text, setText] = useState("");
-  const ask = (q: string) => {
-    const t = q.trim();
-    if (t) onAsk(t);
-  };
-
-  return (
-    <section className="plan-section coach-launch">
-      <div className="section-label">Talk to your coach</div>
-      <p className="muted small coach-launch-hint">
-        Start with a question below or ask your own — it opens a full chat with your coach, who can
-        see your plan, food, weight, and workouts.
-      </p>
-      <div className="coach-launch-chips">
-        {STARTERS.map((s) => (
-          <button key={s} className="chip" onClick={() => ask(s)}>
-            {s}
-          </button>
-        ))}
-      </div>
-      <div className="row gap coach-launch-compose">
-        <textarea
-          className="text-input"
-          rows={1}
-          value={text}
-          placeholder="Ask your coach anything…"
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              ask(text);
-            }
-          }}
-        />
-        <button className="btn primary" disabled={!text.trim()} onClick={() => ask(text)}>
-          Ask
-        </button>
-      </div>
     </section>
   );
 }

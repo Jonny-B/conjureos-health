@@ -9,7 +9,7 @@ import { HoldButton } from "../components/HoldButton";
 /**
  * Post-workout step: estimate calories burned (local formula → AI fallback),
  * let the user confirm or adjust, then add it to today's calorie ring. Shown
- * after the workout finishes, before the coach reflection. `onConfirm` runs the
+ * after the workout finishes, as the run's last step. `onConfirm` runs the
  * (slow) session save, so the commit is a hold-to-finish with a busy state.
  */
 export function BurnEstimate({

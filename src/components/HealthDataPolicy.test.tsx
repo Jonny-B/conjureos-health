@@ -10,7 +10,7 @@ const PAUSED_WORDING_DATE = "2026-10-08";
 /** Loads the policy fresh with the workouts flag set to `on`. */
 function withWorkouts(on: boolean) {
   vi.resetModules();
-  vi.doMock("../features/flags", () => ({ COACH_AND_WORKOUTS_ENABLED: on }));
+  vi.doMock("../features/flags", () => ({ WORKOUTS_ENABLED: on }));
 }
 
 /** The policy's "Building or changing your plan" line, as a reader sees it. */
@@ -59,9 +59,9 @@ describe("health data policy, plan building", () => {
   // own, the date does not, so this is what fails when workouts come back and
   // POLICY_UPDATED still names the day the narrower wording went out.
   it("dates the wording it shows: the paused wording's date only while paused", async () => {
-    const { COACH_AND_WORKOUTS_ENABLED } = await import("../features/flags");
+    const { WORKOUTS_ENABLED } = await import("../features/flags");
     const { POLICY_UPDATED } = await import("./HealthDataPolicy");
-    if (COACH_AND_WORKOUTS_ENABLED) {
+    if (WORKOUTS_ENABLED) {
       expect(
         POLICY_UPDATED > PAUSED_WORDING_DATE,
         `Workouts are on, so the policy names training experience and the injury avoid-list. ` +

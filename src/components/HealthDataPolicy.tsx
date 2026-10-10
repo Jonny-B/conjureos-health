@@ -18,13 +18,13 @@
  */
 
 import { DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features/aiConsent";
-import { COACH_AND_WORKOUTS_ENABLED } from "../features/flags";
+import { WORKOUTS_ENABLED } from "../features/flags";
 
 /**
  * Last material revision. Shown so a reader can tell what they agreed to.
  *
  * 2026-10-08 is the date of the PAUSED wording of `PLAN_BUILD_SENDS` below.
- * That line reads COACH_AND_WORKOUTS_ENABLED, so turning workouts back on
+ * That line reads WORKOUTS_ENABLED, so turning workouts back on
  * widens the policy without editing this file: move this date to the release
  * that turns them on (flags.ts, "Turning it back on", item 4).
  * HealthDataPolicy.test.tsx fails until it is later than 2026-10-08.
@@ -35,11 +35,11 @@ export const POLICY_UPDATED = "2026-10-08";
  * What building a plan sends, matching `buildUserPrompt` in plan/generate.ts.
  * Training experience goes only with a workout plan, and the injury avoid-list
  * only when the wizard asked about injuries (see `intakeInjuries`). The wizard
- * asks for neither while workouts are paused (COACH_AND_WORKOUTS_ENABLED), so
+ * asks for neither while workouts are paused (WORKOUTS_ENABLED), so
  * the paused wording leaves both out. The live wording is the wider one: it
  * must not go out under the paused wording's date (see `POLICY_UPDATED`).
  */
-export const PLAN_BUILD_SENDS = COACH_AND_WORKOUTS_ENABLED
+export const PLAN_BUILD_SENDS = WORKOUTS_ENABLED
   ? "your goal in your own words, the plan length, your training experience, height, weight, " +
     "goal weight, age and sex, and, if you told us about an injury, a list of movements to avoid"
   : "your goal in your own words, the plan length, height, weight, goal weight, age and sex";
@@ -95,8 +95,8 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
               it.
             </li>
             <li>
-              <strong>Find patterns</strong> and <strong>asking the coach</strong> send parts of
-              your journal, and ask for your agreement first. They send:
+              <strong>Find patterns</strong> and <strong>Ask Health</strong> send parts of your
+              journal, and ask for your agreement first. They send:
             </li>
           </ul>
           <ul className="consent-list">
@@ -148,7 +148,7 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
               stops at once.
             </li>
             <li>
-              Find patterns and the coach send nothing from your journal until you agree to that
+              Find patterns and Ask Health send nothing from your journal until you agree to that
               separately. The first time, you are shown exactly what would be sent and can
               decline.
             </li>

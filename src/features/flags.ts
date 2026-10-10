@@ -8,44 +8,50 @@
  */
 
 /**
- * The AI coach and the adaptive workout program are PAUSED (2026-08-04, owner
- * decision).
+ * The adaptive workout program is PAUSED (2026-08-14, owner decision; shipped
+ * in 1.21.0).
  *
  * Conjure Health is shipping as a focused weight-loss + nutrition tracker so
- * there's a product to put in front of people. The coaching and workout work is
- * not cancelled and not deleted — it is switched off at the surface.
+ * there's a product to put in front of people. The workout work is not
+ * cancelled and not deleted: it is switched off at the surface.
+ *
+ * The AI coach paused alongside it was REMOVED from Health on 2026-10-10
+ * (owner decision): coaching is a Conjure Fitness feature. Health's own AI
+ * conversation is Ask Health (features/ask), which this flag does not touch.
  *
  * ## What this flag hides when false
  * - The Workouts tab and the built-in workout library
- * - The Coach chat tab and the Plan tab's coach launcher
- * - The evening "how did your day go?" check-in banner + sheet
  * - The Plan tab's program section (assigned workouts + benchmark progress)
- * - The plan wizard's mode picker — plans are forced to `eat_better`
+ * - The plan wizard's mode picker: plans are forced to `eat_better`
  * - The plan wizard's "Any injuries to work around?" question (2026-10-08,
  *   owner decision). Plans built while paused record `safety.injuries: []`
  *   (`intakeInjuries`), so no avoid-list reaches the plan prompt.
- * - The coach/workout rows in Settings → Reset health data
+ * - The workout row in Settings, Reset health data
  *
  * ## What deliberately stays on
  * - **Apple Health / wearable exercise calories.** They adjust the day's
  *   calorie budget, which makes them a nutrition feature. The ring's Exercise
  *   row still opens a list of the day's workouts so those numbers can be
- *   corrected or removed — see `WorkoutsScreen`'s `exerciseOnly` mode.
+ *   corrected or removed: see `WorkoutsScreen`'s `exerciseOnly` mode.
  * - **The `logWorkout` cross-app action**, for the same reason: an assistant or
  *   wearable logging a burn still has to reach the calorie budget.
  * - **All stored data.** Existing plans keep their `program` and the
  *   `safety.injuries` they recorded (which still guard that program), and
- *   `coach.json` / session history are untouched on disk. Nothing migrates,
- *   nothing is wiped.
- * - **All the paused code and its tests**, so it keeps compiling and can't rot
- *   silently while it's switched off.
+ *   session history is untouched on disk. Nothing migrates, nothing is wiped.
+ *   `coach.json`, the removed coach's memory, also stays on disk unread; the
+ *   "Current plan" row (and so "Clear all history") wipes it.
+ * - **All the paused workout code and its tests**, so it keeps compiling and
+ *   can't rot silently while it's switched off.
  *
  * ## Turning it back on
  * Set this to `true`. Everything above returns, including existing users'
- * programs, because no data was ever removed. Then re-check these, which are
- * the only things the flag does NOT restore on its own:
- *   1. `package.json` → `conjureos.description` + `promptSuggestions`, which
- *      were rewritten to describe a nutrition-only app.
+ * programs, because no data was ever deleted. Nothing else returns with it:
+ * the coach was removed from Health, and coaching belongs to Conjure Fitness.
+ * Then re-check these, which are the only things the flag does NOT restore on
+ * its own:
+ *   1. `package.json`: the top-level `description` and
+ *      `conjureos.promptSuggestions`, which were rewritten to describe a
+ *      nutrition-only app.
  *   2. The wizard's step numbering/titles, which assume a nutrition-only flow.
  *   3. The edit-mode wizard starts the injuries question empty instead of
  *      reloading `editPlan.safety.injuries`. Add that reload behind this flag;
@@ -58,5 +64,8 @@
  *      `DISCLOSURE_VERSION` moves: it versions the consent sheet's wording,
  *      which this line is not part of, and decd535 widened this line without
  *      a bump.
+ *   5. The workout runner ends on the calories-burned step and returns to the
+ *      list. Its old last step, a post-workout reflection, was part of the
+ *      removed coach and does not come back.
  */
-export const COACH_AND_WORKOUTS_ENABLED: boolean = false;
+export const WORKOUTS_ENABLED: boolean = false;

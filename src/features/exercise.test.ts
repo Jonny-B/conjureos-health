@@ -32,7 +32,6 @@ const session = (over: Partial<WorkoutSession> = {}): WorkoutSession => ({
   date: DATE,
   planned: [],
   actual: [],
-  reprompts: [],
   completedAt: `${DATE}T09:00:00Z`,
   caloriesBurned: 150,
   workoutName: "Full body",

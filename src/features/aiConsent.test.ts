@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Profile } from "../types";
 import {
+  DISCLOSURE_SENDS,
   DISCLOSURE_VERSION,
+  DISCLOSURE_WITHHOLDS,
   consentIsCurrent,
   hasAiJournalConsent,
   readAiJournalConsent,
@@ -81,6 +83,26 @@ describe("re-wording the disclosure re-asks", () => {
     };
     expect(await hasAiJournalConsent()).toBe(false);
     expect(consentIsCurrent((stored as Profile).aiJournalConsent)).toBe(false);
+  });
+});
+
+/**
+ * The ask path's line names it by the name a person sees: Ask Health. That
+ * name replaced "asking the coach" on the same path (same fields, same
+ * windows, same entry points), so the wording version did not move and
+ * existing agreements still cover what is sent. See the note on
+ * DISCLOSURE_VERSION before changing either half of this.
+ */
+describe("the disclosure names Ask Health", () => {
+  it("names Ask Health for the ask path, and names no coach", () => {
+    const lines = [...DISCLOSURE_SENDS, ...DISCLOSURE_WITHHOLDS];
+    expect(lines).toContain("Ask Health: today in full, plus daily totals from the 2 days before");
+    expect(lines).toContain("Ask Health: anything from more than 2 days before today");
+    for (const line of lines) expect(line).not.toMatch(/coach/i);
+  });
+
+  it("stays on the wording version agreements were given under", () => {
+    expect(DISCLOSURE_VERSION).toBe(2);
   });
 });
 

@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { Plan, Profile, WorkoutProgram } from "../../types";
 import { getRepository, __resetRepository } from "../../data/repository";
-import { applyCoachPlanChange, commitNewPlan, decidePlanEdit, modifyPlanInPlace } from "./planService";
-import { macrosForCalories, recommendGoals } from "../goals";
+import { commitNewPlan, decidePlanEdit, modifyPlanInPlace } from "./planService";
 
 // A user who filled in the cog (real body stats) BEFORE ever making a plan.
 const cogProfile: Profile = {
@@ -169,48 +168,5 @@ describe("modifyPlanInPlace", () => {
       { currentProfile: cur, currentGoals: { calories: 0, protein: 0, carbs: 0, fat: 0 } },
     );
     expect(res.plan.targets?.dailyCalories ?? null).toBeNull();
-  });
-});
-
-// ── Coach-driven plan-level changes ────────────────────────────────────
-describe("applyCoachPlanChange", () => {
-  beforeEach(() => __resetRepository());
-  const goals = { calories: 2100, protein: 150, carbs: 200, fat: 70 };
-
-  it("changes goal weight → updates profile + direction and recomputes the calorie target", async () => {
-    const res = await applyCoachPlanChange(plan, cogProfile, goals, {
-      summary: "Lower goal weight to 74 kg",
-      goalWeightKg: 74,
-    });
-    expect(res).not.toBeNull();
-    expect(res!.profile?.goalWeightKg).toBe(74);
-    expect(res!.profile?.direction).toBe("lose"); // 74 < 85
-    const expected = recommendGoals({ ...cogProfile, goalWeightKg: 74, direction: "lose" }).calories;
-    expect(res!.plan.targets?.dailyCalories).toBe(expected);
-    const repo = await getRepository();
-    expect((await repo.getProfile())?.goalWeightKg).toBe(74); // persisted
-  });
-
-  it("sets an explicit daily calorie target with derived macros", async () => {
-    const res = await applyCoachPlanChange(plan, cogProfile, goals, {
-      summary: "Bump calories to 2400",
-      dailyCalories: 2400,
-    });
-    expect(res!.plan.targets?.dailyCalories).toBe(2400);
-    expect(res!.plan.targets).toMatchObject(macrosForCalories(2400, cogProfile.weightKg));
-  });
-
-  it("moves the plan end date", async () => {
-    const res = await applyCoachPlanChange(plan, cogProfile, goals, {
-      summary: "Extend to Aug 20",
-      endDate: "2026-08-20",
-    });
-    expect(res!.plan.endDate).toBe("2026-08-20");
-    expect(res!.plan.id).toBe(plan.id);
-  });
-
-  it("returns null when nothing valid is provided", async () => {
-    const res = await applyCoachPlanChange(plan, cogProfile, goals, { summary: "noop" });
-    expect(res).toBeNull();
   });
 });
