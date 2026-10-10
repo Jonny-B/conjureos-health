@@ -4255,6 +4255,11 @@ input[type="date"].text-input {
 .privacy-block p {
   margin: 0;
 }
+/* Withdraw, the policy and withdraw-collection are `btn small` (about 30px on
+   padding and font alone); they get the 44px target their neighbours have. */
+.privacy-block .btn {
+  min-height: 44px;
+}
 .policy-body h3 {
   font-size: 14px;
   font-weight: 700;

@@ -28,6 +28,12 @@ import { WORKOUTS_ENABLED } from "../features/flags";
  * widens the policy without editing this file: move this date to the release
  * that turns them on (flags.ts, "Turning it back on", item 4).
  * HealthDataPolicy.test.tsx fails until it is later than 2026-10-08.
+ *
+ * A wording edit that changes nothing sent and names nothing the policy did
+ * not already name is not material and leaves this date (and
+ * DISCLOSURE_VERSION) alone. The withdraw line under "Your choices and
+ * rights" naming Find patterns and Ask Health instead of "analysis" is one:
+ * both were already named two lines above it, and withdrawing stopped both.
  */
 export const POLICY_UPDATED = "2026-10-08";
 
@@ -156,8 +162,9 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
               The free-text note on a symptom is a separate choice, off unless you turn it on.
             </li>
             <li>
-              You can withdraw that agreement at any time in Settings, under Privacy. Future
-              analysis stops immediately. Withdrawing cannot recall something already sent.
+              You can withdraw that agreement at any time in Settings, under Privacy. Find
+              patterns and Ask Health stop sending anything from your journal at once.
+              Withdrawing cannot recall something already sent.
             </li>
             <li>
               You can delete your journal, all of it or one kind at a time, in Settings, under

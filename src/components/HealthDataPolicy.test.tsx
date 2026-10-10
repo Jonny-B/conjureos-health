@@ -72,3 +72,35 @@ describe("health data policy, plan building", () => {
     }
   });
 });
+
+/** The policy's "Your choices and rights" list, as a reader sees it. */
+async function choicesText(): Promise<string> {
+  const { HealthDataPolicy } = await import("./HealthDataPolicy");
+  const html = renderToStaticMarkup(<HealthDataPolicy onClose={() => {}} />);
+  const section = /<h3>Your choices and rights<\/h3>(.*?)<h3>/s.exec(html)?.[1];
+  expect(section).toBeDefined();
+  return section!.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+describe("health data policy, withdrawing the journal agreement", () => {
+  // One agreement covers Find patterns and Ask Health. "Analysis" describes
+  // only Find patterns, so a withdraw line that says analysis stops leaves an
+  // Ask Health user unsure whether their questions still send their journal.
+  // The consent sheet says it of both; the policy says the same.
+  it("says withdrawing stops both features sending, not only analysis", async () => {
+    const text = await choicesText();
+    expect(text).not.toMatch(/future analysis/i);
+    expect(text).toContain(
+      "You can withdraw that agreement at any time in Settings, under Privacy. Find patterns " +
+        "and Ask Health stop sending anything from your journal at once. Withdrawing cannot " +
+        "recall something already sent.",
+    );
+  });
+
+  it("keeps the choices list inside the copy rules", async () => {
+    const text = await choicesText();
+    expect(text).not.toMatch(/—/);
+    expect(text).not.toMatch(/\b(now|no longer|yet)\b/i);
+    expect(text).not.toMatch(/coach/i);
+  });
+});

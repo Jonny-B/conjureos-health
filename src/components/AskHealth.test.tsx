@@ -66,19 +66,24 @@ describe("Ask Health sheet", () => {
  * text fields sit at about 42px on padding and font alone, so each one has to
  * say so; the buttons get it from `.sheet-foot .btn` or their own rule.
  */
+/** Whether some rule in styles.css gives exactly `selector` a 44px+ height. */
+async function tallRule(): Promise<(selector: string) => boolean> {
+  const css = (await import("../styles.css?raw")).default.replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+    selectors: m[1]!.split(",").map((s) => s.trim().replace(/\s+/g, " ")),
+    body: m[2]!,
+  }));
+  return (selector: string) =>
+    rules.some(
+      (r) =>
+        r.selectors.includes(selector) &&
+        /(^|[;\s])(min-)?height:\s*(4[4-9]|[5-9]\d)px/.test(r.body),
+    );
+}
+
 describe("Ask Health touch targets", () => {
   it("gives every input and button a 44px minimum", async () => {
-    const css = (await import("../styles.css?raw")).default.replace(/\/\*[\s\S]*?\*\//g, "");
-    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
-      selectors: m[1]!.split(",").map((s) => s.trim().replace(/\s+/g, " ")),
-      body: m[2]!,
-    }));
-    const tall = (selector: string) =>
-      rules.some(
-        (r) =>
-          r.selectors.includes(selector) &&
-          /(^|[;\s])(min-)?height:\s*(4[4-9]|[5-9]\d)px/.test(r.body),
-      );
+    const tall = await tallRule();
     for (const selector of [
       ".ask-input", // the card's question field
       ".ask-send", // the card's Ask button
@@ -88,5 +93,28 @@ describe("Ask Health touch targets", () => {
     ]) {
       expect(tall(selector), selector).toBe(true);
     }
+  });
+});
+
+/**
+ * Settings, under Privacy, is where a person withdraws the Ask Health and Find
+ * patterns agreement, opens the policy, and withdraws consent to collection.
+ * Those buttons are `btn small`, which is about 30px tall on padding and font
+ * alone, so the block gives them the 44px its neighbours (the reset rows, the
+ * journal's Find patterns) already have.
+ */
+describe("Settings privacy touch targets", () => {
+  it("gives the privacy block's buttons a 44px minimum", async () => {
+    const tall = await tallRule();
+    expect(tall(".privacy-block .btn"), ".privacy-block .btn").toBe(true);
+  });
+
+  it("puts every button in the privacy block on that rule", async () => {
+    const src = (await import("../screens/SettingsSheet.tsx?raw")).default;
+    const block = /<div className="privacy-block">([\s\S]*?)\n {10}<\/div>/.exec(src)?.[1];
+    expect(block).toBeDefined();
+    const buttons = [...block!.matchAll(/<button\b[^>]*className="([^"]*)"/g)].map((m) => m[1]!);
+    expect(buttons.length).toBeGreaterThanOrEqual(3);
+    for (const cls of buttons) expect(cls.split(" ")).toContain("btn");
   });
 });
