@@ -88,10 +88,14 @@ describe("re-wording the disclosure re-asks", () => {
 
 /**
  * The ask path's line names it by the name a person sees: Ask Health. That
- * name replaced "asking the coach" on the same path (same fields, same
- * windows, same entry points), so the wording version did not move and
- * existing agreements still cover what is sent. See the note on
+ * name replaced "asking the coach" on the same path, so the wording version
+ * did not move and existing agreements still cover it. See the note on
  * DISCLOSURE_VERSION before changing either half of this.
+ *
+ * This pins WORDING only. It is not evidence that the windows the lines
+ * describe are what gets sent: Find patterns also carries Ask Health's
+ * today-plus-2-days context, and later questions replay its range summary
+ * (ConjureOS #1163).
  */
 describe("the disclosure names Ask Health", () => {
   it("names Ask Health for the ask path, and names no coach", () => {

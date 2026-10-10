@@ -3456,7 +3456,7 @@ input[type="date"].text-input {
   30% { opacity: 0.9; transform: translateY(-3px); }
 }
 .chat-foot { gap: 8px; }
-.chat-foot .text-input { flex: 1 1 auto; min-width: 0; font-size: 16px; }
+.chat-foot .text-input { flex: 1 1 auto; min-width: 0; min-height: 44px; font-size: 16px; }
 .chat-foot .chat-send { flex: 0 0 auto; width: auto; padding: 10px 18px; }
 
 /* Wide screens: the sheet stops being a phone drawer and centres as a dialog. */

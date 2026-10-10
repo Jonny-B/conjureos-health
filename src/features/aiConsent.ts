@@ -41,10 +41,17 @@ import { getRepository } from "../data/repository";
  * the user's goal direction with no wording covering either).
  *
  * Not bumped for the 2026-10-10 rename of "asking the coach" to "Ask Health".
- * The same fields, the same windows and the same two entry points are
- * disclosed, and the old line always named exactly this path: the card it was
- * renamed from was titled "Ask your health coach". Nothing new is sent and
- * nothing new is named, so v2 agreements still cover what goes.
+ * The rename changed no code path: what is sent, and from which two entry
+ * points, is what it was under v2. The old line always named exactly this
+ * path: the card it was renamed from was titled "Ask your health coach".
+ * Nothing new is sent and nothing new is named, so v2 agreements still cover
+ * what goes.
+ *
+ * Known gap, older than the rename (ConjureOS #1163): Find patterns also
+ * carries Ask Health's today-plus-2-days context, and later Ask Health
+ * questions replay a Find patterns summary, so two withheld lines below are
+ * untrue of the code. Fixing the code to match keeps v2; rewording to
+ * match the code widens the disclosure and needs v3.
  */
 export const DISCLOSURE_VERSION = 2;
 

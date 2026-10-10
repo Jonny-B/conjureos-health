@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { viteSingleFile } from "vite-plugin-singlefile";
@@ -20,6 +21,13 @@ export default defineConfig(({ mode }) => {
       __APP_VERSION__: JSON.stringify(APP_VERSION),
     },
     plugins: [react(), ...(inline ? [viteSingleFile()] : [])],
+    test: {
+      // Tests read styles.css as text (`?raw`) to hold it to the app's rules:
+      // 44px touch targets, and no copy or class naming the removed coach.
+      // Vitest blanks any CSS it is not told to process, raw imports included,
+      // so without this those checks read an empty string and passed on nothing.
+      css: { include: [/styles\.css/] },
+    },
     server: {
       port: 5181,
       strictPort: false,

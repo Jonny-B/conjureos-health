@@ -79,7 +79,7 @@ export async function resolveExplainer(
   }
 }
 
-/** Persist a user-authored/edited explainer; it wins over trainer + AI. */
+/** Persist a user-authored/edited explainer; it wins over the AI one. */
 /** Throws when the write fails, so the caller can tell the user. */
 export async function saveUserExplainer(explainer: ExerciseExplainer): Promise<void> {
   await writeJsonOrThrow(userPath(explainer.exerciseKey), {

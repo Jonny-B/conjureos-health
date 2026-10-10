@@ -67,5 +67,12 @@
  *   5. The workout runner ends on the calories-burned step and returns to the
  *      list. Its old last step, a post-workout reflection, was part of the
  *      removed coach and does not come back.
+ *   6. The program adapts and progresses on recorded sessions alone. The
+ *      engine still takes a `preferences` block (the user's dislikes and
+ *      constraints) in `calibrateToBenchmark`, `maybeAdapt` and
+ *      `advanceToNextGroup`, which feeds `buildAnalysisPrompt`. Its only
+ *      source was the removed coach's memory and reflections, so planService
+ *      passes none, and turning workouts on gives a person no way to say "no
+ *      burpees" or "I work nights". Decide whether to add one before reviving.
  */
 export const WORKOUTS_ENABLED: boolean = false;

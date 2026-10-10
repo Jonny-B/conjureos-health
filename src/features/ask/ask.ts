@@ -25,12 +25,21 @@ export interface AskChatItem {
 }
 
 /**
- * Where the conversation is stored. The name predates Ask Health and stays:
- * renaming the file would orphan every existing user's questions. Older
- * versions may have left extra fields on a turn here; only `role` and
- * `content` are read.
+ * Where the conversation is stored: a file of Ask Health's own.
+ *
+ * Older versions kept the questions asked in-app in `coach-chat.json`, a file
+ * the removed coach's chat wrote to as well. Its replies are still in there
+ * for anyone who used it: plan changes it offered or made, and copy naming
+ * the removed coach. Nothing on a turn records which feature wrote it, so no
+ * filter can pick them out. Showing that file under "Ask Health", or sending
+ * it to the model as Ask Health's own earlier replies, would keep the
+ * removed coach talking. So Ask Health never reads `coach-chat.json`.
+ *
+ * Nothing deletes a user's stored data for them: `coach-chat.json` stays on
+ * disk, and Settings, Reset health data, "Ask Health" clears it along with
+ * this file (features/resetData.ts).
  */
-const CHAT_PATH = "coach-chat.json";
+const ASK_CHAT_PATH = "ask-health.json";
 
 /** Turns kept on disk. Old turns fall off the top; the cap keeps the doc small
  *  enough to stay cheap to read on every home render. */
@@ -146,13 +155,13 @@ async function askContext(): Promise<string> {
 
 /** Read the stored conversation, oldest first. Never throws. */
 export async function loadAskHistory(): Promise<AskChatItem[]> {
-  const raw = await readJson<AskChatItem[]>(CHAT_PATH, []).catch(() => []);
+  const raw = await readJson<AskChatItem[]>(ASK_CHAT_PATH, []).catch(() => []);
   return Array.isArray(raw) ? raw : [];
 }
 
 /** Persist the conversation, trimmed to the most recent MAX_STORED turns. */
 export async function saveAskHistory(items: AskChatItem[]): Promise<void> {
-  await writeJson(CHAT_PATH, items.slice(-MAX_STORED)).catch(() => {});
+  await writeJson(ASK_CHAT_PATH, items.slice(-MAX_STORED)).catch(() => {});
 }
 
 /**

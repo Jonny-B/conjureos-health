@@ -357,8 +357,8 @@ export interface Exercise {
 
 /**
  * How-to / muscles-worked / useful-data for an exercise. Resolved by
- * `exerciseKey` from a layered source: the user's own VFS note first, then a
- * trainer/DB entry (when trainers exist), then an AI-generated + cached one.
+ * `exerciseKey` from two layers: the user's own VFS note first, then an
+ * AI-generated one, cached (features/explainers/resolve.ts).
  */
 export interface ExerciseExplainer {
   exerciseKey: string;

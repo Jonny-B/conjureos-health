@@ -192,7 +192,8 @@ function fmtSet(s: { reps?: number; weightKg?: number; durationSec?: number; rpe
  * constraints, so progression/adaptation can respect them and not just the raw
  * numbers. Health supplies none: the memory that used to fill it belonged to
  * the coach, which lives in Conjure Fitness. The hook stays with the rest of
- * the paused workout engine, prompts unchanged.
+ * the paused workout engine, prompts unchanged; item 6 of the revival
+ * checklist in features/flags.ts says so before workouts return.
  */
 export function buildAnalysisPrompt(
   program: WorkoutProgram,

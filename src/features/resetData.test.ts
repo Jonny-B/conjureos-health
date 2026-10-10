@@ -52,6 +52,7 @@ describe("clearAllHistories", () => {
     }
     // The VFS-backed slices go too.
     expect(calls).toContain("rm:coach.json");
+    expect(calls).toContain("rm:ask-health.json");
     expect(calls).toContain("rm:coach-chat.json");
     expect(calls).toContain("rm:plan-archive.json");
     expect(calls).toContain("rm:food-cache.json");
@@ -65,10 +66,11 @@ describe("clearAllHistories", () => {
 });
 
 /**
- * Older versions kept a trainer's memory in `coach.json` and the questions
- * asked in-app in `coach-chat.json`. Nothing reads the first any more, and
- * nothing deletes a user's stored data for them, so both stay on disk until
- * the user clears them here.
+ * Older versions kept the removed coach's memory in `coach.json`, and the
+ * questions asked in-app, with the removed coach's replies, in
+ * `coach-chat.json`. Nothing reads either any more (Ask Health keeps its own
+ * file), and nothing deletes a user's stored data for them, so both stay on
+ * disk until the user clears them here.
  */
 describe("stored files from older versions", () => {
   afterEach(() => {
@@ -76,13 +78,14 @@ describe("stored files from older versions", () => {
     vi.resetModules();
   });
 
-  it("offers Ask Health as its own row, and it clears the stored conversation", async () => {
+  it("offers Ask Health as its own row, and it clears both conversation files", async () => {
     const { clearHistory } = await import("./resetData");
     const row = HISTORY_ITEMS.find((i) => i.kind === "askHealth");
     expect(row?.label).toBe("Ask Health");
     expect(row?.desc).toMatch(/Find patterns/);
     await clearHistory("askHealth");
-    expect(calls).toEqual(["rm:coach-chat.json"]);
+    // Ask Health's own file, and the older one it never reads.
+    expect(calls).toEqual(["rm:ask-health.json", "rm:coach-chat.json"]);
   });
 
   it.each([false, true])(

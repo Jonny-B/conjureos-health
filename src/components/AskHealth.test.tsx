@@ -60,3 +60,33 @@ describe("Ask Health sheet", () => {
     }
   });
 });
+
+/**
+ * Every control on the card and in its sheet is at least 44px tall. The
+ * text fields sit at about 42px on padding and font alone, so each one has to
+ * say so; the buttons get it from `.sheet-foot .btn` or their own rule.
+ */
+describe("Ask Health touch targets", () => {
+  it("gives every input and button a 44px minimum", async () => {
+    const css = (await import("../styles.css?raw")).default.replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+      selectors: m[1]!.split(",").map((s) => s.trim().replace(/\s+/g, " ")),
+      body: m[2]!,
+    }));
+    const tall = (selector: string) =>
+      rules.some(
+        (r) =>
+          r.selectors.includes(selector) &&
+          /(^|[;\s])(min-)?height:\s*(4[4-9]|[5-9]\d)px/.test(r.body),
+      );
+    for (const selector of [
+      ".ask-input", // the card's question field
+      ".ask-send", // the card's Ask button
+      ".chat-sheet .sheet-head .icon-btn", // the sheet's close button
+      ".chat-foot .text-input", // the sheet's follow-up field
+      ".sheet-foot .btn", // the sheet's Send button
+    ]) {
+      expect(tall(selector), selector).toBe(true);
+    }
+  });
+});

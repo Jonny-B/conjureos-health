@@ -8,9 +8,10 @@
  * aren't histories.
  *
  * Nothing here runs on its own: a user's stored data is only ever deleted by
- * the user, from these rows. That includes `coach.json`, the trainer memory
- * older versions wrote. Nothing reads it, and the "Current plan" row (and so
- * "Clear all history") removes it.
+ * the user, from these rows. That includes the files the removed coach left:
+ * `coach.json`, its memory, which the "Current plan" row removes, and
+ * `coach-chat.json`, which the "Ask Health" row removes. Nothing reads
+ * either, and "Clear all history" removes both.
  *
  * Every clear is best-effort per store (a failure in one store never blocks
  * the others) and idempotent — clearing an already-empty history is a no-op.
@@ -81,9 +82,12 @@ export async function clearHistory(kind: HistoryKind): Promise<void> {
       await repo.clearSymptoms().catch(() => {});
       return;
     case "askHealth":
-      // The Ask Health conversation, from the home card and Find patterns.
-      // The file keeps the name it had before the rename, so existing
-      // conversations still load (see features/ask/ask.ts).
+      // The Ask Health conversation, from the home card and Find patterns,
+      // and `coach-chat.json`, where older versions kept the questions asked
+      // in-app. Ask Health never reads that file, since it also holds the
+      // removed coach's replies (see features/ask/ask.ts), and this row is
+      // how a user wipes it.
+      await rm("ask-health.json");
       await rm("coach-chat.json");
       return;
     case "planHistory":
@@ -94,7 +98,7 @@ export async function clearHistory(kind: HistoryKind): Promise<void> {
       // removed the archive — so a user who cleared everything still landed on
       // the Plan tab with their old plan intact.
       await repo.clearPlan().catch(() => {});
-      // `coach.json` is the trainer memory older versions kept: plan notes,
+      // `coach.json` is the memory the removed coach kept: plan notes,
       // a narrative ABOUT the plan, so it goes with the plan. Nothing reads
       // it and it has no row of its own, so this is how a user wipes it,
       // always, whatever the workouts flag says. The Ask Health conversation

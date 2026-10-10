@@ -204,21 +204,59 @@ describe("askHealth", () => {
     expect(back[39]!.content).toBe("q49");
   });
 
-  it("reads the history older versions saved, from the same file", async () => {
-    // The file name predates the rename. Moving it would orphan every
-    // existing user's questions, so Ask Health reads and writes it as is.
-    files["coach-chat.json"] = JSON.stringify([
-      { role: "user", content: "is oat milk better than dairy?" },
-      { role: "assistant", content: "Depends what you want from it." },
-    ]);
+  it("keeps its conversation in a file of its own", async () => {
     const { loadAskHistory, saveAskHistory } = await import("./ask");
-    const back = await loadAskHistory();
-    expect(back.map((m) => m.content)).toEqual([
-      "is oat milk better than dairy?",
-      "Depends what you want from it.",
-    ]);
-    await saveAskHistory([...back, { role: "user", content: "and soy?" }]);
-    expect(JSON.parse(files["coach-chat.json"]!)).toHaveLength(3);
+    await saveAskHistory([{ role: "user", content: "and soy?" }]);
+    expect(JSON.parse(files["ask-health.json"]!)).toEqual([{ role: "user", content: "and soy?" }]);
+    expect(await loadAskHistory()).toEqual([{ role: "user", content: "and soy?" }]);
+  });
+});
+
+/**
+ * `coach-chat.json` is where older versions kept the questions asked in-app,
+ * and the removed coach's chat wrote its replies to the same file: offers to
+ * change the plan, changes it made, and copy that names it. Nothing on a turn
+ * says which feature wrote it. Ask Health must neither show those turns nor
+ * send them to the model as its own, and must not delete the file either.
+ */
+describe("the older conversation file", () => {
+  const OLD_TURNS = [
+    { role: "user", content: "can you make my plan easier?" },
+    {
+      role: "assistant",
+      content: "Your coach needs the ConjureOS AI service, which isn't available right now.",
+    },
+    { role: "user", content: "set my goal to 74 kg" },
+    { role: "assistant", content: "Done, I set your goal weight to 74 kg." },
+    {
+      role: "assistant",
+      content: "Want me to lower your daily calories?",
+      proposal: { type: "single", question: "Lower to 1,900?", options: ["Yes", "No"] },
+      answered: false,
+    },
+  ];
+
+  it("is not shown as Ask Health's history", async () => {
+    files["coach-chat.json"] = JSON.stringify(OLD_TURNS);
+    const { loadAskHistory } = await import("./ask");
+    expect(await loadAskHistory()).toEqual([]);
+  });
+
+  it("is not sent to the model as earlier turns", async () => {
+    files["coach-chat.json"] = JSON.stringify(OLD_TURNS);
+    const { askHealth, loadAskHistory } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    await askHealth("is rice filling?", await loadAskHistory());
+    const sent = sentRequest().messages.map((m) => m.content);
+    expect(sent).toEqual(["is rice filling?"]);
+  });
+
+  it("stays on disk, untouched, when Ask Health saves", async () => {
+    const before = JSON.stringify(OLD_TURNS);
+    files["coach-chat.json"] = before;
+    const { saveAskHistory } = await import("./ask");
+    await saveAskHistory([{ role: "user", content: "is rice filling?" }]);
+    expect(files["coach-chat.json"]).toBe(before);
   });
 });
 

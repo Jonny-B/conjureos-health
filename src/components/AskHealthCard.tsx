@@ -108,6 +108,7 @@ export function AskHealthCard({ onAsk }: { onAsk: (question: string) => void }) 
       </section>
       {pending !== null && (
         <AiConsentSheet
+          purpose="ask"
           onCancel={() => setPending(null)}
           onAccept={async (includeNotes) => {
             // Persist BEFORE disclosing: same contract as JournalScreen's
