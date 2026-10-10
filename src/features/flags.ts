@@ -47,8 +47,8 @@
  * Set this to `true`. Everything above returns, including existing users'
  * programs, because no data was ever deleted. Nothing else returns with it:
  * the coach was removed from Health, and coaching belongs to Conjure Fitness.
- * Then re-check these, which are the only things the flag does NOT restore on
- * its own:
+ * Then re-check these. They are the gaps known when the coach was removed, not
+ * a promise that nothing else needs a look:
  *   1. `package.json`: the top-level `description` and
  *      `conjureos.promptSuggestions`, which were rewritten to describe a
  *      nutrition-only app.
@@ -56,14 +56,25 @@
  *   3. The edit-mode wizard starts the injuries question empty instead of
  *      reloading `editPlan.safety.injuries`. Add that reload behind this flag;
  *      while paused it would copy old injuries into new food-only plans.
- *   4. `POLICY_UPDATED` in components/HealthDataPolicy.tsx. The health data
- *      policy's plan-build line (`PLAN_BUILD_SENDS`) reads this flag and
- *      widens to name training experience and the injury avoid-list, so set
- *      the date to the release that turns workouts on (HealthDataPolicy.test.tsx
- *      fails until it is later than 2026-10-08). Also decide whether
- *      `DISCLOSURE_VERSION` moves: it versions the consent sheet's wording,
- *      which this line is not part of, and decd535 widened this line without
- *      a bump.
+ *   4. Every place that lists what Health sends to an AI. Workouts add AI
+ *      calls of their own: the program's calibration, adaptation and
+ *      next-group progression (plan/analyze.ts, plan/groups.ts) send recorded
+ *      sessions and benchmark results, and the burn estimate's AI fallback
+ *      (features/calories.ts) sends the workout, age and sex.
+ *      - The health data policy (components/HealthDataPolicy.tsx) reads this
+ *        flag: `PLAN_BUILD_SENDS` widens to name training experience and the
+ *        injury avoid-list, and `WorkoutSends` adds a line for each of those
+ *        calls. Check all three against the code as it stands, then set
+ *        `POLICY_UPDATED` to the release that turns workouts on
+ *        (HealthDataPolicy.test.tsx fails until it is later than 2026-10-08).
+ *        Also decide whether `DISCLOSURE_VERSION` moves: it versions the
+ *        consent sheet's wording, which none of these lines is part of, and
+ *        decd535 widened the plan-build line without a bump.
+ *      - These do NOT read the flag and name only plan building and food
+ *        logging: `CONSENT_BODY` (features/healthConsentCopy.ts; a material
+ *        change bumps `HEALTH_CONSENT_VERSION`), the Settings privacy
+ *        paragraph, and section 3C of the ConjureOS privacy policy
+ *        (ConjureOS public/privacy.html).
  *   5. The workout runner ends on the calories-burned step and returns to the
  *      list. Its old last step, a post-workout reflection, was part of the
  *      removed coach and does not come back.

@@ -64,7 +64,8 @@ describe("health data policy, plan building", () => {
     if (WORKOUTS_ENABLED) {
       expect(
         POLICY_UPDATED > PAUSED_WORDING_DATE,
-        `Workouts are on, so the policy names training experience and the injury avoid-list. ` +
+        `Workouts are on, so the policy names training experience, the injury avoid-list, and ` +
+          `what the workout program and the burn estimate send. ` +
           `Move POLICY_UPDATED (${POLICY_UPDATED}) to this release's date (flags.ts, item 4).`,
       ).toBe(true);
     } else {
@@ -102,5 +103,56 @@ describe("health data policy, withdrawing the journal agreement", () => {
     expect(text).not.toMatch(/—/);
     expect(text).not.toMatch(/\b(now|no longer|yet)\b/i);
     expect(text).not.toMatch(/coach/i);
+  });
+});
+
+/** The policy's "When it leaves" section, as a reader sees it. */
+async function whenItLeavesText(): Promise<string> {
+  const { HealthDataPolicy } = await import("./HealthDataPolicy");
+  const html = renderToStaticMarkup(<HealthDataPolicy onClose={() => {}} />);
+  const section = /<h3>When it leaves<\/h3>(.*?)<h3>/s.exec(html)?.[1];
+  expect(section).toBeDefined();
+  return section!
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&#x27;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+describe("health data policy, what workouts send", () => {
+  // Workouts make two kinds of AI call of their own: the program's calibration,
+  // adaptation and next-group progression (plan/analyze.ts, plan/groups.ts send
+  // recorded sessions and benchmark results), and the burn estimate's AI
+  // fallback (features/calories.ts sends the workout, age and sex). The policy
+  // has to name both the moment the flag lets them run.
+  it("names the workout program's and the burn estimate's sends once workouts are back", async () => {
+    withWorkouts(true);
+    const text = await whenItLeavesText();
+    expect(text).toContain(
+      "Finishing a workout in your program , or starting its next group of workouts, can send " +
+        "the exercises in your program, your benchmark results, and what you recorded in recent " +
+        "workouts: the dates, sets, reps, weights, times and distances, and how hard each set felt.",
+    );
+    expect(text).toContain(
+      "Estimating the calories a workout burned , when your profile has no weight to work it out " +
+        "from, sends the workout's name and type, how long it took, the distance if there was " +
+        "one, and your age and sex.",
+    );
+  });
+
+  it("names neither while workouts are paused, since neither can run", async () => {
+    withWorkouts(false);
+    const text = await whenItLeavesText();
+    expect(text).not.toMatch(/Finishing a workout|benchmark|calories a workout burned/i);
+  });
+
+  it("keeps both wordings inside the copy rules", async () => {
+    for (const on of [false, true]) {
+      withWorkouts(on);
+      const text = await whenItLeavesText();
+      expect(text).not.toMatch(/—/);
+      expect(text).not.toMatch(/\b(now|no longer|yet)\b/i);
+      expect(text).not.toMatch(/coach/i);
+    }
   });
 });

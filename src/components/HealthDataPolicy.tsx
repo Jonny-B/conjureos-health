@@ -23,11 +23,11 @@ import { WORKOUTS_ENABLED } from "../features/flags";
 /**
  * Last material revision. Shown so a reader can tell what they agreed to.
  *
- * 2026-10-08 is the date of the PAUSED wording of `PLAN_BUILD_SENDS` below.
- * That line reads WORKOUTS_ENABLED, so turning workouts back on
- * widens the policy without editing this file: move this date to the release
- * that turns them on (flags.ts, "Turning it back on", item 4).
- * HealthDataPolicy.test.tsx fails until it is later than 2026-10-08.
+ * 2026-10-08 is the date of the PAUSED wording of "When it leaves" below.
+ * `PLAN_BUILD_SENDS` and the two workout lines read WORKOUTS_ENABLED, so
+ * turning workouts back on widens the policy without editing this file: move
+ * this date to the release that turns them on (flags.ts, "Turning it back on",
+ * item 4). HealthDataPolicy.test.tsx fails until it is later than 2026-10-08.
  *
  * A wording edit that changes nothing sent and names nothing the policy did
  * not already name is not material and leaves this date (and
@@ -49,6 +49,35 @@ export const PLAN_BUILD_SENDS = WORKOUTS_ENABLED
   ? "your goal in your own words, the plan length, your training experience, height, weight, " +
     "goal weight, age and sex, and, if you told us about an injury, a list of movements to avoid"
   : "your goal in your own words, the plan length, height, weight, goal weight, age and sex";
+
+/**
+ * The AI calls workouts make, which nothing reaches while they are paused, so
+ * the paused policy names neither. The program line matches
+ * `buildAnalysisPrompt` in plan/analyze.ts, sent by `calibrateToBenchmark`
+ * (after the first benchmark), `maybeAdapt` (every few finished workouts) and
+ * `advanceToNextGroup` in plan/groups.ts. The burn line matches `estimateViaAi`
+ * in features/calories.ts, which runs only when the profile has no weight for
+ * the MET formula, so the weight it carries is never a real one. Like
+ * `PLAN_BUILD_SENDS`, these must not go out under the paused wording's date.
+ */
+function WorkoutSends() {
+  if (!WORKOUTS_ENABLED) return null;
+  return (
+    <>
+      <li>
+        <strong>Finishing a workout in your program</strong>, or starting its next group of
+        workouts, can send the exercises in your program, your benchmark results, and what you
+        recorded in recent workouts: the dates, sets, reps, weights, times and distances, and
+        how hard each set felt. That is how the program adjusts to you.
+      </li>
+      <li>
+        <strong>Estimating the calories a workout burned</strong>, when your profile has no
+        weight to work it out from, sends the workout's name and type, how long it took, the
+        distance if there was one, and your age and sex.
+      </li>
+    </>
+  );
+}
 
 export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
   return (
@@ -100,6 +129,7 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
               nutrition label or the front of a package, sends the words or the photo you gave
               it.
             </li>
+            <WorkoutSends />
             <li>
               <strong>Find patterns</strong> and <strong>Ask Health</strong> send parts of your
               journal, and ask for your agreement first. They send:

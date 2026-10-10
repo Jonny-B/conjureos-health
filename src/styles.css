@@ -4230,16 +4230,21 @@ input[type="date"].text-input {
   overflow-wrap: anywhere;
   color: var(--muted);
 }
+/* The whole label is the tap target, so it carries the 44px: a one-line label
+   (Settings, Privacy: the symptom-notes opt-out) is about 19px on font alone. */
 .consent-toggle {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
+  min-height: 44px;
   font-size: 13px;
   line-height: 1.45;
   cursor: pointer;
 }
 .consent-toggle input {
-  margin-top: 2px;
+  width: 20px;
+  height: 20px;
+  margin: 0;
   flex: 0 0 auto;
 }
 .consent-foot .btn {

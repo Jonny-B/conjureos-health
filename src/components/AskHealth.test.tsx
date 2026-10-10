@@ -117,4 +117,37 @@ describe("Settings privacy touch targets", () => {
     expect(buttons.length).toBeGreaterThanOrEqual(3);
     for (const cls of buttons) expect(cls.split(" ")).toContain("btn");
   });
+
+  // The symptom-notes checkbox is the block's other control: it is how a
+  // person stops sending their notes to Find patterns and Ask Health. A
+  // one-line label is about 19px tall, so the label itself carries the 44px.
+  it("gives the symptom-notes checkbox a 44px minimum", async () => {
+    const tall = await tallRule();
+    expect(tall(".consent-toggle"), ".consent-toggle").toBe(true);
+  });
+
+  it("puts every checkbox label in the privacy block on that rule", async () => {
+    const src = (await import("../screens/SettingsSheet.tsx?raw")).default;
+    const block = /<div className="privacy-block">([\s\S]*?)\n {10}<\/div>/.exec(src)?.[1];
+    expect(block).toBeDefined();
+    const labels = [...block!.matchAll(/<label\b([^>]*)>/g)].map((m) => m[1]!);
+    expect(labels.length).toBeGreaterThanOrEqual(1);
+    for (const attrs of labels) expect(attrs).toMatch(/className="consent-toggle"/);
+  });
+});
+
+/**
+ * The consent sheet stands in front of the first Ask Health question and the
+ * first Find patterns run. Its only control besides the two footer buttons is
+ * the symptom-notes checkbox, held to the same 44px as the Settings one.
+ */
+describe("Ask Health consent sheet touch targets", () => {
+  it("puts the symptom-notes checkbox on the 44px rule", async () => {
+    const tall = await tallRule();
+    const src = (await import("./AiConsentSheet.tsx?raw")).default;
+    const labels = [...src.matchAll(/<label\b([^>]*)>/g)].map((m) => m[1]!);
+    expect(labels.length).toBeGreaterThanOrEqual(1);
+    for (const attrs of labels) expect(attrs).toMatch(/className="consent-toggle"/);
+    expect(tall(".consent-toggle"), ".consent-toggle").toBe(true);
+  });
 });
