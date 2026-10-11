@@ -28,27 +28,26 @@ export interface AskChatItem {
 /**
  * Where the conversation is stored: a file of Ask Health's own, the same one
  * Ask Health keeps on the main line, so a conversation carries across.
+ *
+ * Older versions kept the questions asked in-app in `coach-chat.json`, a file
+ * the removed trainer's chat wrote to as well. Its replies can still be in
+ * there for anyone who used it: plan changes it offered or made, and copy
+ * naming the removed coach. Nothing on a turn records which feature wrote it,
+ * so no filter can pick them out. Showing that file under "Ask Health", or
+ * sending it to the model as Ask Health's own earlier replies, would keep the
+ * removed coach talking. So Ask Health never reads `coach-chat.json`.
+ *
+ * What that costs: the questions a person asked on the dev line before the
+ * rename were saved to that same file, so they do not show here either, and
+ * are not sent as earlier turns. They stay on disk with the rest of it.
+ * Telling them apart from the removed trainer's turns needs a marker the file
+ * does not have, so bringing them back is an owner call (STATUS.md).
+ *
+ * Nothing deletes a user's stored data for them: `coach-chat.json` stays on
+ * disk, and Settings, Reset health data, "Ask Health" clears it along with
+ * this file (features/resetData.ts).
  */
 const ASK_CHAT_PATH = "ask-health.json";
-
-/**
- * Where versions before the rename kept this conversation: the questions
- * asked from the home card and Find patterns, and their answers. It is the
- * user's own history, so it still shows: while Ask Health has no file of its
- * own, `loadAskHistory` reads this one instead, and the next save writes it
- * into `ASK_CHAT_PATH`, which is read from then on.
- *
- * The removed trainer's chat (taken out in 1.40.0) wrote to the same file,
- * so anyone who used it has those turns in there too, and they show here as
- * they did under the old name. Only `role` and `content` are read, as before
- * the rename; any other field on a turn stays on disk, unread.
- *
- * Nothing deletes a user's stored data for them: this file stays on disk,
- * unchanged, and Settings, Reset health data, "Ask Health" clears it along
- * with `ASK_CHAT_PATH` (features/resetData.ts), so a cleared conversation
- * does not come back from it.
- */
-const EARLIER_CHAT_PATH = "coach-chat.json";
 
 /** Turns kept on disk. Old turns fall off the top; the cap keeps the doc small
  *  enough to stay cheap to read on every home render. */
@@ -176,33 +175,10 @@ export async function askNeedsConsent(): Promise<boolean> {
   return !(await hasAiJournalConsent());
 }
 
-/** The turns in a stored file that can be shown and sent: `role` and
- *  `content` only, anything else skipped. */
-function storedTurns(raw: unknown): AskChatItem[] {
-  if (!Array.isArray(raw)) return [];
-  const turns: AskChatItem[] = [];
-  for (const t of raw as unknown[]) {
-    if (!t || typeof t !== "object") continue;
-    const { role, content } = t as { role?: unknown; content?: unknown };
-    if ((role === "user" || role === "assistant") && typeof content === "string") {
-      turns.push({ role, content });
-    }
-  }
-  return turns;
-}
-
-/**
- * Read the stored conversation, oldest first. Never throws.
- *
- * While Ask Health has no file of its own, this is the conversation kept
- * before the rename (see EARLIER_CHAT_PATH); the next `saveAskHistory` carries
- * it into Ask Health's file.
- */
+/** Read the stored conversation, oldest first. Never throws. */
 export async function loadAskHistory(): Promise<AskChatItem[]> {
-  const own = await readJson<unknown>(ASK_CHAT_PATH, null).catch(() => null);
-  if (own !== null) return storedTurns(own);
-  const earlier = await readJson<unknown>(EARLIER_CHAT_PATH, []).catch(() => []);
-  return storedTurns(earlier);
+  const raw = await readJson<AskChatItem[]>(ASK_CHAT_PATH, []).catch(() => []);
+  return Array.isArray(raw) ? raw : [];
 }
 
 /** Persist the conversation, trimmed to the most recent MAX_STORED turns. */

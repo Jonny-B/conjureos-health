@@ -42,13 +42,15 @@ import { getRepository } from "../data/repository";
  *
  * Not bumped for the 2026-10-10 rename of "asking the coach" to "Ask Health"
  * in the three lines below. The header rule asks for a bump on a MATERIAL
- * change, and this is not one: the rename changed no code path. What is sent
- * (today in full plus daily totals from the 2 days before, up to 25 food
- * names for today), what is withheld, and the two entry points that send it
- * (the home card, renamed from "Ask about food", and the conversation Find
- * patterns opens) are what they were under v2. The old lines always named
- * exactly this path, so nothing new is sent and nothing new is named, and v2
- * agreements still cover what goes. A bump would close the gate on every
+ * change, and this is not one. What is sent (today in full plus daily totals
+ * from the 2 days before, up to 25 food names for today), what is withheld,
+ * and the two entry points that send it (the home card, renamed from "Ask
+ * about food", and the conversation Find patterns opens) are what they were
+ * under v2. The one code change sends less, not more: the conversation moved
+ * to a file of its own, and the older `coach-chat.json`, which v2 replayed as
+ * earlier turns, is never read (features/ask/ask.ts). The old lines always
+ * named exactly this path, so nothing new is sent and nothing new is named,
+ * and v2 agreements still cover what goes. A bump would close the gate on every
  * agreed person over a label, and re-asking them to agree to the same
  * disclosure would authorize nothing new.
  *
