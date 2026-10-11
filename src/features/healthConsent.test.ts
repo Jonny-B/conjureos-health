@@ -26,6 +26,7 @@ import {
   recordHealthConsent,
   withdrawHealthConsent,
 } from "./healthConsent";
+import { CONSENT_BODY } from "./healthConsentCopy";
 
 beforeEach(() => {
   files.clear();
@@ -63,5 +64,25 @@ describe("consent to collect health data", () => {
     await withdrawHealthConsent();
     expect(healthConsentGranted()).toBe(false);
     expect(await loadHealthConsent()).toBe(false);
+  });
+});
+
+/**
+ * The gate's wording names Ask Health where it named the same feature as "the
+ * food coach". That rename is not a material change (see the note on
+ * HEALTH_CONSENT_VERSION), so agreements already given still count. Read that
+ * note before changing either half of this.
+ */
+describe("the gate's wording", () => {
+  it("names Ask Health behind its own agreement, and names no coach", () => {
+    const body = CONSENT_BODY.join(" ");
+    expect(body).toContain(
+      "Find patterns and Ask Health ask for a separate agreement before they send anything.",
+    );
+    expect(body).not.toMatch(/coach|ask about food/i);
+  });
+
+  it("stays on the version agreements were given under", () => {
+    expect(HEALTH_CONSENT_VERSION).toBe(1);
   });
 });

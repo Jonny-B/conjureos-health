@@ -189,14 +189,19 @@ describe("what the orchestrator can reach", () => {
     expect(Object.keys(actions).sort()).toEqual(declared);
   });
 
-  it("does not expose consent, the pattern-finder, the coach, bulk clears, or goal writes", () => {
-    // These are refusals, not omissions. See the header of actions.ts.
+  it("does not expose consent, the pattern-finder, Ask Health, a chat, bulk clears, or goal writes", () => {
+    // These are refusals, not omissions. See the header of actions.ts. Ask
+    // Health stays inside the app: apps never get a place in the shell's
+    // Chat (ConjureOS #513), and coaching is a Conjure Fitness feature.
     for (const forbidden of [
       "grantAiConsent",
       "setAiConsent",
       "findPatterns",
       "askPatterns",
+      "askHealth",
       "askCoach",
+      "coachChat",
+      "chat",
       "clearHistory",
       "clearAllHistories",
       "clearDiary",

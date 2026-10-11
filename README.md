@@ -31,6 +31,11 @@ Phase 8 bundler. **Open source app, private backend** — see below.
   - **Recipes** — pull a saved recipe from the [Recipes app](https://github.com/Jonny-B/conjureos-app-recipes)
     (cross-app actions) and log its per-serving macros, marking it cooked.
 - **Trends** — weight tracking with a trend sparkline + BMI.
+- **Ask Health**: the app's own AI Q&A about food and nutrition, answered
+  against what you have logged, from the home card or the journal's "Find
+  patterns". It answers and changes nothing, and asks for a separate agreement
+  before it sends any of your journal. (Coaching is a Conjure Fitness feature;
+  Health has no coach.)
 - **Exercise on the calorie ring** — calories burned go back into the day's
   budget: synced from Apple Health (or another wearable), logged by another app
   through `logWorkout`, or added by hand. The ring's Exercise row opens the
@@ -170,8 +175,8 @@ units, defaults and "pass X or Y" live in the description text. Conventions:
 | `deleteEntry({ kind, id })` | write | Remove ONE record the user logged by mistake - the undo for a double-log. |
 <!-- actions:end -->
 
-Deliberately not exposed: AI-journal consent, the pattern finder and the
-coach, bulk clears, goal / profile / plan writes, and symptom or sleep notes on
+Deliberately not exposed: AI-journal consent, the pattern finder and Ask
+Health, bulk clears, goal / profile / plan writes, and symptom or sleep notes on
 read. The header of `src/bridge/actions.ts` says why.
 
 Conjure Health also consumes data from other apps, through `needs` that

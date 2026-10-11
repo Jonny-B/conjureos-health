@@ -13,14 +13,14 @@ import {
   isEmptyDay,
   loadDayJournal,
   loadRangeJournal,
-  summarizeRange,
+  patternsQuestion,
   type DayJournal,
   type JournalEvent,
 } from "../features/journal";
 import { shiftDate, todayISO } from "../features/diary";
 import { fmtWater } from "../features/water";
 import { formatSleep } from "../features/sleep";
-import { CoachChatModal } from "../components/CoachChatModal";
+import { AskHealthSheet } from "../components/AskHealthSheet";
 import { AiConsentSheet } from "../components/AiConsentSheet";
 import {
   hasAiJournalConsent,
@@ -28,7 +28,7 @@ import {
   recordAiJournalConsent,
 } from "../features/aiConsent";
 import { JournalEntrySheet } from "../components/JournalEntrySheet";
-import { ChevronLeft, ChevronRight, CoachIcon } from "../components/icons";
+import { ChevronLeft, ChevronRight, DiamondIcon } from "../components/icons";
 
 type Units = Profile["units"];
 
@@ -116,20 +116,13 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
   ];
 
   /**
-   * Build the prompt and open the chat. Split out from the button so the
-   * consent sheet can call it on accept without duplicating the wording.
-   * Never call this without checking consent first — it is the step that
-   * performs the disclosure.
+   * Build the question and open Ask Health with it. Split out from the button
+   * so the consent sheet can call it on accept without duplicating the
+   * wording. Never call this without checking consent first: it is the step
+   * that performs the disclosure.
    */
   const runPatterns = (includeNotes: boolean) => {
-    const days = month ?? [];
-    const summary = summarizeRange(days, { includeNotes });
-    const range = `${from} to ${to}`;
-    setAsking(
-      summary
-        ? `Here is my journal for ${range}. What patterns do you notice — anything that seems to go together?\n\n${summary}`
-        : `I have nothing recorded for ${range} yet. What would be worth tracking to spot patterns?`,
-    );
+    setAsking(patternsQuestion(month ?? [], from, to, { includeNotes }));
   };
 
   const askPatterns = async () => {
@@ -164,7 +157,7 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
         </div>
         <div className="journal-actions">
           <button className="btn small" onClick={askPatterns}>
-            <CoachIcon size={15} /> Find patterns
+            <DiamondIcon size={15} /> Find patterns
           </button>
           <button className="btn small" onClick={() => setPrintOpen(true)}>
             Print
@@ -209,6 +202,7 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
       {printOpen && <PrintSheet defaultFrom={from} defaultTo={to} units={units} onClose={() => setPrintOpen(false)} />}
       {consenting && (
         <AiConsentSheet
+          purpose="patterns"
           onCancel={() => setConsenting(false)}
           onAccept={async (includeNotes) => {
             // Persist BEFORE disclosing. If the profile can't be written we
@@ -220,7 +214,7 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
           }}
         />
       )}
-      {asking !== null && <CoachChatModal initialQuestion={asking} onClose={() => setAsking(null)} />}
+      {asking !== null && <AskHealthSheet initialQuestion={asking} onClose={() => setAsking(null)} />}
       {editing && (
         <JournalEntrySheet
           event={editing}

@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { viteSingleFile } from "vite-plugin-singlefile";
@@ -23,6 +24,13 @@ export default defineConfig(({ mode }) => {
     // conjureFileMarkers: one @conjureos:file marker per source module, so the
     // ConjureOS Sandbox can fold and open this app per file (ConjureOS #998).
     plugins: [react(), conjureFileMarkers(), ...(inline ? [viteSingleFile()] : [])],
+    test: {
+      // Tests read styles.css as text (`?raw`) to hold it to the app's rules:
+      // 44px touch targets, and no copy or class naming a coach. Vitest blanks
+      // any CSS it is not told to process, raw imports included, so without
+      // this those checks would read an empty string and pass on nothing.
+      css: { include: [/styles\.css/] },
+    },
     server: {
       port: 5181,
       strictPort: false,

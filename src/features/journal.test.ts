@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { datesBetween, isEmptyDay, summarizeRange, type DayJournal } from "./journal";
+import { datesBetween, isEmptyDay, patternsQuestion, summarizeRange, type DayJournal } from "./journal";
 
 vi.mock("./exercise", () => ({ listCompletedWorkouts: async () => [] }));
 
@@ -57,6 +57,64 @@ describe("summarizeRange and symptom notes", () => {
   it("includes the note only when the user opted in", () => {
     const out = summarizeRange([withNote()], { includeNotes: true });
     expect(out).toContain("antibiotics");
+  });
+
+  it("sets an opted-in note apart without an em-dash", () => {
+    const out = summarizeRange([withNote()], { includeNotes: true });
+    expect(out).toMatch(/Heartburn at \d\d:\d\d \(3\/5\) \(note: after the antibiotics\)/);
+    expect(out).not.toContain("\u2014");
+  });
+});
+
+/**
+ * "Find patterns" opens the Ask Health sheet with this as the person's own
+ * message, saves it to the conversation, and sends it to the model as written,
+ * so it is held to the same copy rules as everything else Ask Health shows.
+ */
+describe("patternsQuestion", () => {
+  const symptomDay = (): DayJournal =>
+    day({
+      date: "2026-08-09",
+      events: [
+        {
+          id: "s1",
+          kind: "symptom",
+          label: "Heartburn",
+          detail: "3/5",
+          note: "after pizza",
+          at: Date.parse("2026-08-09T21:40:00.000Z"),
+          timed: true,
+          editable: true,
+        },
+        { id: "f1", kind: "food", label: "pizza", at: Date.parse("2026-08-09T19:00:00.000Z"), timed: true, editable: true },
+      ],
+      totals: { calories: 900, protein: 30, carbs: 0, fat: 0, waterMl: 0, exerciseKcal: 0,
+                sleepMinutes: 0, symptomCount: 1, foodCount: 1 },
+    });
+
+  function expectCopyRules(text: string) {
+    expect(text).not.toContain("\u2014");
+    expect(text).not.toMatch(/\b(now|no longer|yet)\b/i);
+  }
+
+  it("asks about the range and carries the summary, notes included when opted in", () => {
+    const q = patternsQuestion([symptomDay()], "2026-08-01", "2026-08-31", { includeNotes: true });
+    expect(q).toContain("Here is my journal for 2026-08-01 to 2026-08-31.");
+    expect(q).toContain("after pizza");
+    expect(q).toContain("ate: pizza");
+    expectCopyRules(q);
+  });
+
+  it("holds the note back when not opted in", () => {
+    const q = patternsQuestion([symptomDay()], "2026-08-01", "2026-08-31");
+    expect(q).not.toContain("after pizza");
+    expectCopyRules(q);
+  });
+
+  it("asks what to track when the range is empty", () => {
+    const q = patternsQuestion([day({ date: "2026-08-09" })], "2026-08-01", "2026-08-31");
+    expect(q).toBe("I have nothing recorded for 2026-08-01 to 2026-08-31. What would be worth tracking to spot patterns?");
+    expectCopyRules(q);
   });
 });
 

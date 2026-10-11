@@ -8,7 +8,7 @@
  * Nevada SB 370 is close enough that one gate serves both.
  *
  * This is separate from `aiConsent.ts`. That one authorizes sending part of
- * the journal to an AI (Find patterns, the coach) and stays its own opt-in;
+ * the journal to an AI (Find patterns, Ask Health) and stays its own opt-in;
  * this one authorizes keeping the journal at all.
  *
  * Stored as its own file in the app's VFS rather than on the profile, because
@@ -22,6 +22,18 @@
 
 import { readJson, writeJsonOrThrow } from "../bridge/vfs";
 
+/**
+ * Which wording of the gate (features/healthConsentCopy.ts) an agreement
+ * covers. Bump on a material change, per the note above.
+ *
+ * Not bumped on 2026-10-10, when "the food coach" in CONSENT_BODY was renamed
+ * "Ask Health". That sentence says Find patterns and Ask Health ask for a
+ * separate agreement before they send anything. It names the same feature
+ * by its new name, behind the same separate agreement (features/aiConsent.ts,
+ * whose own version holds for the same reason), and nothing new is collected,
+ * sent or named. A bump would send every agreed person back through this gate,
+ * with collection stopped until they agree again, over a label.
+ */
 export const HEALTH_CONSENT_VERSION = 1;
 const PATH = "health-consent.json";
 

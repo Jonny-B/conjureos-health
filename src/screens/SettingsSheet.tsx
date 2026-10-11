@@ -98,8 +98,8 @@ export function SettingsSheet({
             <p className="muted small">
               Your journal stays on your device and in your ConjureOS account. Building a plan
               and logging food from a description or photo send what they need to an AI.{" "}
-              <strong>Find patterns</strong> and the food coach also send part of your journal,
-              and only with the agreement below.
+              <strong>Find patterns</strong> and <strong>Ask Health</strong> also send part of
+              your journal, and only with the agreement below.
             </p>
             {consentIsCurrent(consent) ? (
               <>
@@ -132,7 +132,7 @@ export function SettingsSheet({
             ) : (
               <p className="muted small">
                 Nothing is sent. You will be asked, and shown exactly what would go, the first
-                time you use Find patterns.
+                time you use Find patterns or Ask Health.
               </p>
             )}
             <button className="btn small ghost" onClick={() => setPolicyOpen(true)}>

@@ -72,7 +72,7 @@ export function modeTracksFood(mode: PlanMode): boolean {
  *
  * False only for a `logging_only` plan: the mode the safety gate forces for
  * someone under 18, pregnant or postpartum, or with a heart condition. Those
- * users log food with no budget, so nothing — the diary, the coach, or another
+ * users log food with no budget, so nothing — the diary, Ask Health, or another
  * app reading through an action — may show them a target, a "remaining", or an
  * "over". Callers outside the app get this boolean and never the reason:
  * handing out the mode would tell them which of those applies.

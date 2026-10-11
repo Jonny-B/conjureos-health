@@ -1607,6 +1607,7 @@ html.modal-open .screen {
 }
 .sheet-foot .btn {
   flex: 1;
+  min-height: 44px;
 }
 .sheet-body {
   padding: 4px 16px 8px;
@@ -1934,7 +1935,7 @@ html.modal-open .screen {
   margin-bottom: 12px;
 }
 
-/* ── Home cards (Weight, Coach/Plan) ──────────────────────────────────── */
+/* ── Home cards (Weight, Plan, Ask Health) ────────────────────────────── */
 .home-card {
   display: block;
   width: 100%;
@@ -2001,23 +2002,23 @@ button.home-card:hover {
   font-size: 14px;
   padding: 8px 0 14px;
 }
-.coach-card-plan {
+.plan-card-plan {
   display: flex;
   align-items: baseline;
   gap: 6px;
   margin-bottom: 6px;
 }
-.coach-card-mode {
+.plan-card-mode {
   font-size: 15px;
   font-weight: 600;
 }
-.coach-card-goals {
+.plan-card-goals {
   margin: 0;
   padding-left: 18px;
   font-size: 13px;
   color: var(--muted);
 }
-.coach-card-goals li {
+.plan-card-goals li {
   margin: 1px 0;
 }
 
@@ -2387,6 +2388,7 @@ input[type="date"].text-input {
 .reset-btn {
   flex: 0 0 auto;
   min-width: 96px;
+  min-height: 44px;
   padding: 6px 10px;
   font-size: 12px;
 }
@@ -2554,8 +2556,9 @@ input[type="date"].text-input {
   min-height: 44px;
 }
 
-/* ── Ask about food ──────────────────────────────────────────────────────
-   The home card and its conversation sheet. */
+/* ── Ask Health ──────────────────────────────────────────────────────────
+   The home card and its conversation sheet. Every control here is at least
+   44px tall: the card sits on the home screen of a phone app. */
 .ask-row {
   display: flex;
   gap: 8px;
@@ -2564,6 +2567,7 @@ input[type="date"].text-input {
 .ask-input {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 44px;
   /* 16px keeps iOS Safari from zooming the viewport on focus. */
   font-size: 16px;
 }
@@ -2577,10 +2581,11 @@ input[type="date"].text-input {
 @keyframes ask-fade {
   from { opacity: 0; }
 }
-.ask-send { flex: 0 0 auto; width: auto; padding: 10px 18px; }
+.ask-send { flex: 0 0 auto; width: auto; min-height: 44px; padding: 10px 18px; }
 .ask-hint { margin-top: 8px; }
 
 .chat-sheet { height: 88vh; }
+.chat-sheet .sheet-head .icon-btn { width: 44px; height: 44px; }
 .chat-body {
   display: flex;
   flex-direction: column;
@@ -2624,7 +2629,7 @@ input[type="date"].text-input {
   30% { opacity: 0.9; transform: translateY(-3px); }
 }
 .chat-foot { gap: 8px; }
-.chat-foot .text-input { flex: 1 1 auto; min-width: 0; font-size: 16px; }
+.chat-foot .text-input { flex: 1 1 auto; min-width: 0; min-height: 44px; font-size: 16px; }
 .chat-foot .chat-send { flex: 0 0 auto; width: auto; padding: 10px 18px; }
 
 /* Wide screens: the sheet stops being a phone drawer and centres as a dialog. */
@@ -2964,6 +2969,7 @@ input[type="date"].text-input {
 .journal-actions { display: flex; gap: 8px; }
 .journal-actions .btn.small {
   width: auto;
+  min-height: 44px;
   padding: 8px 13px;
   font-size: 13px;
   display: inline-flex;
@@ -3397,16 +3403,21 @@ input[type="date"].text-input {
   overflow-wrap: anywhere;
   color: var(--muted);
 }
+/* The whole label is the tap target, so it carries the 44px: a one-line label
+   (Settings, Privacy: the symptom-notes opt-out) is about 19px on font alone. */
 .consent-toggle {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
+  min-height: 44px;
   font-size: 13px;
   line-height: 1.45;
   cursor: pointer;
 }
 .consent-toggle input {
-  margin-top: 2px;
+  width: 20px;
+  height: 20px;
+  margin: 0;
   flex: 0 0 auto;
 }
 .consent-foot .btn {
@@ -3421,6 +3432,11 @@ input[type="date"].text-input {
 .privacy-block .consent-toggle,
 .privacy-block p {
   margin: 0;
+}
+/* Withdraw, the policy and withdraw-collection are `btn small` (about 30px on
+   padding and font alone); they get the 44px target their neighbours have. */
+.privacy-block .btn {
+  min-height: 44px;
 }
 .policy-body h3 {
   font-size: 14px;

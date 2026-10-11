@@ -1,9 +1,10 @@
 /**
- * The conversation this app has been having about food, as a sheet.
+ * The Ask Health conversation, as a sheet.
  *
- * Opened by asking from the home card: the new question is already in flight
- * when the sheet appears, above the whole prior history, so a question always
- * lands somewhere with continuity rather than in a fresh empty box.
+ * Opened by asking from the home card, or by "Find patterns" in the journal:
+ * the new question is already in flight when the sheet appears, below the
+ * whole prior history, so a question always lands somewhere with continuity
+ * rather than in a fresh empty box.
  *
  * Reuses the `.sheet*` chrome (bottom sheet on a phone, centred and capped on a
  * wide screen) and the shared scroll lock, which is what stops an iOS drag from
@@ -11,11 +12,11 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { askCoach, loadAskHistory, saveAskHistory, type CoachChatItem } from "../features/coach/ask";
+import { askHealth, loadAskHistory, saveAskHistory, type AskChatItem } from "../features/ask/ask";
 import { useScrollLock } from "../hooks/useScrollLock";
 import { CloseIcon } from "./icons";
 
-export function CoachChatModal({
+export function AskHealthSheet({
   /** Question to send on open. Null when the sheet is opened to read back. */
   initialQuestion,
   onClose,
@@ -24,7 +25,7 @@ export function CoachChatModal({
   onClose: () => void;
 }) {
   useScrollLock();
-  const [items, setItems] = useState<CoachChatItem[] | null>(null);
+  const [items, setItems] = useState<AskChatItem[] | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -33,14 +34,14 @@ export function CoachChatModal({
   const sentRef = useRef(false);
   const busyRef = useRef(false);
 
-  const send = async (question: string, base: CoachChatItem[]) => {
+  const send = async (question: string, base: AskChatItem[]) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
-    const withUser: CoachChatItem[] = [...base, { role: "user", content: question }];
+    const withUser: AskChatItem[] = [...base, { role: "user", content: question }];
     setItems(withUser);
-    const reply = await askCoach(question, base);
-    const withReply: CoachChatItem[] = [...withUser, { role: "assistant", content: reply }];
+    const reply = await askHealth(question, base);
+    const withReply: AskChatItem[] = [...withUser, { role: "assistant", content: reply }];
     setItems(withReply);
     await saveAskHistory(withReply);
     busyRef.current = false;
@@ -81,10 +82,10 @@ export function CoachChatModal({
   const empty = items !== null && items.length === 0 && !busy;
 
   return (
-    <div className="sheet-backdrop" role="dialog" aria-modal="true" aria-label="Food questions" onClick={onClose}>
+    <div className="sheet-backdrop" role="dialog" aria-modal="true" aria-label="Ask Health" onClick={onClose}>
       <div className="sheet chat-sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-head">
-          <h2>Ask about food</h2>
+          <h2>Ask Health</h2>
           <button className="icon-btn" aria-label="Close" onClick={onClose}>
             <CloseIcon size={18} />
           </button>
@@ -94,7 +95,7 @@ export function CoachChatModal({
           {items === null && <div className="muted small">Loading…</div>}
           {empty && (
             <div className="muted small chat-empty">
-              Nothing here yet. Ask anything about food and it'll show up here.
+              Ask anything about food. Your questions and answers show up here.
             </div>
           )}
           {items?.map((m, n) => (

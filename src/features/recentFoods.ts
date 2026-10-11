@@ -11,7 +11,7 @@
  * later changes or disappears.
  *
  * There is no cross-date query in the Repository (listDiary is single-date), so
- * this fans out over a day window the same way the coach context does.
+ * this fans out over a day window the same way `recentSnapshots` does.
  */
 
 import type { DiaryEntry, FoodItem, MealType } from "../types";

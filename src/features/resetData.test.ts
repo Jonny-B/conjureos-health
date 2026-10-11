@@ -29,7 +29,7 @@ describe("every clearable slice is actually offered", () => {
   it("lists a row for each HistoryKind", () => {
     const listed = new Set(HISTORY_ITEMS.map((i) => i.kind));
     const known: HistoryKind[] = [
-      "diary", "weights", "workouts", "coach", "coachChat",
+      "diary", "weights", "workouts", "askHealth",
       "sleep", "water", "symptoms", "planHistory", "plan",
     ];
     for (const k of known) expect(listed.has(k)).toBe(true);
@@ -52,6 +52,7 @@ describe("clearAllHistories", () => {
     }
     // The VFS-backed slices go too.
     expect(calls).toContain("rm:coach.json");
+    expect(calls).toContain("rm:ask-health.json");
     expect(calls).toContain("rm:coach-chat.json");
     expect(calls).toContain("rm:plan-archive.json");
     expect(calls).toContain("rm:food-cache.json");
@@ -64,6 +65,37 @@ describe("clearAllHistories", () => {
   });
 });
 
+/**
+ * Older versions kept the retired trainer's memory in `coach.json`, and the
+ * questions asked in-app, with that trainer's replies, in `coach-chat.json`.
+ * Nothing reads either (Ask Health keeps its own file), and nothing deletes a
+ * user's stored data for them, so both stay on disk until the user clears
+ * them here.
+ */
+describe("stored files from older versions", () => {
+  it("offers Ask Health as its own row, and it clears both conversation files", async () => {
+    const { clearHistory } = await import("./resetData");
+    const row = HISTORY_ITEMS.find((i) => i.kind === "askHealth");
+    expect(row?.label).toBe("Ask Health");
+    expect(row?.desc).toMatch(/Find patterns/);
+    await clearHistory("askHealth");
+    // Ask Health's own file, and the older one it never reads.
+    expect(calls).toEqual(["rm:ask-health.json", "rm:coach-chat.json"]);
+  });
+
+  it("clears the old trainer memory with Current plan, the only row that reaches it", async () => {
+    const { clearHistory } = await import("./resetData");
+    await clearHistory("plan");
+    expect(calls).toEqual(["plan", "rm:coach.json"]);
+  });
+
+  it("names no coach and no old name in any row a person reads", () => {
+    for (const i of HISTORY_ITEMS) {
+      expect(`${i.kind} ${i.label} ${i.desc}`).not.toMatch(/coach|trainer|food questions|about food/i);
+    }
+  });
+});
+
 describe("visibleHistoryItems", () => {
   it("offers the food and wellbeing rows", () => {
     const kinds = visibleHistoryItems().map((i) => i.kind);
@@ -72,21 +104,14 @@ describe("visibleHistoryItems", () => {
     expect(kinds).toContain("sleep");
     expect(kinds).toContain("water");
     expect(kinds).toContain("symptoms");
-    expect(kinds).toContain("coachChat");
+    expect(kinds).toContain("askHealth");
   });
 
   it("offers the exercise on the ring, which the user can see and add to", () => {
     expect(visibleHistoryItems().map((i) => i.kind)).toContain("workouts");
   });
 
-  it("hides only the retired trainer's memory", () => {
-    const hidden = HISTORY_ITEMS.filter((i) => !visibleHistoryItems().includes(i)).map((i) => i.kind);
-    expect(hidden).toEqual(["coach"]);
-  });
-
-  it("hides rows without removing them — every slice is still clearable", () => {
-    // visibleHistoryItems only filters the UI; HISTORY_ITEMS (what clearAll
-    // walks) must keep every kind, or leftover data would become unwipeable.
-    expect(HISTORY_ITEMS.map((i) => i.kind)).toContain("coach");
+  it("offers every row: no slice is hidden from Settings", () => {
+    expect(visibleHistoryItems()).toEqual(HISTORY_ITEMS);
   });
 });

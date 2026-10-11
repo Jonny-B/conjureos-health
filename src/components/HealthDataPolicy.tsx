@@ -25,7 +25,17 @@
 
 import { DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features/aiConsent";
 
-/** Last material revision. Shown so a reader can tell what they agreed to. */
+/**
+ * Last material revision. Shown so a reader can tell what they agreed to.
+ *
+ * A wording edit that changes nothing sent and names nothing the policy did
+ * not already name is not material, and leaves this date (and
+ * DISCLOSURE_VERSION) alone. The 2026-10-10 rename is one: the feature this
+ * page called "asking the coach from Ask about food" was renamed Ask Health,
+ * the same feature sending the same data behind the same agreement, and the
+ * withdraw line names Find patterns and Ask Health instead of "analysis",
+ * which both were already behind and which withdrawing already stopped.
+ */
 export const POLICY_UPDATED = "2026-10-01";
 
 export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
@@ -91,9 +101,9 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
           <h4>To an AI, when you ask it about your journal</h4>
           <p>
             Two features send part of your journal to an AI: <strong>Find patterns</strong> on
-            the Journal tab, which looks for things that go together, and asking the coach from{" "}
-            <strong>Ask about food</strong>. They run only when you press the button, and only
-            after you have agreed to what they send.
+            the Journal tab, which looks for things that go together, and{" "}
+            <strong>Ask Health</strong> on the home screen. They run only when you press the
+            button, and only after you have agreed to what they send.
           </p>
           <p>The AI receives:</p>
           <ul className="consent-list">
@@ -172,8 +182,8 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
             </li>
             <li>
               Nothing from your journal goes to the AI until you agree to it. The first time
-              you press Find patterns or ask the coach, you are shown exactly what would be
-              sent and can decline.
+              you use Find patterns or Ask Health, you are shown exactly what would be sent
+              and can decline.
             </li>
             <li>
               Other apps get nothing until you allow them. You can turn app-to-app connections
@@ -183,8 +193,9 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
               The free-text note on a symptom is a separate choice, off unless you turn it on.
             </li>
             <li>
-              You can withdraw your agreement at any time in Settings → Privacy. Future
-              analysis stops immediately. Withdrawing cannot recall something already sent.
+              You can withdraw your agreement at any time in Settings → Privacy. Find patterns
+              and Ask Health stop sending anything from your journal at once. Withdrawing
+              cannot recall something already sent.
             </li>
             <li>
               You can delete your journal, all of it or one kind at a time, in Settings →

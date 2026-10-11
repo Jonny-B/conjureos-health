@@ -3,11 +3,11 @@
  * about this user's day".
  *
  * Several consumers with the same underlying need and very different trust
- * levels: the in-app coach (sees everything, it's the user's own assistant),
- * the bridge actions other ConjureOS apps call (each read names the slice it
- * returns — see bridge/actions), the summary file ConjureOS may read
- * (features/sharedSummary), and anything later. Assembling this once means
- * they can't drift into disagreeing about the same day.
+ * levels: Ask Health (sees everything once the user agrees, it's the user's
+ * own assistant), the bridge actions other ConjureOS apps call (each read
+ * names the slice it returns — see bridge/actions), the summary file
+ * ConjureOS may read (features/sharedSummary), and anything later. Assembling
+ * this once means they can't drift into disagreeing about the same day.
  *
  * Read-only. Nothing here writes, and nothing here decides who may call it —
  * that's the caller's job.
@@ -101,7 +101,7 @@ export interface DaySnapshot {
 
 /**
  * Assemble one day. Every store is read best-effort: a slice that fails reads
- * as absent rather than failing the snapshot, because a coach answer built on
+ * as absent rather than failing the snapshot, because an answer built on
  * four of five stores is far better than an error.
  */
 export async function daySnapshot(date = todayISO()): Promise<DaySnapshot> {

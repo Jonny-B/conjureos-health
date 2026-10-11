@@ -42,8 +42,11 @@
  *   - Granting AI-journal consent. An agent cannot agree to a health-data
  *     disclosure on the user's behalf; the record only means anything because
  *     a person read the disclosure and said yes (features/aiConsent.ts).
- *   - Running the journal pattern-finder or the coach. That call IS the
+ *   - Running the journal pattern-finder or Ask Health. That call IS the
  *     disclosure, and it is defensible because a human pressed a button.
+ *     Ask Health stays inside the app: apps never get a place in the
+ *     ConjureOS shell's Chat (ConjureOS #513).
+ *     Coaching is a Conjure Fitness feature, not one of Health's.
  *   - Bulk clears (clearDiary / clearAllHistories / …). Irreversible, and no
  *     caller need outweighs an agent wiping months of health data by mistake.
  *     `deleteEntry` removes exactly one record, by id.

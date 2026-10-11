@@ -1,16 +1,17 @@
 /**
  * Compact plan summary for the home screen: the active plan's headline (mode,
- * top goals, daily calorie target), tapping through to the Plan tab.
+ * top goals, daily calorie target), tapping through to the Plan tab. With no
+ * plan it invites the user to build one.
  */
 
 import type { Goals, Plan } from "../types";
 import { planModeLabel, visiblePlanGoals } from "../features/plan/display";
 import { planTracksCalories } from "../features/plan/model";
-import { CoachIcon, ChevronRight } from "./icons";
+import { ChevronRight, TrendsIcon } from "./icons";
 
 /** Home-screen card summarizing the active plan, or a create-a-plan prompt
  *  when there isn't one. Tapping it opens the Plan tab. */
-export function CoachPlanCard({
+export function PlanCard({
   plan,
   goals,
   onOpen,
@@ -23,22 +24,21 @@ export function CoachPlanCard({
 
   return (
     <button
-      className="home-card coach-card"
+      className="home-card plan-card"
       onClick={onOpen}
       aria-label={plan ? "Open your plan" : "Build a plan"}
     >
       <div className="home-card-head">
         <span className="home-card-title">
-          <CoachIcon size={16} />{" "}
-          Your plan
+          <TrendsIcon size={16} /> Your plan
         </span>
         <ChevronRight size={18} className="muted" />
       </div>
 
       {plan ? (
         <>
-          <div className="coach-card-plan">
-            <span className="coach-card-mode">{planModeLabel(plan)}</span>
+          <div className="plan-card-plan">
+            <span className="plan-card-mode">{planModeLabel(plan)}</span>
             {/* A logging-only plan has no calorie target to show. */}
             {planTracksCalories(plan) && (
               <>
@@ -48,7 +48,7 @@ export function CoachPlanCard({
             )}
           </div>
           {topGoals.length > 0 && (
-            <ul className="coach-card-goals">
+            <ul className="plan-card-goals">
               {topGoals.map((g, i) => (
                 <li key={i}>{g}</li>
               ))}

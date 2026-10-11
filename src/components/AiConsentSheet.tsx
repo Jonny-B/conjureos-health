@@ -1,5 +1,14 @@
 /**
- * The one-time gate in front of "Find patterns".
+ * The one-time gate in front of "Find patterns" and Ask Health. One agreement
+ * covers both (features/aiConsent.ts), so the sheet introduces both and its
+ * list names both. Only the agree button follows the caller (`purpose`), so a
+ * person who asked a question agrees to "Send and ask", not to a pattern
+ * search they never asked for.
+ *
+ * The introduction, the withdraw line and the button are not part of the
+ * versioned DISCLOSURE_* wording. They name Ask Health, whose path that list
+ * has covered since v2, and say nothing about what is sent, so they do not
+ * move DISCLOSURE_VERSION.
  *
  * Asking the AI to read your journal sends health data to a third party, so
  * the user gets told exactly what travels before any of it does — including a
@@ -19,11 +28,21 @@ import {
   DISCLOSURE_WITHHOLDS,
 } from "../features/aiConsent";
 
+/** Which feature opened the sheet: it names the agree button. */
+export type AiConsentPurpose = "patterns" | "ask";
+
+const AGREE_LABEL: Record<AiConsentPurpose, string> = {
+  patterns: "Send and find patterns",
+  ask: "Send and ask",
+};
+
 export function AiConsentSheet({
+  purpose,
   onAccept,
   onCancel,
 }: {
-  /** Called with the notes opt-in. Owner persists it, then runs the analysis. */
+  purpose: AiConsentPurpose;
+  /** Called with the notes opt-in. Owner persists it, then sends. */
   onAccept: (includeNotes: boolean) => void;
   onCancel: () => void;
 }) {
@@ -39,8 +58,9 @@ export function AiConsentSheet({
 
         <div className="sheet-body">
           <p className="muted small">
-            Finding patterns means sending part of your journal to an AI service outside this
-            app. It only ever happens when you ask for it, never in the background.
+            Find patterns and Ask Health send part of your journal to an AI service outside
+            this app. It only ever happens when you ask for it, never in the background. One
+            agreement covers both.
           </p>
 
           <div className="section-label">What gets sent</div>
@@ -73,8 +93,9 @@ export function AiConsentSheet({
           </label>
 
           <p className="muted small">
-            You can withdraw this at any time in Settings, under Privacy. Withdrawing stops
-            future analysis; it cannot pull back what was already sent.
+            You can withdraw this at any time in Settings, under Privacy. Withdrawing means
+            neither sends anything more from your journal; it cannot pull back what was
+            already sent.
           </p>
         </div>
 
@@ -90,7 +111,7 @@ export function AiConsentSheet({
               onAccept(includeNotes);
             }}
           >
-            Send and find patterns
+            {AGREE_LABEL[purpose]}
           </button>
         </footer>
       </div>
