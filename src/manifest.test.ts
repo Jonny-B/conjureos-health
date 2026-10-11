@@ -44,6 +44,16 @@ describe("Health's ConjureOS manifest", () => {
     for (const s of manifest.promptSuggestions) expect(s).not.toMatch(/coach/i);
   });
 
+  // ConjureOS Phase 62 (#1050): the AI changes nothing in Health. The type is
+  // declared once, as `appType`; `editable: false` is the mirror that clients
+  // and stores predating it still read; `editStyle` is the older spelling and
+  // is not written.
+  it("declares itself sealed, so the AI changes nothing in it", () => {
+    expect(manifest.appType).toBe("sealed");
+    expect(manifest.editable).toBe(false);
+    expect("editStyle" in manifest).toBe(false);
+  });
+
   it("never reaches for the shell's chat bridge from code", () => {
     const users = Object.entries(SHIPPED)
       .filter(([, text]) => /__conjureos\s*\??\.\s*chat\b/.test(text))
