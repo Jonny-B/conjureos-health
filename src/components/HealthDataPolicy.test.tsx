@@ -120,7 +120,7 @@ async function whenItLeavesText(): Promise<string> {
 }
 
 describe("health data policy, what workouts send", () => {
-  // Workouts make two kinds of AI call of their own: the program's calibration,
+  // Workouts make two kinds of AI call that carry personal data: the program's calibration,
   // adaptation and next-group progression (plan/analyze.ts, plan/groups.ts send
   // recorded sessions and benchmark results), and the burn estimate's AI
   // fallback (features/calories.ts sends the workout, age and sex). The policy
@@ -129,9 +129,10 @@ describe("health data policy, what workouts send", () => {
     withWorkouts(true);
     const text = await whenItLeavesText();
     expect(text).toContain(
-      "Finishing a workout in your program , or starting its next group of workouts, can send " +
-        "the exercises in your program, your benchmark results, and what you recorded in recent " +
-        "workouts: the dates, sets, reps, weights, times and distances, and how hard each set felt.",
+      "Finishing a workout in your program , entering your benchmark results by hand, or starting " +
+        "the program's next group of workouts can send the exercises in your program, your " +
+        "benchmark results, and what you recorded in recent workouts: the dates, sets, reps, " +
+        "weights, times and distances, and how hard each set felt.",
     );
     expect(text).toContain(
       "Estimating the calories a workout burned , when your profile has no weight to work it out " +

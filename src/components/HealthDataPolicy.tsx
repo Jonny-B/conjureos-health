@@ -55,7 +55,9 @@ export const PLAN_BUILD_SENDS = WORKOUTS_ENABLED
  * the paused policy names neither. The program line matches
  * `buildAnalysisPrompt` in plan/analyze.ts, sent by `calibrateToBenchmark`
  * (after the first benchmark), `maybeAdapt` (every few finished workouts) and
- * `advanceToNextGroup` in plan/groups.ts. The burn line matches `estimateViaAi`
+ * `advanceToNextGroup` in plan/groups.ts. A result typed in by hand
+ * (`recordManualBenchmarkEntry`) goes through the same `recordSessionAndAdapt`
+ * as a finished workout, so it reaches the first two as well. The burn line matches `estimateViaAi`
  * in features/calories.ts, which runs only when the profile has no weight for
  * the MET formula, so the weight it carries is never a real one. Like
  * `PLAN_BUILD_SENDS`, these must not go out under the paused wording's date.
@@ -65,10 +67,11 @@ function WorkoutSends() {
   return (
     <>
       <li>
-        <strong>Finishing a workout in your program</strong>, or starting its next group of
-        workouts, can send the exercises in your program, your benchmark results, and what you
-        recorded in recent workouts: the dates, sets, reps, weights, times and distances, and
-        how hard each set felt. That is how the program adjusts to you.
+        <strong>Finishing a workout in your program</strong>, entering your benchmark results by
+        hand, or starting the program's next group of workouts can send the exercises in your
+        program, your benchmark results, and what you recorded in recent workouts: the dates,
+        sets, reps, weights, times and distances, and how hard each set felt. That is how the
+        program adjusts to you.
       </li>
       <li>
         <strong>Estimating the calories a workout burned</strong>, when your profile has no

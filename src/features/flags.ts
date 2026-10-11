@@ -60,7 +60,10 @@
  *      calls of their own: the program's calibration, adaptation and
  *      next-group progression (plan/analyze.ts, plan/groups.ts) send recorded
  *      sessions and benchmark results, and the burn estimate's AI fallback
- *      (features/calories.ts) sends the workout, age and sex.
+ *      (features/calories.ts) sends the workout, age and sex. The exercise
+ *      explainer (features/explainers/resolve.ts) sends only an exercise's
+ *      name, nothing about the person, so the policy has no line for it;
+ *      confirm that still holds.
  *      - The health data policy (components/HealthDataPolicy.tsx) reads this
  *        flag: `PLAN_BUILD_SENDS` widens to name training experience and the
  *        injury avoid-list, and `WorkoutSends` adds a line for each of those
