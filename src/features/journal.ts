@@ -309,8 +309,12 @@ export function summarizeRange(
           // `detail` is the severity ("3/5") — a number the user picked from a
           // scale, and the most useful half of a symptom for pattern-finding.
           // `note` is the free-text field, and is held back unless opted in.
+          // It is bracketed rather than dashed off: this line is shown back to
+          // the person as their own Ask Health message and sent as prompt
+          // text, so it keeps the no-em-dash rule, and the brackets keep a
+          // note that contains a comma from running into the next symptom.
           const severity = s.detail ? ` (${s.detail})` : "";
-          const note = includeNotes && s.note ? ` — ${s.note}` : "";
+          const note = includeNotes && s.note ? ` (note: ${s.note})` : "";
           return `${s.label} at ${t}${severity}${note}`;
         })
         .join(", ");
@@ -324,4 +328,26 @@ export function summarizeRange(
     lines.push(`${d.date}: ${bits.join("; ")}`);
   }
   return lines.join("\n");
+}
+
+/**
+ * The question "Find patterns" asks about `from` to `to`, carrying
+ * `summarizeRange` of those days.
+ *
+ * It opens the Ask Health sheet as the person's own message, is saved with
+ * that conversation, and is sent to the model as written, so it keeps the
+ * same copy rules as the rest of Ask Health. Building it performs no
+ * disclosure; sending it does, so only call it once consent is on file.
+ */
+export function patternsQuestion(
+  days: DayJournal[],
+  from: string,
+  to: string,
+  opts: { includeNotes?: boolean } = {},
+): string {
+  const summary = summarizeRange(days, opts);
+  const range = `${from} to ${to}`;
+  return summary
+    ? `Here is my journal for ${range}. What patterns do you notice? Anything that seems to go together?\n\n${summary}`
+    : `I have nothing recorded for ${range}. What would be worth tracking to spot patterns?`;
 }

@@ -178,6 +178,27 @@ describe("askHealth", () => {
     await expect(askHealth("anything?")).resolves.toMatch(/try again/i);
   });
 
+  /**
+   * A rejected call comes back as the reply bubble, worded by aiErrorMessage.
+   * These are the host's "no AI here", "no permission" and rate-limit
+   * rejections: the same unavailable situations as the branch below, reached
+   * from inside ConjureOS, so the reply is held to the same copy rules.
+   */
+  it.each([
+    ["AI provider not configured", /isn't available here/i],
+    ["Supabase isn't configured.", /isn't available here/i],
+    ["ai.complete is not available in this host", /isn't available here/i],
+    ["app does not have ai.complete permission", /AI permission/i],
+    ["ai.complete rate limit (per-minute): too many AI calls", /wait/i],
+  ])("words a host rejection (%s) inside the copy rules", async (reason, shape) => {
+    const { askHealth } = await import("./ask");
+    complete.mockRejectedValue(new Error(reason));
+    const reply = await askHealth("Are bananas high in fiber?");
+    expect(reply).toMatch(shape);
+    expect(reply).not.toMatch(/\b(now|no longer|yet)\b/i);
+    expect(reply).not.toContain("\u2014");
+  });
+
   it("explains, inside the copy rules, when there is no AI service to ask", async () => {
     aiAvailable = false;
     const { askHealth } = await import("./ask");

@@ -123,7 +123,7 @@ export function aiErrorMessage(err: unknown, fallback = "The AI didn't answer. T
     return "You've used up today's AI allowance. It resets at midnight UTC.";
   }
   if (m.includes("rate limit") || m.includes("rate_limited")) {
-    return "Too many AI requests just now. Wait a few seconds and try again.";
+    return "Too many AI requests in a short time. Wait a few seconds and try again.";
   }
   if (m.includes("busy right now") || m.includes("overloaded") || m.includes("temporarily unavailable")) {
     return "The AI service is busy or down for a moment. Try again shortly.";
@@ -141,13 +141,13 @@ export function aiErrorMessage(err: unknown, fallback = "The AI didn't answer. T
     return "Sign in to ConjureOS to use AI.";
   }
   if (m.includes("permission")) {
-    return "This app doesn't have AI permission yet. Grant it in ConjureOS and try again.";
+    return "This app doesn't have AI permission. Grant it in ConjureOS and try again.";
   }
   if (m.includes("unsupported_model")) {
     return "Your plan can't run the model this needs. Check your ConjureOS plan.";
   }
   if (m.includes("configured") || m.includes("not available") || m.includes("isn't available")) {
-    return "AI isn't available here yet.";
+    return "AI isn't available here.";
   }
   if (!raw) return fallback;
   return `${fallback} (${raw})`;

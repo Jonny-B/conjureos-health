@@ -175,11 +175,15 @@ version 3** (Conjure Health, slug `fitness`).
 
 ## Pending when we resume
 
-- **Conjure Health v2 (the big one, not started):** plan wizard + daily
-  check-off home + AI workout coach. Designed and scoped into 6 GitHub issues on
-  this repo (P0 through P5, issues #57 to #62). See the ConjureOS
-  `PHASE_12_DESIGN.md` section 12b and `DECISIONS.md` 2026-06-24 for the full
-  plan. v2 plan data is meant to persist as VFS app data.
+- **Conjure Health v2:** plan wizard + daily check-off home. Scoped into 6
+  GitHub issues on this repo (P0 through P5, issues #57 to #62); progress is
+  under "Current focus" item 5. The AI workout coach in the original scope was
+  removed from Health on 2026-10-10 (owner decision: coaching is a Conjure
+  Fitness feature), so #61 is the workouts revival only and Health gets no
+  coach back. The ConjureOS `PHASE_12_DESIGN.md` section 12b and `DECISIONS.md`
+  2026-06-24 hold the original plan; read their coach parts as superseded by
+  ConjureOS `DECISIONS.md` 2026-10-10. v2 plan data is meant to persist as VFS
+  app data.
 - **Two small manual steps for the food DB** (only matter when resumed and only
   if we want the extras, the core works without them):
   - Set the `conjure_project_url` Vault secret on the dev and prod Supabase

@@ -13,7 +13,7 @@ import {
   isEmptyDay,
   loadDayJournal,
   loadRangeJournal,
-  summarizeRange,
+  patternsQuestion,
   type DayJournal,
   type JournalEvent,
 } from "../features/journal";
@@ -122,14 +122,7 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
    * performs the disclosure.
    */
   const runPatterns = (includeNotes: boolean) => {
-    const days = month ?? [];
-    const summary = summarizeRange(days, { includeNotes });
-    const range = `${from} to ${to}`;
-    setAsking(
-      summary
-        ? `Here is my journal for ${range}. What patterns do you notice? Anything that seems to go together?\n\n${summary}`
-        : `I have nothing recorded for ${range}. What would be worth tracking to spot patterns?`,
-    );
+    setAsking(patternsQuestion(month ?? [], from, to, { includeNotes }));
   };
 
   const askPatterns = async () => {
