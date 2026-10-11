@@ -8,10 +8,11 @@
  * aren't histories.
  *
  * Nothing here runs on its own: a user's stored data is only ever deleted by
- * the user, from these rows. That includes the files the removed trainer left:
- * `coach.json`, its memory, which the "Current plan" row removes, and
- * `coach-chat.json`, which the "Ask Health" row removes. Nothing reads
- * either, and "Clear all history" removes both.
+ * the user, from these rows. That includes the files older versions left:
+ * `coach.json`, the removed trainer's memory, which nothing reads and the
+ * "Current plan" row removes, and `coach-chat.json`, the conversation as it
+ * was kept before the rename, which the "Ask Health" row removes. "Clear all
+ * history" removes both.
  *
  * Every clear is best-effort per store (a failure in one store never blocks
  * the others) and idempotent — clearing an already-empty history is a no-op.
@@ -82,10 +83,10 @@ export async function clearHistory(kind: HistoryKind): Promise<void> {
       return;
     case "askHealth":
       // The Ask Health conversation, from the home card and Find patterns,
-      // and `coach-chat.json`, where older versions kept the questions asked
-      // in-app. Ask Health never reads that file, since it can also hold the
-      // removed trainer's replies (see features/ask/ask.ts), and this row is
-      // how a user wipes it.
+      // and `coach-chat.json`, where it was kept before the rename. Both go:
+      // Ask Health reads the older file while it has no file of its own (see
+      // features/ask/ask.ts), so clearing only its own would bring the
+      // older conversation back.
       await rm("ask-health.json");
       await rm("coach-chat.json");
       return;

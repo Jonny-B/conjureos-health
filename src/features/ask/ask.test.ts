@@ -234,50 +234,75 @@ describe("askHealth", () => {
 });
 
 /**
- * `coach-chat.json` is where older versions kept the questions asked in-app,
- * and the removed trainer's chat wrote its replies to the same file: offers to
- * change the plan, changes it made, and copy that names it. Nothing on a turn
- * says which feature wrote it. Ask Health must neither show those turns nor
- * send them to the model as its own, and must not delete the file either.
+ * `coach-chat.json` is where versions before the rename kept this
+ * conversation (the home card and Find patterns both saved into it). Ask
+ * Health keeps its conversation in `ask-health.json`, the file it uses on the
+ * main line, so a person updating from either line keeps what they had: when
+ * Ask Health has no file of its own yet, the older conversation is shown,
+ * sent as context for a follow-up, and carried into the new file on the next
+ * save. The older file is never changed or deleted.
  */
-describe("the older conversation file", () => {
+describe("a conversation from before the rename", () => {
+  // An older conversation, as dev 1.43.1 stored it. The last turn is the
+  // shape the removed trainer's chat wrote: extra fields beside role and
+  // content, which were never read.
   const OLD_TURNS = [
-    { role: "user", content: "can you make my plan easier?" },
+    { role: "user", content: "are bananas high in fiber?" },
+    { role: "assistant", content: "A medium banana has about 3 g of fiber." },
+    { role: "user", content: "what can I have for a snack?" },
     {
       role: "assistant",
-      content: "Your coach needs the ConjureOS AI service, which isn't available right now.",
-    },
-    { role: "user", content: "set my goal to 74 kg" },
-    { role: "assistant", content: "Done, I set your goal weight to 74 kg." },
-    {
-      role: "assistant",
-      content: "Want me to lower your daily calories?",
-      proposal: { type: "single", question: "Lower to 1,900?", options: ["Yes", "No"] },
-      answered: false,
+      content: "You have about 400 calories left, so Greek yogurt with berries fits.",
+      proposal: { type: "single", question: "Pick one", options: ["Yes", "No"] },
+      answered: true,
     },
   ];
+  const AS_SHOWN = OLD_TURNS.map(({ role, content }) => ({ role, content }));
 
-  it("is not shown as Ask Health's history", async () => {
+  it("is shown as Ask Health's history when Ask Health has none of its own", async () => {
     files["coach-chat.json"] = JSON.stringify(OLD_TURNS);
     const { loadAskHistory } = await import("./ask");
-    expect(await loadAskHistory()).toEqual([]);
+    expect(await loadAskHistory()).toEqual(AS_SHOWN);
   });
 
-  it("is not sent to the model as earlier turns", async () => {
+  it("is sent as the earlier turns of a follow-up", async () => {
     files["coach-chat.json"] = JSON.stringify(OLD_TURNS);
     const { askHealth, loadAskHistory } = await import("./ask");
     complete.mockResolvedValue("ok");
-    await askHealth("is rice filling?", await loadAskHistory());
-    const sent = sentRequest().messages.map((m) => m.content);
-    expect(sent).toEqual(["is rice filling?"]);
+    await askHealth("and what about the green ones?", await loadAskHistory());
+    expect(sentRequest().messages).toEqual([...AS_SHOWN, { role: "user", content: "and what about the green ones?" }]);
   });
 
-  it("stays on disk, untouched, when Ask Health saves", async () => {
+  it("is carried into Ask Health's own file on the next save, and the older file is left as it was", async () => {
     const before = JSON.stringify(OLD_TURNS);
     files["coach-chat.json"] = before;
-    const { saveAskHistory } = await import("./ask");
-    await saveAskHistory([{ role: "user", content: "is rice filling?" }]);
+    const { loadAskHistory, saveAskHistory } = await import("./ask");
+    const history = await loadAskHistory();
+    await saveAskHistory([...history, { role: "user", content: "is rice filling?" }]);
+    const carried = [...AS_SHOWN, { role: "user", content: "is rice filling?" }];
+    expect(JSON.parse(files["ask-health.json"]!)).toEqual(carried);
     expect(files["coach-chat.json"]).toBe(before);
+    // Read back from Ask Health's own file from here on.
+    expect(await loadAskHistory()).toEqual(carried);
+  });
+
+  it("gives way to Ask Health's own file once there is one", async () => {
+    files["coach-chat.json"] = JSON.stringify(OLD_TURNS);
+    files["ask-health.json"] = JSON.stringify([{ role: "user", content: "and soy?" }]);
+    const { loadAskHistory } = await import("./ask");
+    expect(await loadAskHistory()).toEqual([{ role: "user", content: "and soy?" }]);
+  });
+
+  it("skips a stored turn it cannot show, and starts empty with neither file", async () => {
+    const { loadAskHistory } = await import("./ask");
+    expect(await loadAskHistory()).toEqual([]);
+    files["coach-chat.json"] = JSON.stringify([
+      { role: "user", content: "is tofu high in protein?" },
+      { role: "system", content: "x" },
+      { role: "assistant" },
+      null,
+    ]);
+    expect(await loadAskHistory()).toEqual([{ role: "user", content: "is tofu high in protein?" }]);
   });
 });
 

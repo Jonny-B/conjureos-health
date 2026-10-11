@@ -8,10 +8,11 @@
  *
  * What may still say "coach" in Health's shipped source, and why:
  *   - `coach.json` and `coach-chat.json`, the files older versions wrote. A
- *     user's stored data is never deleted for them, so the files stay on disk,
- *     unread, until Settings, Reset health data wipes them. Ask Health keeps
- *     its own conversation file and never reads `coach-chat.json`, which
- *     also holds the removed trainer's replies (features/ask/ask.ts).
+ *     user's stored data is never deleted for them, so the files stay on disk
+ *     until Settings, Reset health data wipes them. `coach.json` is never
+ *     read. `coach-chat.json` is where the conversation was kept before the
+ *     rename, so Ask Health reads it while it has no file of its own and
+ *     carries it into that file (features/ask/ask.ts).
  *   - The plan generator's model persona ("You are a wellness coach..."). That
  *     is prompt text the model reads, not a feature a person sees.
  *   - A line saying the coach was removed, or what was renamed from it, or
@@ -118,14 +119,14 @@ describe("Conjure Health has no coach", () => {
     ]);
   });
 
-  it("reads the older conversation file nowhere: only the reset row names it in code", () => {
-    // Ask Health keeps its own file. `coach-chat.json` also holds the removed
-    // trainer's replies, so the only code that may touch it is the reset row
-    // that lets a user wipe it.
+  it("names the older conversation file only where Ask Health carries it over and the reset row wipes it", () => {
+    // Anything else touching `coach-chat.json` would be the removed trainer's
+    // chat, or a second reader of the conversation, coming back.
     const touching = Object.entries(SHIPPED)
       .filter(([, text]) => /["']coach-chat\.json["']/.test(text))
-      .map(([path]) => path);
-    expect(touching).toEqual(["./features/resetData.ts"]);
+      .map(([path]) => path)
+      .sort();
+    expect(touching).toEqual(["./features/ask/ask.ts", "./features/resetData.ts"]);
   });
 
   it("still sees the source it is guarding (positive control)", () => {

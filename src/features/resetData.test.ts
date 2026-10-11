@@ -66,11 +66,10 @@ describe("clearAllHistories", () => {
 });
 
 /**
- * Older versions kept the retired trainer's memory in `coach.json`, and the
- * questions asked in-app, with that trainer's replies, in `coach-chat.json`.
- * Nothing reads either (Ask Health keeps its own file), and nothing deletes a
- * user's stored data for them, so both stay on disk until the user clears
- * them here.
+ * Older versions kept the removed trainer's memory in `coach.json`, which
+ * nothing reads, and the conversation in `coach-chat.json`, which Ask Health
+ * reads while it has no file of its own. Nothing deletes a user's stored data
+ * for them, so both stay on disk until the user clears them here.
  */
 describe("stored files from older versions", () => {
   it("offers Ask Health as its own row, and it clears both conversation files", async () => {
@@ -79,7 +78,8 @@ describe("stored files from older versions", () => {
     expect(row?.label).toBe("Ask Health");
     expect(row?.desc).toMatch(/Find patterns/);
     await clearHistory("askHealth");
-    // Ask Health's own file, and the older one it never reads.
+    // Ask Health's own file, and the older one it falls back to, which would
+    // otherwise bring the cleared conversation back.
     expect(calls).toEqual(["rm:ask-health.json", "rm:coach-chat.json"]);
   });
 
