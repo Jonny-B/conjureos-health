@@ -92,10 +92,9 @@ describe("re-wording the disclosure re-asks", () => {
  * did not move and existing agreements still cover it. See the note on
  * DISCLOSURE_VERSION before changing either half of this.
  *
- * This pins WORDING only. It is not evidence that the windows the lines
- * describe are what gets sent: Find patterns also carries Ask Health's
- * today-plus-2-days context, and later questions replay its range summary
- * (ConjureOS #1163).
+ * This pins WORDING only. That the windows the lines describe are what gets
+ * sent, from each entry point, is checked against the request itself in
+ * features/ask/ask.test.ts, "what each entry point sends" (ConjureOS #1163).
  */
 describe("the disclosure names Ask Health", () => {
   it("names Ask Health for the ask path, and names no coach", () => {

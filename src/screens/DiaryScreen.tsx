@@ -10,6 +10,7 @@ import { PlanCard } from "../components/PlanCard";
 import { AskHealthCard } from "../components/AskHealthCard";
 import { WellbeingCard } from "../components/WellbeingCard";
 import { AskHealthSheet } from "../components/AskHealthSheet";
+import { ASK_FROM_HOME } from "../features/ask/ask";
 import { exerciseCaloriesForDate } from "../features/exercise";
 
 interface Props {
@@ -157,7 +158,9 @@ export function DiaryScreen({
         <AskHealthCard onAsk={setAsking} />
       </div>
 
-      {asking !== null && <AskHealthSheet initialQuestion={asking} onClose={() => setAsking(null)} />}
+      {asking !== null && (
+        <AskHealthSheet initialQuestion={asking} from={ASK_FROM_HOME} onClose={() => setAsking(null)} />
+      )}
     </div>
   );
 }
