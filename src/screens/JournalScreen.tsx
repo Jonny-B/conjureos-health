@@ -21,6 +21,7 @@ import { shiftDate, todayISO } from "../features/diary";
 import { fmtWater } from "../features/water";
 import { formatSleep } from "../features/sleep";
 import { AskHealthSheet } from "../components/AskHealthSheet";
+import { newPatternsRun, type AskFrom } from "../features/ask/ask";
 import { AiConsentSheet } from "../components/AiConsentSheet";
 import {
   hasAiJournalConsent,
@@ -74,7 +75,9 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
   const [month, setMonth] = useState<DayJournal[] | null>(null);
   const [day, setDay] = useState<DayJournal | null>(null);
   const [printOpen, setPrintOpen] = useState(false);
-  const [asking, setAsking] = useState<string | null>(null);
+  // The open "Find patterns" run: its opening question, and the run every
+  // follow-up in its sheet belongs to.
+  const [asking, setAsking] = useState<{ question: string; from: AskFrom } | null>(null);
   // Open when "Find patterns" was pressed without a current agreement on file.
   const [consenting, setConsenting] = useState(false);
   const [editing, setEditing] = useState<JournalEvent | null>(null);
@@ -122,7 +125,12 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
    * that performs the disclosure.
    */
   const runPatterns = (includeNotes: boolean) => {
-    setAsking(patternsQuestion(month ?? [], from, to, { includeNotes }));
+    setAsking({
+      // A new run for each press: a follow-up carries this run's range and
+      // nothing from another run or the home card (features/ask/ask.ts).
+      from: newPatternsRun(),
+      question: patternsQuestion(month ?? [], from, to, { includeNotes }),
+    });
   };
 
   const askPatterns = async () => {
@@ -214,7 +222,9 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
           }}
         />
       )}
-      {asking !== null && <AskHealthSheet initialQuestion={asking} onClose={() => setAsking(null)} />}
+      {asking !== null && (
+        <AskHealthSheet initialQuestion={asking.question} from={asking.from} onClose={() => setAsking(null)} />
+      )}
       {editing && (
         <JournalEntrySheet
           event={editing}

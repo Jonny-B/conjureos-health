@@ -12,16 +12,24 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { askHealth, loadAskHistory, saveAskHistory, type AskChatItem } from "../features/ask/ask";
+import { askAndAppend, loadAskHistory, saveAskHistory, type AskChatItem, type AskFrom } from "../features/ask/ask";
 import { useScrollLock } from "../hooks/useScrollLock";
 import { CloseIcon } from "./icons";
 
 export function AskHealthSheet({
   /** Question to send on open. Null when the sheet is opened to read back. */
   initialQuestion,
+  /**
+   * The entry point that opened the sheet. Its opening question and every
+   * follow-up typed here are asked from it, because what goes out with a
+   * question depends on where it was asked (features/ask/ask.ts).
+   * Required, so a new caller has to choose.
+   */
+  from,
   onClose,
 }: {
   initialQuestion: string | null;
+  from: AskFrom;
   onClose: () => void;
 }) {
   useScrollLock();
@@ -38,10 +46,7 @@ export function AskHealthSheet({
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
-    const withUser: AskChatItem[] = [...base, { role: "user", content: question }];
-    setItems(withUser);
-    const reply = await askHealth(question, base);
-    const withReply: AskChatItem[] = [...withUser, { role: "assistant", content: reply }];
+    const withReply = await askAndAppend(question, base, from, setItems);
     setItems(withReply);
     await saveAskHistory(withReply);
     busyRef.current = false;
