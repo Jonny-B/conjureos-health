@@ -72,9 +72,19 @@ describe("unansweredNote", () => {
     expect(unansweredNote(["usda", "openfoodfacts"], false)).toBe(
       "USDA and Open Food Facts did not answer. Try again in a minute, or add it yourself.",
     );
-    expect(unansweredNote(["openfoodfacts"], true)).toBe(
-      "Open Food Facts did not answer, so some foods may be missing. Try again in a minute.",
+    expect(unansweredNote(["usda", "openfoodfacts"], true)).toBe(
+      "USDA did not answer, so some foods may be missing. Try again in a minute.",
     );
+    expect(unansweredNote(["openfoodfacts"], false)).toBe(
+      "Open Food Facts did not answer. Try again in a minute, or add it yourself.",
+    );
+  });
+
+  // Open Food Facts' search is often slow or 503s. Beside a list its silence
+  // is routine, and a note on every other search would teach people to skip
+  // the one about USDA.
+  it("says nothing beside a list when only Open Food Facts did not answer", () => {
+    expect(unansweredNote(["openfoodfacts"], true)).toBeNull();
   });
 
   it("follows the copy rules", () => {

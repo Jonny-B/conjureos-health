@@ -117,10 +117,10 @@ const CREATES = [
   "logSymptom",
   "logWeight",
 ] as const;
-vi.mock("../features/foods/foodSearch", () => ({
+vi.mock("../features/foods/foodSearch", async (orig) => ({
+  ...(await orig<typeof import("../features/foods/foodSearch")>()),
   lookupBarcode,
   searchFoods,
-  PROVIDER_NAMES: { usda: "USDA", openfoodfacts: "Open Food Facts" },
 }));
 // Consent to collect health data (features/healthConsent.ts). Granted for
 // every test except the one that checks the refusal.
@@ -699,6 +699,22 @@ describe("findFood", () => {
     expect(res.foods).toHaveLength(1);
     expect(res.value).toBe(
       "Rolled oats: 150 cal per 1 serving (from Open Food Facts). USDA did not answer, so some foods may be missing.",
+    );
+  });
+
+  it("does not name Open Food Facts beside foods, since its search is often down", async () => {
+    searchFoods.mockResolvedValueOnce({
+      foods: [food("Rolled oats", 150, { source: "usda" })],
+      unanswered: ["openfoodfacts"],
+    });
+    const res = (await call("findFood", { query: "oatmeal" })) as { value: string };
+    expect(res.value).toBe("Rolled oats: 150 cal per 1 serving (from USDA)");
+  });
+
+  it("names Open Food Facts when nothing was found and it did not answer", async () => {
+    searchFoods.mockResolvedValueOnce({ foods: [], unanswered: ["openfoodfacts"] });
+    await expect(call("findFood", { query: "kind bar" })).rejects.toThrow(
+      'Open Food Facts did not answer, so the search for "kind bar" could not finish. Try again in a minute.',
     );
   });
 

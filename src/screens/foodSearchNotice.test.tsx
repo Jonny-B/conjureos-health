@@ -95,4 +95,19 @@ describe("Add food search", () => {
     const status = container.querySelector('[role="status"]');
     expect(status?.textContent).toBe("USDA did not answer, so some foods may be missing. Try again in a minute.");
   });
+
+  it("shows USDA's foods without a note when only Open Food Facts did not answer", async () => {
+    searchFoods.mockResolvedValue({ foods: [{ ...oats, source: "usda" }], unanswered: ["openfoodfacts"] });
+    await searchFor("oats");
+    expect(container.textContent).toContain("Rolled oats");
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(container.textContent).not.toContain("did not answer");
+  });
+
+  it("still names Open Food Facts when nothing was found", async () => {
+    searchFoods.mockResolvedValue({ foods: [], unanswered: ["openfoodfacts"] });
+    await searchFor("kind bar");
+    expect(container.textContent).toContain("Open Food Facts did not answer. Try again in a minute, or add it yourself.");
+    expect(container.textContent).not.toContain("No matches");
+  });
 });

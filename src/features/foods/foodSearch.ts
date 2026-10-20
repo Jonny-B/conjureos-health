@@ -242,13 +242,30 @@ export async function searchFoods(
 }
 
 /**
- * What a search says about providers that did not answer, or null when every
- * one did. With nothing found it stands in for "No matches", which would be
- * untrue; with foods found it says the list may be short.
+ * The providers worth naming to the person after a search.
+ *
+ * With nothing found, every provider that did not answer, since "no matches"
+ * would be untrue. Beside a list, only USDA: it supplies most of the list and
+ * answers reliably, so its silence (the platform key's hourly quota,
+ * conjureos-fitness#70) means foods really are missing. Open Food Facts'
+ * search endpoint is often slow or 503s, about one search in three or more, so
+ * beside a list its silence is routine and naming it every time would teach
+ * people to ignore the note.
+ */
+export function providersToName(unanswered: SearchProvider[], foundAny: boolean): SearchProvider[] {
+  return foundAny ? unanswered.filter((p) => p === "usda") : unanswered;
+}
+
+/**
+ * What a search says about providers that did not answer, or null when there
+ * is nothing worth saying (see `providersToName`). With nothing found it
+ * stands in for "No matches", which would be untrue; with foods found it says
+ * the list may be short.
  */
 export function unansweredNote(unanswered: SearchProvider[], foundAny: boolean): string | null {
-  if (unanswered.length === 0) return null;
-  const names = unanswered.map((p) => PROVIDER_NAMES[p]).join(" and ");
+  const named = providersToName(unanswered, foundAny);
+  if (named.length === 0) return null;
+  const names = named.map((p) => PROVIDER_NAMES[p]).join(" and ");
   return foundAny
     ? `${names} did not answer, so some foods may be missing. Try again in a minute.`
     : `${names} did not answer. Try again in a minute, or add it yourself.`;
