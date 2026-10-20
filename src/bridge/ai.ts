@@ -13,6 +13,28 @@
  */
 export type ModelTier = "cheap" | "capable" | "epic";
 
+/**
+ * The smallest `maxTokens` a `capable` or `epic` call asks for
+ * (conjureos-health#10, ConjureOS #1159). `src/bridge/capableCaps.test.ts`
+ * holds every such call to it.
+ *
+ * Those tiers run models that think before they answer (Sonnet 5.5 and Opus
+ * 5.5, at the effort ConjureOS picks for the model), and thinking counts
+ * toward `maxTokens`. A cap sized for the answer alone can be spent before
+ * the answer starts: ConjureOS then rejects the call as "ran out of room",
+ * and the tokens it thought are still charged. So a call's cap is its answer
+ * plus room to think, and the answer's length is bounded by its prompt, never
+ * by the cap. (`cheap` calls from an app run without thinking, so a short cap
+ * there goes on the answer.)
+ *
+ * What a bigger cap costs: the charge is for the tokens used, so the same
+ * answer costs the same at any cap. The cap sets the hold ConjureOS takes
+ * before the call and settles after it: on `capable` that is 0.03 credits per
+ * token of cap ($15 per million at the tier's billing rate, x2, 1,000 credits
+ * per dollar), so 3,000 holds 90 credits and 4,000 holds 120, plus the prompt.
+ */
+export const CAPABLE_MIN_MAX_TOKENS = 3000;
+
 /** An image attached to a chat message, for the vision-backed capture flows. */
 export interface ChatImage {
   mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
@@ -80,6 +102,14 @@ export async function complete(req: CompleteRequest): Promise<string> {
 }
 
 /**
+ * What the person reads when a thinking model spent its whole `maxTokens`
+ * before it wrote an answer (ConjureOS's `AIRanOutOfRoomError`). Retrying can
+ * work, since how long a model thinks varies; a shorter question gives it
+ * less to think about. Not a connection problem, so it never says so.
+ */
+export const RAN_OUT_MESSAGE = "The AI ran out of room before it could answer. Try again, or ask something shorter.";
+
+/**
  * Turn a rejected `complete()` into something worth reading.
  *
  * The host rejects with its own reason — "out_of_credits", "rate limit",
@@ -102,6 +132,12 @@ export function aiErrorMessage(err: unknown, fallback = "The AI didn't answer. T
   // proxy forwards its body verbatim: "Your credit balance is too low to
   // access the Anthropic API." That is the platform's balance (or the user's
   // own pasted key), never their ConjureOS credits, so it gets its own line.
+  // A thinking model used its whole cap before answering (ConjureOS #1159).
+  // Matched first: the host's sentence says "Try again", which nothing below
+  // should read as anything else.
+  if (m.includes("ran out of room") || (err instanceof Error && err.name === "AIRanOutOfRoomError")) {
+    return RAN_OUT_MESSAGE;
+  }
   if (m.includes("credit balance is too low")) {
     return "The AI service is out of credit. Top up the Anthropic account behind ConjureOS (or the key in your settings) and try again.";
   }

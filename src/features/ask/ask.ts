@@ -296,7 +296,9 @@ export async function askHealth(
     const reply = await complete({
       system,
       messages,
-      maxTokens: 400,
+      // Room to think plus the answer, whose length the prompt's STYLE lines
+      // bound (four sentences at most). conjureos-health#10.
+      maxTokens: 3000,
       tier: "capable",
     });
     const text = reply.trim();

@@ -43,6 +43,13 @@ Rules:
 const MAX_ITEMS = 20;
 
 /**
+ * The items JSON (about 1,000 tokens for a full meal) plus room to think: the
+ * capable tier thinks before it answers, and thinking counts toward the cap
+ * (conjureos-health#10, `CAPABLE_MIN_MAX_TOKENS` in bridge/ai.ts).
+ */
+const MEAL_MAX_TOKENS = 4000;
+
+/**
  * Turn a described meal ("two eggs and a coffee") or a photo of one into
  * individual foods with estimated macros. Returns [] when nothing usable came
  * back — an empty result is normal, not an error.
@@ -63,7 +70,7 @@ export async function parseMeal(input: {
   const raw = await complete({
     system: SYSTEM,
     messages: [{ role: "user", content, images: input.image ? [input.image] : undefined }],
-    maxTokens: 1024,
+    maxTokens: MEAL_MAX_TOKENS,
     tier: "capable",
   });
 
@@ -103,7 +110,7 @@ export async function parseMealWithGroup(input: {
   const raw = await complete({
     system: SYSTEM,
     messages: [{ role: "user", content, images: input.image ? [input.image] : undefined }],
-    maxTokens: 1024,
+    maxTokens: MEAL_MAX_TOKENS,
     tier: "capable",
   });
 

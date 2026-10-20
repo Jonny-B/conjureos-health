@@ -192,7 +192,8 @@ async function generateCore(input: PlanInput, priorReasons?: string[]): Promise<
   const raw = await complete({
     system: SYSTEM_CORE,
     messages: [{ role: "user", content: buildUserPrompt(input, priorReasons) }],
-    maxTokens: 900,
+    // The goals JSON (about 900 tokens) plus room to think. conjureos-health#10.
+    maxTokens: 4000,
     tier: "capable",
   });
   const res = parseCore(raw);

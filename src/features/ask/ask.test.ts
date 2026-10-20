@@ -85,8 +85,9 @@ describe("askHealth", () => {
 
   /**
    * Renaming the feature must not move what it does. These are the prompt's
-   * own scope and limit lines, verbatim, plus the model tier and answer
-   * length it has always run at.
+   * own scope and limit lines, verbatim, plus the model tier. The answer's
+   * length is the STYLE line's job; the cap is that answer plus room for the
+   * capable tier to think (conjureos-health#10).
    */
   it("keeps its scope: everyday food and nutrition, general information, nothing changed", async () => {
     const { askHealth } = await import("./ask");
@@ -94,8 +95,9 @@ describe("askHealth", () => {
     await askHealth("anything");
     const req = sentRequest();
     expect(req.tier).toBe("capable");
-    expect(req.maxTokens).toBe(400);
+    expect(req.maxTokens).toBe(3000);
     for (const line of [
+      "- Answer the question first, in one or two sentences. Then at most two more sentences of useful detail.",
       "You answer everyday food and nutrition questions inside a calorie-tracking app.",
       "- Food, nutrition, hydration, and general healthy-eating habits.",
       "- A question that is odd, vague or a joke still gets a straight, good-humoured answer. Do not lecture.",
