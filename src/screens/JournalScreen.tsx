@@ -6,14 +6,13 @@
  * read it, and a print view for handing a stretch of it to a doctor.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Profile } from "../types";
 import {
   datesBetween,
   isEmptyDay,
   loadDayJournal,
   loadRangeJournal,
-  patternsQuestion,
   type DayJournal,
   type JournalEvent,
 } from "../features/journal";
@@ -21,7 +20,8 @@ import { shiftDate, todayISO } from "../features/diary";
 import { fmtWater } from "../features/water";
 import { formatSleep } from "../features/sleep";
 import { AskHealthSheet } from "../components/AskHealthSheet";
-import { newPatternsRun, type AskFrom } from "../features/ask/ask";
+import type { AskFrom } from "../features/ask/ask";
+import { findPatternsAsk, loadedFor, type LoadedRange } from "../features/ask/findPatterns";
 import { AiConsentSheet } from "../components/AiConsentSheet";
 import {
   hasAiJournalConsent,
@@ -72,7 +72,10 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
   const today = todayISO();
   const [cursor, setCursor] = useState(today); // any date in the shown month
   const [selected, setSelected] = useState<string>(today);
-  const [month, setMonth] = useState<DayJournal[] | null>(null);
+  // The last month read, tagged with its range. It can be a month other than
+  // the one shown: right after the month changes, or when an older read
+  // lands late. `shown` below is what the screen and Find patterns use.
+  const [month, setMonth] = useState<LoadedRange | null>(null);
   const [day, setDay] = useState<DayJournal | null>(null);
   const [printOpen, setPrintOpen] = useState(false);
   // The open "Find patterns" run: its opening question, and the run every
@@ -87,13 +90,20 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
   const from = monthStart(cursor);
   const to = monthEnd(cursor);
 
-  const loadMonth = useCallback(async () => {
-    setMonth(await loadRangeJournal(from, to, units));
-  }, [from, to, units]);
-
   useEffect(() => {
-    void loadMonth();
-  }, [loadMonth, nonce, localNonce]);
+    // A read that lands after the month changed again is dropped, or a slow
+    // September could overwrite August and be sent under August's name.
+    let alive = true;
+    void loadRangeJournal(from, to, units).then((days) => {
+      if (alive) setMonth({ from, to, days });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [from, to, units, nonce, localNonce]);
+
+  // The days of the month on screen, or null while they are being read.
+  const shown = loadedFor(month, from, to);
 
   useEffect(() => {
     let alive = true;
@@ -107,9 +117,9 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
 
   const byDate = useMemo(() => {
     const map = new Map<string, DayJournal>();
-    for (const d of month ?? []) map.set(d.date, d);
+    for (const d of shown?.days ?? []) map.set(d.date, d);
     return map;
-  }, [month]);
+  }, [shown]);
 
   // Leading blanks so the 1st lands under its weekday.
   const lead = weekdayIndex(from);
@@ -125,12 +135,10 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
    * performs the disclosure.
    */
   const runPatterns = (includeNotes: boolean) => {
-    setAsking({
-      // A new run for each press: a follow-up carries this run's range and
-      // nothing from another run or the home card (features/ask/ask.ts).
-      from: newPatternsRun(),
-      question: patternsQuestion(month ?? [], from, to, { includeNotes }),
-    });
+    // Null while the month on screen is being read: nothing goes until the
+    // days on hand are the range the question names.
+    const ask = findPatternsAsk(shown, from, to, { includeNotes });
+    if (ask) setAsking(ask);
   };
 
   const askPatterns = async () => {
@@ -164,7 +172,7 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
           </button>
         </div>
         <div className="journal-actions">
-          <button className="btn small" onClick={askPatterns}>
+          <button className="btn small" disabled={shown === null} onClick={askPatterns}>
             <DiamondIcon size={15} /> Find patterns
           </button>
           <button className="btn small" onClick={() => setPrintOpen(true)}>

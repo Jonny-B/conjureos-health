@@ -116,6 +116,26 @@ describe("patternsQuestion", () => {
     expect(q).toBe("I have nothing recorded for 2026-08-01 to 2026-08-31. What would be worth tracking to spot patterns?");
     expectCopyRules(q);
   });
+
+  /**
+   * Find patterns withholds "anything outside the range you asked about"
+   * (ConjureOS #1163). The range named in the question is that range, so a
+   * day outside it never goes, whatever the caller passed in.
+   */
+  it("leaves out every day outside the range it names", () => {
+    const sept = { ...symptomDay(), date: "2026-09-02" };
+    const julyLast = { ...symptomDay(), date: "2026-07-31" };
+    const q = patternsQuestion([julyLast, symptomDay(), sept], "2026-08-01", "2026-08-31");
+    expect(q).toContain("2026-08-09:");
+    expect(q).not.toContain("2026-09-02");
+    expect(q).not.toContain("2026-07-31");
+  });
+
+  it("asks what to track when every day it was handed is outside the range", () => {
+    const q = patternsQuestion([{ ...symptomDay(), date: "2026-10-09" }], "2026-08-01", "2026-08-31");
+    expect(q).toBe("I have nothing recorded for 2026-08-01 to 2026-08-31. What would be worth tracking to spot patterns?");
+    expect(q).not.toContain("Heartburn");
+  });
 });
 
 describe("summarizeRange", () => {
