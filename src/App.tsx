@@ -62,7 +62,8 @@ export function App() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [ready, setReady] = useState(false);
   // Consent to collect health data (features/healthConsent.ts). Until it is
-  // "yes", only the consent screen renders and no action is registered.
+  // "yes", only the consent screen renders, and every cross-app action
+  // refuses with ConjureOS's needs-consent answer (bridge/actions.ts).
   const [consent, setConsent] = useState<"unknown" | "yes" | "no">("unknown");
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Plan wizard as a dismissible dialog, plus a per-session dismiss for its
@@ -113,12 +114,17 @@ export function App() {
     };
   }, []);
 
+  // Registered at startup, consent or not (ConjureOS #1156). Each action checks
+  // the agreement itself and refuses without one, so nothing is read or kept
+  // before the person agrees. An app that registered nothing until then left
+  // ConjureOS waiting out its timeout and saying the app "did not register the
+  // action", where the refusal lets Chat say what is needed and offer to open
+  // the app.
   useEffect(() => {
-    if (consent !== "yes") return;
     registerActions().catch(() => {
       /* cross-app integration is non-fatal */
     });
-  }, [consent]);
+  }, []);
 
   useEffect(() => {
     let alive = true;

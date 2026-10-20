@@ -131,8 +131,15 @@ allow" for that app; its assistant acts when the user asks it to.
 params against it, and its AI router picks actions by their descriptions, so
 units, defaults and "pass X or Y" live in the description text. Conventions:
 
-- **Every read returns `value`**, one line answering the question in the
+- **Every action returns `value`**, one line answering the question in the
   user's units. Ask ConjureOS shows an action's answer only through that field.
+  Every write that adds a record also returns `display: { title, text }`, the
+  card ConjureOS Chat shows under that line.
+- **Without the person's agreement to keep health data, every action refuses**
+  with `NEEDS_CONSENT:` and one line saying so. ConjureOS Chat turns that into
+  "Conjure Health needs your agreement first" with an Open button. The actions
+  are registered at startup, agreement or not, so a call before it gets that
+  answer rather than none.
 - **`tracksCalories: false`** means the user has no calorie target (the safety
   gate puts under-18, pregnant and heart-condition users on a logging-only
   plan). Nothing then carries a target, a "remaining" or an "over", and the

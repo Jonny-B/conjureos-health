@@ -46,9 +46,20 @@ export interface HealthConsent {
 
 let granted = false;
 
-/** Synchronous view for code that cannot await (cross-app action guards). */
+/** Synchronous view for code that cannot await. */
 export function healthConsentGranted(): boolean {
   return granted;
+}
+
+/**
+ * Whether an agreement is on file, for the cross-app action guard. The
+ * actions are registered at startup, before the gate has read the file
+ * (ConjureOS #1156), so a call that lands first must not be refused for a
+ * read that has not finished: when nothing says yes in memory, this reads the
+ * file. A withdrawal clears both, so it still refuses at once.
+ */
+export async function healthConsentOnFile(): Promise<boolean> {
+  return granted || loadHealthConsent();
 }
 
 /**

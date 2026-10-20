@@ -22,6 +22,7 @@ vi.mock("../bridge/vfs", () => ({
 import {
   HEALTH_CONSENT_VERSION,
   healthConsentGranted,
+  healthConsentOnFile,
   loadHealthConsent,
   recordHealthConsent,
   withdrawHealthConsent,
@@ -64,6 +65,35 @@ describe("consent to collect health data", () => {
     await withdrawHealthConsent();
     expect(healthConsentGranted()).toBe(false);
     expect(await loadHealthConsent()).toBe(false);
+  });
+});
+
+/**
+ * ConjureOS #1156: the cross-app actions are registered at startup, before the
+ * gate has read the file, so their guard must read it rather than refuse a
+ * person who agreed long ago.
+ */
+describe("the cross-app actions' check", () => {
+  it("reads an agreement the gate has not loaded yet", async () => {
+    await withdrawHealthConsent(); // nothing in memory, as at startup
+    files.set("health-consent.json", JSON.stringify({ acceptedAt: "2026-01-01T00:00:00Z", version: HEALTH_CONSENT_VERSION }));
+    expect(healthConsentGranted()).toBe(false);
+    expect(await healthConsentOnFile()).toBe(true);
+  });
+
+  it("says yes for the session after an agreement whose record could not be written", async () => {
+    failWrites = true;
+    await recordHealthConsent();
+    expect(await healthConsentOnFile()).toBe(true);
+  });
+
+  it("refuses with nothing on file, and at once after a withdrawal", async () => {
+    await withdrawHealthConsent();
+    expect(await healthConsentOnFile()).toBe(false);
+    await recordHealthConsent();
+    expect(await healthConsentOnFile()).toBe(true);
+    await withdrawHealthConsent();
+    expect(await healthConsentOnFile()).toBe(false);
   });
 });
 

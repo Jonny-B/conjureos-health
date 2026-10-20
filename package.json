@@ -137,6 +137,22 @@
             "value": {
               "type": "string",
               "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            },
+            "display": {
+              "type": "object",
+              "description": "A card for ConjureOS to show under its line about the step: what was logged, and where it went. Plain text.",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "text"
+              ]
             }
           },
           "required": [
@@ -145,7 +161,8 @@
             "foods",
             "calories",
             "estimated",
-            "value"
+            "value",
+            "display"
           ]
         }
       },
@@ -243,12 +260,29 @@
             "value": {
               "type": "string",
               "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            },
+            "display": {
+              "type": "object",
+              "description": "A card for ConjureOS to show under its line about the step: what was logged, and where it went. Plain text.",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "text"
+              ]
             }
           },
           "required": [
             "ids",
             "calories",
-            "value"
+            "value",
+            "display"
           ]
         }
       },
@@ -312,13 +346,30 @@
             "value": {
               "type": "string",
               "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            },
+            "display": {
+              "type": "object",
+              "description": "A card for ConjureOS to show under its line about the step: what was logged, and where it went. Plain text.",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "text"
+              ]
             }
           },
           "required": [
             "ids",
             "count",
             "calories",
-            "value"
+            "value",
+            "display"
           ]
         }
       },
@@ -367,11 +418,33 @@
             },
             "logged": {
               "type": "boolean"
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            },
+            "display": {
+              "type": "object",
+              "description": "A card for ConjureOS to show under its line about the step: what was logged, and where it went. Plain text.",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "text"
+              ]
             }
           },
           "required": [
             "id",
-            "logged"
+            "logged",
+            "value",
+            "display"
           ]
         }
       },
@@ -504,12 +577,17 @@
             "calories": {
               "type": "integer",
               "description": "The entry's calories at the new quantity."
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
             }
           },
           "required": [
             "id",
             "quantity",
-            "calories"
+            "calories",
+            "value"
           ]
         }
       },
@@ -1334,7 +1412,7 @@
       },
       "logWorkout": {
         "permission": "actions.write",
-        "description": "Log a completed workout so its burned calories add back into the day's calorie budget. Pass calories (kcal burned); optionally type (e.g. \"running\"), durationMin, and date (YYYY-MM-DD, defaults to today). An app syncing workouts should also pass externalId (its own id for the workout) and sourceApp (its name): the same externalId from the same sourceApp replaces the earlier entry instead of counting it twice. Check dayExercise first when the workout may also sync from Apple Health or Health Connect. A fitness app whose own listWorkouts ConjureOS connects to this app needs neither: its workouts reach the ring automatically, so log a workout in that app rather than here.",
+        "description": "Log a completed workout so its burned calories add back into the day's calorie budget. Pass calories (kcal burned); optionally type (e.g. \"running\"), durationMin, and date (YYYY-MM-DD, defaults to today). An app syncing workouts should also pass externalId (its own id for the workout) and sourceApp (its name): the same externalId from the same sourceApp replaces the earlier entry instead of counting it twice. Check dayExercise first when the workout may also sync from Apple Health or Health Connect. A fitness app whose own listWorkouts ConjureOS connects to this app needs neither: its workouts reach the ring automatically, so log a workout in that app rather than here. Conjure Fitness is one: its own logWorkout records a workout in the person's training history, and this calorie budget counts it once the two apps are connected. So when Conjure Fitness is installed, a workout the person did belongs in its logWorkout, and this one is for calories burned that should only change the calorie budget. Log a workout in one app, not both.",
         "params": {
           "type": "object",
           "properties": {
@@ -1391,13 +1469,30 @@
             "value": {
               "type": "string",
               "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            },
+            "display": {
+              "type": "object",
+              "description": "A card for ConjureOS to show under its line about the step: what was logged, and where it went. Plain text.",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "text"
+              ]
             }
           },
           "required": [
             "id",
             "caloriesBurned",
             "replaced",
-            "value"
+            "value",
+            "display"
           ]
         }
       },
@@ -1525,11 +1620,33 @@
             "ml": {
               "type": "integer",
               "description": "What was stored, in millilitres."
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            },
+            "display": {
+              "type": "object",
+              "description": "A card for ConjureOS to show under its line about the step: what was logged, and where it went. Plain text.",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "text"
+              ]
             }
           },
           "required": [
             "id",
-            "ml"
+            "ml",
+            "value",
+            "display"
           ]
         }
       },
@@ -1574,12 +1691,34 @@
             "minutes": {
               "type": "integer",
               "description": "Length of the night in minutes."
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            },
+            "display": {
+              "type": "object",
+              "description": "A card for ConjureOS to show under its line about the step: what was logged, and where it went. Plain text.",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "text"
+              ]
             }
           },
           "required": [
             "id",
             "date",
-            "minutes"
+            "minutes",
+            "value",
+            "display"
           ]
         }
       },
@@ -1616,10 +1755,32 @@
           "properties": {
             "id": {
               "type": "string"
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            },
+            "display": {
+              "type": "object",
+              "description": "A card for ConjureOS to show under its line about the step: what was logged, and where it went. Plain text.",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "text"
+              ]
             }
           },
           "required": [
-            "id"
+            "id",
+            "value",
+            "display"
           ]
         }
       },
@@ -1655,11 +1816,33 @@
             },
             "weightKg": {
               "type": "number"
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
+            },
+            "display": {
+              "type": "object",
+              "description": "A card for ConjureOS to show under its line about the step: what was logged, and where it went. Plain text.",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "text"
+              ]
             }
           },
           "required": [
             "date",
-            "weightKg"
+            "weightKg",
+            "value",
+            "display"
           ]
         }
       },
@@ -1922,11 +2105,16 @@
             },
             "kind": {
               "type": "string"
+            },
+            "value": {
+              "type": "string",
+              "description": "One line answering the question in the user's units, for Ask ConjureOS to show."
             }
           },
           "required": [
             "deleted",
-            "kind"
+            "kind",
+            "value"
           ]
         }
       }

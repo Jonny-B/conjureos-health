@@ -33,9 +33,11 @@
  *   Corrections
  *     deleteEntry({ kind, id })                                            → write
  *
- * Every read returns `value`, one line that answers the question in the
+ * Every action returns `value`, one line that answers the question in the
  * user's units: Ask ConjureOS shows a result only through that field, so a
  * read without it answered "how many calories do I have left?" with nothing.
+ * Every write that adds a record also returns `display`, the card ConjureOS
+ * Chat shows under its line (ConjureOS #1036, #1156).
  *
  * Deliberately NOT exposed, and not an oversight:
  *
@@ -68,7 +70,7 @@
  * reporting success.
  */
 
-import { healthConsentGranted } from "../features/healthConsent";
+import { healthConsentOnFile } from "../features/healthConsent";
 import type { FoodItem, Macros, MealType, Profile, WorkoutSession } from "../types";
 import { MEAL_LABELS, MEAL_TYPES } from "../types";
 import { getRepository, type Repository } from "../data/repository";
@@ -283,6 +285,20 @@ function dayWord(date: string): string {
   return `on ${date}`;
 }
 
+/**
+ * A card ConjureOS Chat shows under its line after a create (ConjureOS #1036,
+ * #1156): what was logged as the title, where it went as the text. Plain
+ * words, read by a person; an app that calls this one can ignore it.
+ */
+interface Card {
+  title: string;
+  text: string;
+}
+const card = (title: string, text: string): Card => ({ title, text });
+
+/** "Lunch today" / "Breakfast on 2026-10-01", for a card's text. */
+const mealOn = (meal: MealType, date: string): string => `${MEAL_LABELS[meal].toLowerCase()} ${dayWord(date)}`;
+
 /** The user's display units; metric when unknown. */
 async function unitsPref(repo: Repository): Promise<Units> {
   try {
@@ -367,6 +383,7 @@ async function logFood(raw?: unknown): Promise<{
   calories: number;
   estimated: boolean;
   value: string;
+  display: Card;
 }> {
   const p = asObject(raw);
   const name = asString(p.name, "name", 80);
@@ -413,6 +430,10 @@ async function logFood(raw?: unknown): Promise<{
       `${listing(each)} to ${MEAL_LABELS[meal].toLowerCase()}` +
       (logged.length > 1 ? `, ${cal(total)} in all` : "") +
       (estimated ? " (AI estimate)" : ""),
+    display: card(
+      listing(logged.map((f) => f.name)),
+      `Logged to ${mealOn(meal, date)}, ${cal(total)}${estimated ? ", an AI estimate" : ""}.`,
+    ),
   };
 }
 
@@ -424,7 +445,7 @@ const MAX_MEAL_ITEMS = 20;
  * the AI (use logFood for a described meal), and it validates every item
  * before writing any, so a bad fifth item doesn't leave four logged.
  */
-async function logMeal(raw?: unknown): Promise<{ ids: string[]; calories: number; value: string }> {
+async function logMeal(raw?: unknown): Promise<{ ids: string[]; calories: number; value: string; display: Card }> {
   const p = asObject(raw);
   if (!Array.isArray(p.items)) throw new Error("params.items must be an array of foods");
   if (p.items.length === 0) throw new Error("params.items is empty");
@@ -463,6 +484,10 @@ async function logMeal(raw?: unknown): Promise<{ ids: string[]; calories: number
     ids,
     calories: total,
     value: `${plural(ids.length, "food")}, ${cal(total)}, to ${MEAL_LABELS[meal].toLowerCase()} ${dayWord(date)}`,
+    display: card(
+      listing(planned.map(({ food }) => food.name)),
+      `Logged to ${mealOn(meal, date)}, ${cal(total)} in all.`,
+    ),
   };
 }
 
@@ -476,6 +501,7 @@ async function copyMeal(raw?: unknown): Promise<{
   count: number;
   calories: number;
   value: string;
+  display: Card;
 }> {
   const p = asObject(raw);
   const meal = asMealStrict(p.meal, "meal");
@@ -513,10 +539,14 @@ async function copyMeal(raw?: unknown): Promise<{
     count: ids.length,
     calories: total,
     value: `Copied ${plural(ids.length, "food")} (${cal(total)}) from ${MEAL_LABELS[meal].toLowerCase()} ${dayWord(fromDate)} to ${MEAL_LABELS[toMeal].toLowerCase()} ${dayWord(toDate)}`,
+    display: card(
+      listing(source.map((e) => e.food.name)),
+      `Copied from ${mealOn(meal, fromDate)} to ${mealOn(toMeal, toDate)}, ${cal(total)} in all.`,
+    ),
   };
 }
 
-async function logRecipeMeal(raw?: unknown): Promise<{ id: string; logged: boolean }> {
+async function logRecipeMeal(raw?: unknown): Promise<{ id: string; logged: boolean; value: string; display: Card }> {
   const p = asObject(raw);
   const slug = asString(p.slug, "slug", 80)
     .toLowerCase()
@@ -564,7 +594,14 @@ async function logRecipeMeal(raw?: unknown): Promise<{ id: string; logged: boole
   notifyDataChanged();
   // Best-effort: confirm the recipe was cooked (non-fatal if the grant is denied).
   await markCooked(slug);
-  return { id: entry.id, logged: true };
+  const total = Math.round(n.calories * servings);
+  const amount = servings === 1 ? "" : ` (${servings} servings)`;
+  return {
+    id: entry.id,
+    logged: true,
+    value: `${recipe.title}${amount}, ${cal(total)}, to ${mealOn(meal, date)}`,
+    display: card(recipe.title, `${plural(servings, "serving")} logged to ${mealOn(meal, date)}, ${cal(total)}.`),
+  };
 }
 
 /** The error for an id that matches nothing, pointing at where ids come from. */
@@ -576,7 +613,7 @@ function notFound(kind: string, id: string): Error {
   );
 }
 
-async function setFoodQuantity(raw?: unknown): Promise<{ id: string; quantity: number; calories: number }> {
+async function setFoodQuantity(raw?: unknown): Promise<{ id: string; quantity: number; calories: number; value: string }> {
   const p = asObject(raw);
   const id = asId(p.id);
   const quantity = asQuantity(p.quantity);
@@ -585,7 +622,13 @@ async function setFoodQuantity(raw?: unknown): Promise<{ id: string; quantity: n
   if (!entry) throw notFound("food", id);
   await repo.updateDiaryEntry(id, { quantity });
   notifyDataChanged();
-  return { id, quantity, calories: Math.round(entry.food.perServing.calories * quantity) };
+  const calories = Math.round(entry.food.perServing.calories * quantity);
+  return {
+    id,
+    quantity,
+    calories,
+    value: `${entry.food.name}: ${quantity}× ${cal(calories)} at ${MEAL_LABELS[entry.meal].toLowerCase()}`,
+  };
 }
 
 /**
@@ -1097,6 +1140,7 @@ async function logWorkout(raw?: unknown): Promise<{
   caloriesBurned: number;
   replaced: boolean;
   value: string;
+  display: Card;
 }> {
   const p = asObject(raw);
   if (p.calories === undefined || p.calories === null) throw new Error("params.calories is required");
@@ -1134,6 +1178,10 @@ async function logWorkout(raw?: unknown): Promise<{
     caloriesBurned: calories,
     replaced: Boolean(earlier),
     value: `${name ?? "Workout"}, ${cal(calories)} burned ${dayWord(date)}${earlier ? " (updated)" : ""}`,
+    display: card(
+      name ?? "Workout",
+      `${cal(calories)} burned ${dayWord(date)}${minutes > 0 ? ` in ${minutes} min` : ""}, added back to the day's calorie budget.`,
+    ),
   };
 }
 
@@ -1192,7 +1240,7 @@ async function dayExercise(raw?: unknown): Promise<{
 // Each adds exactly one record and is individually reversible via
 // deleteEntry, which is what makes them safe for an agent to call.
 
-async function logWater(raw?: unknown): Promise<{ id: string; ml: number }> {
+async function logWater(raw?: unknown): Promise<{ id: string; ml: number; value: string; display: Card }> {
   const p = asObject(raw ?? {});
   // 4 L in one go is already well past a real drink; anything above is a
   // caller bug, not a big glass.
@@ -1201,13 +1249,21 @@ async function logWater(raw?: unknown): Promise<{ id: string; ml: number }> {
   const repo = await getRepository();
   const entry = await repo.addWater({ date, ml, loggedAt: new Date().toISOString() });
   notifyDataChanged();
-  return { id: entry.id, ml: entry.ml };
+  const amount = fmtWater(entry.ml, await unitsPref(repo));
+  return {
+    id: entry.id,
+    ml: entry.ml,
+    value: `${amount} of water ${dayWord(date)}`,
+    display: card("Water", `${amount} logged ${dayWord(date)}.`),
+  };
 }
 
 async function logSleep(raw?: unknown): Promise<{
   id: string;
   date: string;
   minutes: number;
+  value: string;
+  display: Card;
 }> {
   const p = asObject(raw);
   const bedTime = asClock(p.bedTime, "bedTime");
@@ -1252,10 +1308,16 @@ async function logSleep(raw?: unknown): Promise<{
   const repo = await getRepository();
   await repo.saveSleep(entry);
   notifyDataChanged();
-  return { id: entry.id, date: entry.date, minutes };
+  return {
+    id: entry.id,
+    date: entry.date,
+    minutes,
+    value: `${formatSleep(minutes)} of sleep, waking ${dayWord(entry.date)}`,
+    display: card("Sleep", `${formatSleep(minutes)}, ${bedTime} to ${wakeTime}, waking ${dayWord(entry.date)}.`),
+  };
 }
 
-async function logSymptom(raw?: unknown): Promise<{ id: string }> {
+async function logSymptom(raw?: unknown): Promise<{ id: string; value: string; display: Card }> {
   const p = asObject(raw);
   const label = asString(p.label, "label", 60);
   const date = asDate(p.date);
@@ -1276,10 +1338,16 @@ async function logSymptom(raw?: unknown): Promise<{ id: string }> {
     ...(note !== undefined ? { note } : {}),
   });
   notifyDataChanged();
-  return { id: entry.id };
+  // The note is never echoed back: it stays in the app (see dayWellbeing).
+  const severityWords = severity !== undefined ? `, severity ${severity} of 5` : "";
+  return {
+    id: entry.id,
+    value: `${label}${severityWords}, ${dayWord(date)}`,
+    display: card(label, `Logged ${dayWord(date)}${severityWords}.`),
+  };
 }
 
-async function logWeight(raw?: unknown): Promise<{ date: string; weightKg: number }> {
+async function logWeight(raw?: unknown): Promise<{ date: string; weightKg: number; value: string; display: Card }> {
   const p = asObject(raw ?? {});
   // 2dp, like the weight card: at 1dp a pound entry doesn't survive the trip
   // (180.2 lb stored as 81.7 kg reads back as 180.1 lb).
@@ -1290,7 +1358,13 @@ async function logWeight(raw?: unknown): Promise<{ date: string; weightKg: numbe
   // appending, matching what the weight card does.
   await repo.upsertWeight({ date, weightKg });
   notifyDataChanged();
-  return { date, weightKg };
+  const weight = fmtWeight(weightKg, await unitsPref(repo));
+  return {
+    date,
+    weightKg,
+    value: `${weight} ${dayWord(date)}`,
+    display: card("Weight", `${weight} recorded ${dayWord(date)}.`),
+  };
 }
 
 // ── Corrections ───────────────────────────────────────────────────────
@@ -1303,7 +1377,7 @@ type Deletable = (typeof DELETABLE)[number];
 const ALL_FROM = "0000-01-01";
 const ALL_TO = "9999-12-31";
 
-async function deleteEntry(raw?: unknown): Promise<{ deleted: true; kind: Deletable }> {
+async function deleteEntry(raw?: unknown): Promise<{ deleted: true; kind: Deletable; value: string }> {
   const p = asObject(raw);
   const kind = asString(p.kind, "kind", 20);
   if (!(DELETABLE as readonly string[]).includes(kind)) {
@@ -1365,7 +1439,11 @@ async function deleteEntry(raw?: unknown): Promise<{ deleted: true; kind: Deleta
       break;
   }
   notifyDataChanged();
-  return { deleted: true, kind: kind as Deletable };
+  return {
+    deleted: true,
+    kind: kind as Deletable,
+    value: kind === "weight" ? `Removed the weigh-in ${dayWord(id)}` : `Removed one ${kind} entry`,
+  };
 }
 
 // ── Wellbeing reads ───────────────────────────────────────────────────
@@ -1524,17 +1602,28 @@ async function weightTrend(raw?: unknown): Promise<{
  * validates against, and a test fails when the two disagree.
  */
 /**
+ * What every action throws while there is no consent to collect health data
+ * on file. The `NEEDS_CONSENT:` marker is ConjureOS's (#1156): Chat reads it
+ * and says the app needs the person's agreement, with this line on a card and
+ * an Open button, instead of showing an error. The rest is plain words, which
+ * is all an app that calls this one sees beside the marker.
+ */
+export const NEEDS_HEALTH_CONSENT =
+  "NEEDS_CONSENT:Open Conjure Health and agree to let it keep your health data.";
+
+/**
  * Every action refuses while there is no consent to collect health data on
- * file (features/healthConsent.ts). App registers actions only after consent,
- * but registration outlives a withdrawal mid-session, so each call checks too.
+ * file (features/healthConsent.ts), and checks on every call: the actions are
+ * registered at startup, before the person has agreed, so that a call then
+ * gets this answer instead of the silence of an app that registered nothing
+ * (ConjureOS #1156), and a withdrawal mid-session stops them at once. Nothing
+ * is read or written before the check passes.
  */
 function requireHealthConsent<H extends Record<string, (...args: never[]) => unknown>>(handlers: H): H {
   const out: Record<string, (...args: never[]) => unknown> = {};
   for (const [name, fn] of Object.entries(handlers)) {
-    out[name] = (...args: never[]) => {
-      if (!healthConsentGranted()) {
-        throw new Error("Conjure Health does not have permission to keep health data yet. Open Conjure Health to agree.");
-      }
+    out[name] = async (...args: never[]) => {
+      if (!(await healthConsentOnFile())) throw new Error(NEEDS_HEALTH_CONSENT);
       return fn(...args);
     };
   }

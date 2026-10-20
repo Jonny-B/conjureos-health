@@ -99,11 +99,29 @@ const { parseMeal, lookupBarcode, searchFoods } = vi.hoisted(() => ({
   searchFoods: vi.fn(),
 }));
 vi.mock("../features/naturalLanguage", () => ({ parseMeal }));
+const { getRecipe } = vi.hoisted(() => ({ getRecipe: vi.fn() }));
+vi.mock("./recipeBridge", async (orig) => ({
+  ...(await orig<typeof import("./recipeBridge")>()),
+  getRecipe,
+  markCooked: async () => {},
+}));
+/** The writes that add a record, each of which returns a `display` card. */
+const CREATES = [
+  "logFood",
+  "logMeal",
+  "copyMeal",
+  "logRecipeMeal",
+  "logWorkout",
+  "logWater",
+  "logSleep",
+  "logSymptom",
+  "logWeight",
+] as const;
 vi.mock("../features/foods/foodSearch", () => ({ lookupBarcode, searchFoods }));
 // Consent to collect health data (features/healthConsent.ts). Granted for
 // every test except the one that checks the refusal.
 let consentGranted = true;
-vi.mock("../features/healthConsent", () => ({ healthConsentGranted: () => consentGranted }));
+vi.mock("../features/healthConsent", () => ({ healthConsentOnFile: async () => consentGranted }));
 
 let actions: Record<string, Handler> = {};
 
@@ -228,6 +246,64 @@ describe("what the orchestrator can reach", () => {
     );
     expect(reads.length).toBeGreaterThan(5);
     for (const [name, a] of reads) expect(a.returns.required, name).toContain("value");
+  });
+
+  it("declares a one-line answer on every action, and a card on every create (ConjureOS #1156)", async () => {
+    const pkg = (await import("../../package.json")) as unknown as {
+      default: {
+        conjureos: {
+          actions: Record<string, { returns: { properties: Record<string, { type?: string }>; required?: string[] } }>;
+        };
+      };
+    };
+    const all = Object.entries(pkg.default.conjureos.actions);
+    for (const [name, a] of all) {
+      expect(a.returns.properties.value?.type, name).toBe("string");
+      expect(a.returns.required, name).toContain("value");
+    }
+    const withCard = all.filter(([, a]) => a.returns.properties.display).map(([n]) => n).sort();
+    expect(withCard).toEqual([...CREATES].sort());
+  });
+
+  it("returns that answer and that card when it runs", async () => {
+    db.diary.push({
+      id: "y1",
+      date: yesterday(),
+      meal: "breakfast",
+      food: food("Porridge", 300),
+      quantity: 1,
+      loggedAt: new Date().toISOString(),
+    });
+    const calls: Record<(typeof CREATES)[number], unknown> = {
+      logFood: { name: "Apple", calories: 95, meal: "snacks" },
+      logMeal: { items: [{ name: "Rice", calories: 200 }, { name: "Dal", calories: 250 }], meal: "dinner" },
+      copyMeal: { meal: "breakfast" },
+      logRecipeMeal: { slug: "pumpkin-soup" },
+      logWorkout: { calories: 300, type: "running", durationMin: 30 },
+      logWater: { ml: 250 },
+      logSleep: { bedTime: "23:00", wakeTime: "07:00" },
+      logSymptom: { label: "Headache", severity: 3, note: "after lunch" },
+      logWeight: { kg: 80 },
+    };
+    getRecipe.mockResolvedValueOnce({ slug: "pumpkin-soup", title: "Pumpkin soup", nutrition: { calories: 180, protein: 4, carbs: 20, fat: 9 } });
+    for (const name of CREATES) {
+      const res = (await call(name, calls[name])) as { value?: unknown; display?: { title?: unknown; text?: unknown } };
+      expect(typeof res.value, name).toBe("string");
+      expect(String(res.value).length, name).toBeGreaterThan(3);
+      expect(typeof res.display?.title, name).toBe("string");
+      expect(typeof res.display?.text, name).toBe("string");
+      // House style for anything a person reads: no em-dash, no "now", "yet" or "no longer".
+      for (const line of [res.value, res.display?.title, res.display?.text]) {
+        expect(String(line), name).not.toMatch(/\u2014|\b(now|yet|no longer)\b/i);
+      }
+    }
+    // A symptom's note stays in the app, even on the card.
+    const symptom = (await call("logSymptom", { label: "Heartburn", note: "private words" })) as { display: { text: string }; value: string };
+    expect(`${symptom.value} ${symptom.display.text}`).not.toContain("private words");
+    // The corrections answer in a line too.
+    const entry = db.diary[0]!;
+    expect(((await call("setFoodQuantity", { id: entry.id, quantity: 2 })) as { value: string }).value).toMatch(/Porridge: 2× 600 cal/);
+    expect(((await call("deleteEntry", { kind: "food", id: entry.id })) as { value: string }).value).toBe("Removed one food entry");
   });
 
   it("tells the app its data changed after a write, and not after a read", async () => {
@@ -974,8 +1050,30 @@ describe("wellbeing reads never carry the symptom note", () => {
 describe("without consent to collect health data", () => {
   it("refuses every write and read, and stores nothing", async () => {
     consentGranted = false;
-    await expect(async () => call("logFood", { name: "apple", calories: 95 })).rejects.toThrow(/permission to keep health data/);
-    await expect(async () => call("todayTotals")).rejects.toThrow(/permission to keep health data/);
+    await expect(async () => call("logFood", { name: "apple", calories: 95 })).rejects.toThrow(/keep your health data/);
+    await expect(async () => call("todayTotals")).rejects.toThrow(/keep your health data/);
     expect(db.diary).toHaveLength(0);
+  });
+
+  it("answers with ConjureOS's needs-consent marker, so Chat can offer to open the app (ConjureOS #1156)", async () => {
+    consentGranted = false;
+    const pkg = (await import("../../package.json")) as unknown as {
+      default: { conjureos: { actions: Record<string, unknown> } };
+    };
+    for (const name of Object.keys(pkg.default.conjureos.actions)) {
+      const err = await Promise.resolve()
+        .then(() => call(name, {}))
+        .then(
+          () => null,
+          (e: unknown) => e,
+        );
+      expect(err, name).toBeInstanceOf(Error);
+      // The marker leads, then one plain line for the card.
+      expect((err as Error).message, name).toBe(
+        "NEEDS_CONSENT:Open Conjure Health and agree to let it keep your health data.",
+      );
+    }
+    expect(db.diary).toHaveLength(0);
+    expect(db.water).toHaveLength(0);
   });
 });
