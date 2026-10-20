@@ -78,6 +78,47 @@ describe("consent to collect health data", () => {
 });
 
 /**
+ * A withdrawal clears the file, and that write can fail. Collection stops for
+ * the session either way, but the next session reads the file, so a failure
+ * the caller never hears about leaves the old agreement in force after a
+ * reload (found in the ConjureOS #1156 review). The caller has to be told.
+ */
+describe("a withdrawal says whether it was saved", () => {
+  it("reports a saved withdrawal, and the next session finds no agreement", async () => {
+    const c = await freshSession();
+    await c.recordHealthConsent();
+    expect(await c.withdrawHealthConsent()).toBe(true);
+    const next = await freshSession();
+    expect(await next.loadHealthConsent()).toBe(false);
+  });
+
+  it("reports one it could not save, which the next session would not see", async () => {
+    const c = await freshSession();
+    await c.recordHealthConsent();
+    failWrites = true;
+    expect(await c.withdrawHealthConsent()).toBe(false);
+    // Stopped for this session all the same.
+    expect(c.healthConsentGranted()).toBe(false);
+    expect(await c.healthConsentOnFile()).toBe(false);
+    // What a reload would find: the agreement, still on file.
+    const next = await freshSession();
+    expect(await next.loadHealthConsent()).toBe(true);
+  });
+
+  it("saves on a retry once the write goes through", async () => {
+    const c = await freshSession();
+    await c.recordHealthConsent();
+    failWrites = true;
+    expect(await c.withdrawHealthConsent()).toBe(false);
+    failWrites = false;
+    expect(await c.withdrawHealthConsent()).toBe(true);
+    expect(c.healthConsentGranted()).toBe(false);
+    const next = await freshSession();
+    expect(await next.loadHealthConsent()).toBe(false);
+  });
+});
+
+/**
  * ConjureOS #1156: the cross-app actions are registered at startup, before the
  * gate has read the file, so their guard must read it rather than refuse a
  * person who agreed long ago.

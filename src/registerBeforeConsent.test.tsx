@@ -23,7 +23,8 @@ vi.mock("./bridge/actions", () => ({ registerActions: () => registerActions() })
 vi.mock("./features/healthConsent", () => ({
   loadHealthConsent: async () => agreed,
   recordHealthConsent: async () => true,
-  withdrawHealthConsent: async () => {},
+  healthConsentGranted: () => agreed,
+  withdrawHealthConsent: async () => true,
 }));
 vi.mock("./bridge/intents", () => ({ readLaunchIntent: async () => null }));
 vi.mock("./features/sharedSummary", () => ({ writeNutritionSummary: async () => {} }));

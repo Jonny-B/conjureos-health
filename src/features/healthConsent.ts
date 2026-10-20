@@ -120,9 +120,20 @@ export async function recordHealthConsent(): Promise<boolean> {
 /**
  * Withdraw. Collection stops at once and stays stopped for the session, even
  * when clearing the file fails; deleting what is stored is Reset health data.
+ *
+ * Returns whether the withdrawal was saved. The next session reads the file,
+ * so a withdrawal that could not clear it leaves the old agreement in force
+ * after a reload: the caller says so and offers a retry (Settings), rather
+ * than letting it pass in silence (ConjureOS #1156 review). Calling it again
+ * is the retry.
  */
-export async function withdrawHealthConsent(): Promise<void> {
+export async function withdrawHealthConsent(): Promise<boolean> {
   session = "withdrawn";
   decisions++;
-  await writeJsonOrThrow(PATH, null).catch(() => {});
+  try {
+    await writeJsonOrThrow(PATH, null);
+    return true;
+  } catch {
+    return false;
+  }
 }
