@@ -5,12 +5,18 @@
  * Nothing here names an app. ConjureOS matches the need's shape against every
  * installed app's action `returns` and `actions.discover("workoutSource")`
  * hands back the providers; Conjure Fitness's `listWorkouts` is one, and any
- * other app returning the same shape works the same way. Reads never prompt,
- * and a closed provider is started off-screen by ConjureOS to answer.
+ * other app returning the same shape works the same way. A closed provider is
+ * started off-screen by ConjureOS to answer.
+ *
+ * The read is not silent. ConjureOS asks the person before another app's read
+ * runs for Health, unless they chose Always. Allow once lasts while Health is
+ * open; Block is remembered, and every later call answers PERMISSION_DENIED
+ * until they revoke it in ConjureOS's App Settings.
  *
  * An empty answer is normal (no provider installed, or the user turned off
  * "Allow apps to connect to each other") and degrades to "no linked workouts".
- * So does any failure: the ring must never break because another app did.
+ * So does any failure, PERMISSION_DENIED included: the ring must never break
+ * because another app did, or because the person said no.
  *
  * Costs are kept down two ways, because the ring and the weekly progress card
  * ask one date at a time: a fetch covers the whole Monday-to-Sunday week the

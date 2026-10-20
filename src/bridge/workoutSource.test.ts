@@ -137,6 +137,12 @@ describe("linkedWorkoutsForDate", () => {
     expect(await linkedWorkoutsForDate(WED)).toEqual([]);
   });
 
+  // ConjureOS asks before another app's read runs; a Block answers this.
+  it("shows no linked workouts when the person blocks the read", async () => {
+    invoke.mockRejectedValue(Object.assign(new Error("user blocked this action"), { code: "PERMISSION_DENIED" }));
+    expect(await linkedWorkoutsForDate(WED)).toEqual([]);
+  });
+
   it("ignores a date that isn't one", async () => {
     expect(await linkedWorkoutsForDate("today")).toEqual([]);
     expect(discover).not.toHaveBeenCalled();

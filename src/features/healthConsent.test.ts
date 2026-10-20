@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const files = new Map<string, string>();
 let failWrites = false;
+/** While set, every write waits for it, as an OPFS write waits for close(). */
+let heldWrites: Promise<void> | null = null;
 
 vi.mock("../bridge/vfs", () => ({
   readJson: async <T,>(path: string, fallback: T): Promise<T> => {
@@ -14,6 +16,7 @@ vi.mock("../bridge/vfs", () => ({
     }
   },
   writeJsonOrThrow: async (path: string, value: unknown): Promise<void> => {
+    if (heldWrites) await heldWrites;
     if (failWrites) throw new Error("vfs down");
     files.set(path, JSON.stringify(value));
   },
@@ -22,7 +25,6 @@ vi.mock("../bridge/vfs", () => ({
 import {
   HEALTH_CONSENT_VERSION,
   healthConsentGranted,
-  healthConsentOnFile,
   loadHealthConsent,
   recordHealthConsent,
   withdrawHealthConsent,
@@ -32,7 +34,14 @@ import { CONSENT_BODY } from "./healthConsentCopy";
 beforeEach(() => {
   files.clear();
   failWrites = false;
+  heldWrites = null;
 });
+
+/** A new session: the module as it is at startup, nothing in memory. */
+async function freshSession() {
+  vi.resetModules();
+  return import("./healthConsent");
+}
 
 describe("consent to collect health data", () => {
   it("is absent until agreed", async () => {
@@ -75,25 +84,68 @@ describe("consent to collect health data", () => {
  */
 describe("the cross-app actions' check", () => {
   it("reads an agreement the gate has not loaded yet", async () => {
-    await withdrawHealthConsent(); // nothing in memory, as at startup
+    const c = await freshSession();
     files.set("health-consent.json", JSON.stringify({ acceptedAt: "2026-01-01T00:00:00Z", version: HEALTH_CONSENT_VERSION }));
-    expect(healthConsentGranted()).toBe(false);
-    expect(await healthConsentOnFile()).toBe(true);
+    expect(c.healthConsentGranted()).toBe(false);
+    expect(await c.healthConsentOnFile()).toBe(true);
+    // Its own read settles nothing: only the gate, an agreement or a withdrawal does.
+    expect(c.healthConsentGranted()).toBe(false);
   });
 
   it("says yes for the session after an agreement whose record could not be written", async () => {
+    const c = await freshSession();
     failWrites = true;
-    await recordHealthConsent();
-    expect(await healthConsentOnFile()).toBe(true);
+    await c.recordHealthConsent();
+    expect(await c.healthConsentOnFile()).toBe(true);
   });
 
   it("refuses with nothing on file, and at once after a withdrawal", async () => {
-    await withdrawHealthConsent();
-    expect(await healthConsentOnFile()).toBe(false);
-    await recordHealthConsent();
-    expect(await healthConsentOnFile()).toBe(true);
-    await withdrawHealthConsent();
-    expect(await healthConsentOnFile()).toBe(false);
+    const c = await freshSession();
+    expect(await c.healthConsentOnFile()).toBe(false);
+    await c.recordHealthConsent();
+    expect(await c.healthConsentOnFile()).toBe(true);
+    await c.withdrawHealthConsent();
+    expect(await c.healthConsentOnFile()).toBe(false);
+  });
+
+  /**
+   * The withdrawal clears the file too, and that write can fail. The old
+   * agreement still in the file must not switch collection back on.
+   */
+  it("stays refused after a withdrawal whose record could not be cleared", async () => {
+    const c = await freshSession();
+    await c.recordHealthConsent();
+    failWrites = true;
+    await c.withdrawHealthConsent();
+    expect(await c.healthConsentOnFile()).toBe(false);
+    expect(c.healthConsentGranted()).toBe(false);
+    expect(await c.healthConsentOnFile()).toBe(false);
+    expect(await c.loadHealthConsent()).toBe(false);
+    expect(await c.healthConsentOnFile()).toBe(false);
+  });
+
+  it("refuses while the withdrawal is still being written, and after it lands", async () => {
+    const c = await freshSession();
+    await c.recordHealthConsent();
+    let land!: () => void;
+    heldWrites = new Promise<void>((resolve) => (land = resolve));
+    const withdrawing = c.withdrawHealthConsent();
+    expect(await c.healthConsentOnFile()).toBe(false);
+    expect(c.healthConsentGranted()).toBe(false);
+    land();
+    await withdrawing;
+    expect(files.get("health-consent.json")).toBe("null");
+    expect(await c.healthConsentOnFile()).toBe(false);
+    expect(c.healthConsentGranted()).toBe(false);
+  });
+
+  it("takes the person's agreement after a withdrawal", async () => {
+    const c = await freshSession();
+    await c.recordHealthConsent();
+    await c.withdrawHealthConsent();
+    await c.recordHealthConsent();
+    expect(await c.healthConsentOnFile()).toBe(true);
+    expect(await c.loadHealthConsent()).toBe(true);
   });
 });
 
