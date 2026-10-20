@@ -80,6 +80,18 @@ describe("aiErrorMessage", () => {
     expect(msg).not.toMatch(/—|\bnow\b|no longer|\byet\b/i);
   });
 
+  it("gives ran-out advice a photo scan can follow too, with no question to shorten", () => {
+    // A nutrition label or a meal photo reaches this same line
+    // (PackageCapture, AddFoodScreen): there is nothing to make shorter.
+    const ranOut = Object.assign(new Error("The model ran out of room before answering."), {
+      name: "AIRanOutOfRoomError",
+    });
+    const msg = aiErrorMessage(ranOut, "The estimator didn't respond. Try again.");
+    expect(msg).toBe(RAN_OUT_MESSAGE);
+    expect(msg).not.toMatch(/shorter|ask/i);
+    expect(msg).toMatch(/try again/i);
+  });
+
   it("keeps an unrecognised host reason visible instead of swallowing it", () => {
     const msg = aiErrorMessage(new Error("kaboom 517"), "The estimator didn't answer.");
     expect(msg).toContain("kaboom 517");

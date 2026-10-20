@@ -104,10 +104,16 @@ export async function complete(req: CompleteRequest): Promise<string> {
 /**
  * What the person reads when a thinking model spent its whole `maxTokens`
  * before it wrote an answer (ConjureOS's `AIRanOutOfRoomError`). Retrying can
- * work, since how long a model thinks varies; a shorter question gives it
- * less to think about. Not a connection problem, so it never says so.
+ * work, since how long a model thinks varies. Not a connection problem, so it
+ * never says so.
+ *
+ * Every capable call that reaches `aiErrorMessage` shows it: Ask Health, a
+ * meal described or photographed in Add food, a nutrition label or package
+ * front photographed in the package capture, and the food estimates other
+ * apps ask for. Most of those have no question to shorten, so the advice is
+ * the one step that works on all of them.
  */
-export const RAN_OUT_MESSAGE = "The AI ran out of room before it could answer. Try again, or ask something shorter.";
+export const RAN_OUT_MESSAGE = "The AI ran out of room before it could answer. Try again.";
 
 /**
  * Turn a rejected `complete()` into something worth reading.
@@ -128,16 +134,17 @@ export function aiErrorMessage(err: unknown, fallback = "The AI didn't answer. T
   const m = raw.toLowerCase();
   // Ordered most-specific first: the proxy's 402/429 bodies mention credits
   // AND limits, so "out of credits" must be decided before the daily cap.
-  // Anthropic answers an exhausted account with a 400, not a 402, and the
-  // proxy forwards its body verbatim: "Your credit balance is too low to
-  // access the Anthropic API." That is the platform's balance (or the user's
-  // own pasted key), never their ConjureOS credits, so it gets its own line.
+  //
   // A thinking model used its whole cap before answering (ConjureOS #1159).
   // Matched first: the host's sentence says "Try again", which nothing below
   // should read as anything else.
   if (m.includes("ran out of room") || (err instanceof Error && err.name === "AIRanOutOfRoomError")) {
     return RAN_OUT_MESSAGE;
   }
+  // Anthropic answers an exhausted account with a 400, not a 402, and the
+  // proxy forwards its body verbatim: "Your credit balance is too low to
+  // access the Anthropic API." That is the platform's balance (or the user's
+  // own pasted key), never their ConjureOS credits, so it gets its own line.
   if (m.includes("credit balance is too low")) {
     return "The AI service is out of credit. Top up the Anthropic account behind ConjureOS (or the key in your settings) and try again.";
   }
