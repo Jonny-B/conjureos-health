@@ -15,3 +15,13 @@ export const CONSENT_BODY: string[] = [
 
 export const CONSENT_CHECKBOX =
   "I agree that ConjureOS LLC may collect and store my health data in Conjure Health, and use it for these features, as the Consumer Health Data Privacy policy describes.";
+
+/**
+ * Shown on the agreement screen when a withdrawal could not clear the stored
+ * agreement. Collection stops for the session either way, but the next session
+ * reads the file, so without this the person would find the app collecting
+ * again after a reload (ConjureOS #1156 review). Draft copy, pending the
+ * owner's approval.
+ */
+export const WITHDRAW_NOT_SAVED =
+  "Your withdrawal was not saved. Collection stays stopped until you close the app, and starts again when you reopen it.";

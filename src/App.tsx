@@ -70,6 +70,9 @@ export function App() {
   // "yes", only the consent screen renders, and every cross-app action
   // refuses with ConjureOS's needs-consent answer (bridge/actions.ts).
   const [consent, setConsent] = useState<"unknown" | "yes" | "no">("unknown");
+  // A withdrawal in this session could not clear the stored agreement: the
+  // consent screen says so and offers a retry.
+  const [withdrawalNotSaved, setWithdrawalNotSaved] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Plan wizard as a dismissible dialog, plus a per-session dismiss for its
   // banner (resets on reload = shows again while there's still no plan).
@@ -268,34 +271,38 @@ export function App() {
   }, [plan]);
 
   /**
-   * Close Settings. A withdrawal stands for the session even when it was not
-   * saved (features/healthConsent.ts), so closing Settings after one, saved
-   * or not, lands on the agreement screen rather than the app.
+   * Save a withdrawal: clear the stored agreement, and say on the agreement
+   * screen when that failed. Collection stops for the session either way, but
+   * the next session reads the file, so a failure kept quiet would let a
+   * reload switch collection back on (ConjureOS #1156 review). Calling it
+   * again is the retry.
    */
-  const closeSettings = useCallback(() => {
-    setSettingsOpen(false);
-    if (!healthConsentGranted()) setConsent("no");
+  const saveWithdrawal = useCallback(async () => {
+    const saved = await withdrawHealthConsent();
+    // Agreeing again meanwhile overrules the withdrawal: nothing left to say.
+    if (!healthConsentGranted()) setWithdrawalNotSaved(!saved);
   }, []);
 
   /**
-   * Withdraw consent to collect health data. A saved withdrawal goes straight
-   * to the agreement screen; one that was not saved keeps Settings open, which
-   * says so and offers a retry (ConjureOS #1156 review).
+   * Withdraw consent to collect health data. The app goes to the agreement
+   * screen at once, before and whatever the save does, so no screen that
+   * reads or writes health data stays mounted behind Settings.
    */
-  const withdrawCollection = useCallback(async () => {
-    const saved = await withdrawHealthConsent();
-    if (saved) {
-      setSettingsOpen(false);
-      setConsent("no");
-    }
-    return saved;
-  }, []);
+  const withdrawCollection = useCallback(() => {
+    setSettingsOpen(false);
+    setConsent("no");
+    setWithdrawalNotSaved(false);
+    void saveWithdrawal();
+  }, [saveWithdrawal]);
 
   if (consent === "unknown") return null;
   if (consent === "no") {
     return (
       <HealthConsentGate
+        withdrawalNotSaved={withdrawalNotSaved}
+        onRetryWithdrawal={saveWithdrawal}
         onAgree={() => {
+          setWithdrawalNotSaved(false);
           void recordHealthConsent();
           setConsent("yes");
         }}
@@ -452,7 +459,7 @@ export function App() {
         <SettingsSheet
           goals={goals}
           profile={profile}
-          onClose={closeSettings}
+          onClose={() => setSettingsOpen(false)}
           onSave={onSaveGoals}
           onDataCleared={onDataCleared}
           onWithdrawHealthConsent={withdrawCollection}

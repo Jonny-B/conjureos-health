@@ -123,9 +123,9 @@ export async function recordHealthConsent(): Promise<boolean> {
  *
  * Returns whether the withdrawal was saved. The next session reads the file,
  * so a withdrawal that could not clear it leaves the old agreement in force
- * after a reload: the caller says so and offers a retry (Settings), rather
- * than letting it pass in silence (ConjureOS #1156 review). Calling it again
- * is the retry.
+ * after a reload: the caller says so and offers a retry (the agreement
+ * screen), rather than letting it pass in silence (ConjureOS #1156 review).
+ * Calling it again is the retry.
  */
 export async function withdrawHealthConsent(): Promise<boolean> {
   session = "withdrawn";

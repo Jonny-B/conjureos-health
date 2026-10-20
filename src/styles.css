@@ -1865,6 +1865,12 @@ html.modal-open .screen {
   gap: 10px;
   margin-top: 4px;
 }
+/* "Try again" under the not-saved withdrawal notice: its own width, not the
+   column's, and a 44px target. */
+.withdraw-retry {
+  align-self: flex-start;
+  min-height: 44px;
+}
 
 /* ── Meal detail screen ───────────────────────────────────────────────── */
 .meal-detail-head {
