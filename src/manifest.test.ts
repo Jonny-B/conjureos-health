@@ -61,6 +61,18 @@ describe("Health's ConjureOS manifest", () => {
     expect(JSON.stringify(manifest)).not.toMatch(OLD_NAMES);
   });
 
+  // conjureos-fitness#90. The phone lets an app's in-page camera through
+  // without WebKit's per-site prompt only when it declares native.camera; the
+  // barcode scanner and the label camera both open one with getUserMedia.
+  it("declares native.camera, since its code opens the camera", () => {
+    const cameraUsers = Object.entries(SHIPPED)
+      .filter(([, text]) => /\bgetUserMedia\s*\(/.test(text))
+      .map(([path]) => path)
+      .sort();
+    expect(cameraUsers).toEqual(["./components/BarcodeScanner.tsx", "./components/CameraCapture.tsx"]);
+    expect(manifest.permissions).toContain("native.camera");
+  });
+
   it("never reaches for the shell's chat bridge from code", () => {
     const users = Object.entries(SHIPPED)
       .filter(([, text]) => /__conjureos\s*\??\.\s*chat\b/.test(text))

@@ -9,7 +9,7 @@
  */
 
 import type { FoodItem, Macros } from "../../types";
-import { SEARCH_TIMEOUT_MS, withTimeout } from "./http";
+import { ProviderUnavailableError, SEARCH_TIMEOUT_MS, withTimeout } from "./http";
 
 const BASE = "https://world.openfoodfacts.org";
 // Identify ourselves per OFF etiquette so we're not rate-limited as anon.
@@ -153,7 +153,9 @@ export async function lookupBarcode(
 }
 
 /** Search Open Food Facts by name. Strong on branded/packaged items, weak on
- *  whole foods (USDA covers those). Returns [] on any failure. */
+ *  whole foods (USDA covers those). Throws `ProviderUnavailableError` when OFF
+ *  did not answer; resolves `[]` when it answered with nothing, or when the
+ *  caller cancelled (conjureos-fitness#70). */
 export async function searchText(
   query: string,
   limit: number,
@@ -187,19 +189,23 @@ export async function searchText(
     "fields",
     "code,product_name,brands,serving_size,serving_quantity,countries_tags,nutriments",
   );
-  let resp: Response;
+  let json: { products?: OffProduct[] };
   try {
-    resp = await fetch(url.toString(), {
+    const resp = await fetch(url.toString(), {
       signal: withTimeout(signal, SEARCH_TIMEOUT_MS),
       headers: { "User-Agent": UA },
     });
-  } catch {
-    // Aborted (new keystroke), timed out (OFF's search endpoint is often slow),
-    // or offline — all non-fatal: the caller still shows USDA results.
-    return [];
+    if (!resp.ok) throw new ProviderUnavailableError("openfoodfacts", resp.status);
+    json = (await resp.json()) as { products?: OffProduct[] };
+  } catch (err) {
+    // A newer keystroke cancelled this search: nobody is waiting for it.
+    if (signal?.aborted) return [];
+    // Timed out (OFF's search endpoint is often slow), offline, refused, or
+    // not JSON. The caller still shows USDA's foods, and says this one is
+    // missing.
+    if (err instanceof ProviderUnavailableError) throw err;
+    throw new ProviderUnavailableError("openfoodfacts");
   }
-  if (!resp.ok) return [];
-  const json = (await resp.json()) as { products?: OffProduct[] };
   const out: FoodItem[] = [];
   for (const p of json.products ?? []) {
     const item = toFoodItem(p);

@@ -18,6 +18,7 @@
       "vfs.write",
       "actions.read",
       "actions.write",
+      "native.camera",
       "native.health"
     ],
     "actions": {

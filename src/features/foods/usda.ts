@@ -1,23 +1,50 @@
 /**
- * USDA FoodData Central provider — generic whole foods ("banana", "chicken
+ * USDA FoodData Central provider: generic whole foods ("banana", "chicken
  * breast", "white rice") where Open Food Facts skews toward branded packages.
+ * Branded entries carry per-serving label nutrients; Foundation/SR Legacy
+ * entries are per-100g, which we expose as a "100 g" serving the user can
+ * scale.
  *
- * Free API; ships with DEMO_KEY (30 req/hr per IP). Set VITE_USDA_API_KEY for
- * the 1000/hr signup limit. Branded entries carry per-serving label nutrients;
- * Foundation/SR Legacy entries are per-100g, which we expose as a "100 g"
- * serving the user can scale.
+ * Searches go through ConjureOS's `usda-proxy` edge function, never to USDA
+ * directly (conjureos-fitness#70). The proxy holds the FoodData Central key as
+ * a server secret (`USDA_API_KEY`), so no key ships in this bundle and the
+ * quota is the platform's to manage, instead of USDA's shared demo key at 30
+ * requests an hour per IP. It passes USDA's search JSON and status through
+ * unchanged, so a USDA 429 arrives here as a 429.
+ *
+ * A search that gets no answer throws `ProviderUnavailableError`; `[]` means
+ * USDA answered and had nothing.
  *
  * Docs: https://fdc.nal.usda.gov/api-guide.html
  */
 
 import type { FoodItem, Macros } from "../../types";
-import { SEARCH_TIMEOUT_MS, withTimeout } from "./http";
+import { ProviderUnavailableError, SEARCH_TIMEOUT_MS, withTimeout } from "./http";
 
-const BASE = "https://api.nal.usda.gov/fdc/v1";
-const KEY = import.meta.env.VITE_USDA_API_KEY ?? "DEMO_KEY";
-/** True when no VITE_USDA_API_KEY is configured and we're on USDA's shared
- *  DEMO_KEY, which is heavily rate-limited. The UI notes the degraded search. */
-export const USING_DEMO_KEY = KEY === "DEMO_KEY";
+declare global {
+  interface ConjureosBridge {
+    /** Per-deploy values the host hands every app. */
+    env?: {
+      /** This deploy's usda-proxy, e.g. `https://<ref>.supabase.co/functions/v1/usda-proxy`. */
+      usdaProxyUrl?: string;
+    };
+  }
+}
+
+const PROXY_PATH = "/functions/v1/usda-proxy";
+
+/**
+ * Where a USDA search goes: the proxy the host names for the deploy the app is
+ * running in, else the one on the project this build was made for, else
+ * nowhere (an unconfigured build, which the search reports).
+ */
+export function usdaProxyUrl(): string {
+  const fromHost =
+    typeof window !== "undefined" ? window.__conjureos?.env?.usdaProxyUrl : undefined;
+  if (typeof fromHost === "string" && fromHost.trim()) return fromHost.trim();
+  const base = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim();
+  return base ? `${base.replace(/\/+$/, "")}${PROXY_PATH}` : "";
+}
 
 interface FdcNutrient {
   nutrientName?: string;
@@ -116,7 +143,9 @@ function titleCase(s: string): string {
 }
 
 /** Search USDA FoodData Central. Strong on whole/generic foods, weak on
- *  branded items (Open Food Facts covers those). Returns [] on any failure. */
+ *  branded items (Open Food Facts covers those). Throws
+ *  `ProviderUnavailableError` when USDA did not answer; resolves `[]` when it
+ *  answered with nothing, or when the caller cancelled. */
 export async function searchText(
   query: string,
   limit: number,
@@ -124,19 +153,29 @@ export async function searchText(
 ): Promise<FoodItem[]> {
   const q = query.trim();
   if (!q) return [];
-  const url = new URL(`${BASE}/foods/search`);
-  url.searchParams.set("api_key", KEY);
+  let url: URL;
+  try {
+    url = new URL(usdaProxyUrl());
+  } catch {
+    // No proxy named and no project in this build: nowhere to ask.
+    throw new ProviderUnavailableError("usda");
+  }
   url.searchParams.set("query", q);
   url.searchParams.set("pageSize", String(Math.min(limit, 25)));
   url.searchParams.set("dataType", "Foundation,SR Legacy,Branded");
-  let resp: Response;
+  let json: { foods?: FdcFood[] };
   try {
-    resp = await fetch(url.toString(), { signal: withTimeout(signal, SEARCH_TIMEOUT_MS) });
-  } catch {
-    return [];
+    const resp = await fetch(url.toString(), { signal: withTimeout(signal, SEARCH_TIMEOUT_MS) });
+    // 429 is the key's hourly quota; anything else not ok is a refusal too.
+    if (!resp.ok) throw new ProviderUnavailableError("usda", resp.status);
+    json = (await resp.json()) as { foods?: FdcFood[] };
+  } catch (err) {
+    // A newer keystroke cancelled this search: nobody is waiting for it.
+    if (signal?.aborted) return [];
+    // Offline, timed out, refused, or an answer that was not JSON.
+    if (err instanceof ProviderUnavailableError) throw err;
+    throw new ProviderUnavailableError("usda");
   }
-  if (!resp.ok) return [];
-  const json = (await resp.json()) as { foods?: FdcFood[] };
   const out: FoodItem[] = [];
   for (const f of json.foods ?? []) {
     const item = toFoodItem(f);

@@ -12,7 +12,13 @@ import {
 } from "../features/servingUnits";
 import { MEAL_LABELS, MEAL_TYPES } from "../types";
 import { getRepository } from "../data/repository";
-import { searchFoods, lookupBarcode, rememberCorrection } from "../features/foods/foodSearch";
+import {
+  searchFoods,
+  lookupBarcode,
+  rememberCorrection,
+  unansweredNote,
+} from "../features/foods/foodSearch";
+import type { SearchProvider } from "../features/foods/http";
 import { parseMealWithGroup } from "../features/naturalLanguage";
 import { groupItems, suggestGroupName } from "../features/grouping";
 import { recentFoodsForMeal, type RecentFood } from "../features/recentFoods";
@@ -238,6 +244,14 @@ export function AddFoodScreen({
 
 const MIN_SEARCH_CHARS = 3;
 const SEARCH_DEBOUNCE_MS = 250;
+/**
+ * Further wait, after the user's own foods are shown, before USDA and Open
+ * Food Facts are asked: 600 ms of stillness in all. USDA goes through one
+ * platform key shared by every Health and Recipes user (conjureos-fitness#70),
+ * and a request already sent is spent even if a later keystroke cancels it, so
+ * only a query the person has stopped typing is sent.
+ */
+const PROVIDER_SETTLE_MS = 350;
 
 function SearchMode({
   meal,
@@ -253,6 +267,9 @@ function SearchMode({
 }) {
   const [query, setQuery] = useState(initialQuery ?? "");
   const [results, setResults] = useState<FoodItem[]>([]);
+  // Providers the last search got no answer from, so an empty list is never
+  // passed off as "no matches" (conjureos-fitness#70).
+  const [unanswered, setUnanswered] = useState<SearchProvider[]>([]);
   const [searching, setSearching] = useState(false);
   const [recents, setRecents] = useState<RecentFood[]>([]);
   const [recipes, setRecipes] = useState<{ recipe: ListedRecipe; provider: string }[]>([]);
@@ -276,6 +293,7 @@ function SearchMode({
   useEffect(() => {
     if (!ready) {
       setResults([]);
+      setUnanswered([]);
       setRecipes([]);
       setSearching(false);
       return;
@@ -286,15 +304,26 @@ function SearchMode({
       try {
         // Paint each provider's hits as they land so a fast USDA response shows
         // immediately instead of waiting on a slow Open Food Facts request.
-        const found = await searchFoods(trimmed, 20, controller.signal, (partial) => {
-          if (!controller.signal.aborted) setResults(partial);
-        });
+        const found = await searchFoods(
+          trimmed,
+          20,
+          controller.signal,
+          (partial) => {
+            if (!controller.signal.aborted) setResults(partial);
+          },
+          { settleMs: PROVIDER_SETTLE_MS },
+        );
         if (!controller.signal.aborted) {
-          setResults(found);
+          setResults(found.foods);
+          setUnanswered(found.unanswered);
           setSearching(false);
         }
       } catch {
-        if (!controller.signal.aborted) setSearching(false);
+        // searchFoods does not throw; if it ever does, nobody answered.
+        if (!controller.signal.aborted) {
+          setUnanswered(["usda", "openfoodfacts"]);
+          setSearching(false);
+        }
       }
     }, SEARCH_DEBOUNCE_MS);
     return () => {
@@ -327,6 +356,8 @@ function SearchMode({
       alive = false;
     };
   }, [trimmed, ready]);
+
+  const missingNote = unansweredNote(unanswered, results.length > 0);
 
   return (
     <div className="mode-body">
@@ -372,10 +403,17 @@ function SearchMode({
       ) : (
         <>
           {searching && <div className="muted small">Searching Open Food Facts + USDA…</div>}
+          {!searching && missingNote && results.length > 0 && (
+            <div className="muted small" role="status">
+              {missingNote}
+            </div>
+          )}
           <FoodResultList
             foods={results}
             onPick={onPick}
-            emptyHint={searching ? "Searching…" : "No matches. Try a simpler term, or add it yourself."}
+            emptyHint={
+              searching ? "Searching…" : (missingNote ?? "No matches. Try a simpler term, or add it yourself.")
+            }
           />
           {!searching && results.length === 0 && (
             <button className="btn primary block add-own-food" onClick={() => onAddOwn(trimmed)}>
