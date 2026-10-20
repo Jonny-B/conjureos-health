@@ -117,7 +117,11 @@ const CREATES = [
   "logSymptom",
   "logWeight",
 ] as const;
-vi.mock("../features/foods/foodSearch", () => ({ lookupBarcode, searchFoods }));
+vi.mock("../features/foods/foodSearch", () => ({
+  lookupBarcode,
+  searchFoods,
+  PROVIDER_NAMES: { usda: "USDA", openfoodfacts: "Open Food Facts" },
+}));
 // Consent to collect health data (features/healthConsent.ts). Granted for
 // every test except the one that checks the refusal.
 let consentGranted = true;
@@ -672,10 +676,30 @@ describe("findFood", () => {
   });
 
   it("searches by name with a capped limit", async () => {
-    searchFoods.mockResolvedValueOnce([]);
+    searchFoods.mockResolvedValueOnce({ foods: [], unanswered: [] });
     const res = (await call("findFood", { query: "oatmeal", limit: 50 })) as { value: string };
     expect(searchFoods).toHaveBeenCalledWith("oatmeal", 10);
     expect(res.value).toBe('No food found for "oatmeal"');
+  });
+
+  // conjureos-fitness#70: a search nobody answered is not "no food found".
+  it("fails with the reason when a provider did not answer and nothing was found", async () => {
+    searchFoods.mockResolvedValueOnce({ foods: [], unanswered: ["usda", "openfoodfacts"] });
+    await expect(call("findFood", { query: "oatmeal" })).rejects.toThrow(
+      'USDA and Open Food Facts did not answer, so the search for "oatmeal" could not finish. Try again in a minute.',
+    );
+  });
+
+  it("says whose foods may be missing when it found some anyway", async () => {
+    searchFoods.mockResolvedValueOnce({
+      foods: [food("Rolled oats", 150, { source: "openfoodfacts" })],
+      unanswered: ["usda"],
+    });
+    const res = (await call("findFood", { query: "oatmeal" })) as { foods: unknown[]; value: string };
+    expect(res.foods).toHaveLength(1);
+    expect(res.value).toBe(
+      "Rolled oats: 150 cal per 1 serving (from Open Food Facts). USDA did not answer, so some foods may be missing.",
+    );
   });
 
   it("refuses a malformed barcode, or both inputs at once", async () => {

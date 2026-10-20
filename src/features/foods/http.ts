@@ -36,3 +36,26 @@ export function withTimeout(signal: AbortSignal | undefined, ms: number): AbortS
   }
   return controller.signal;
 }
+
+/** The two providers a text search asks. */
+export type SearchProvider = "usda" | "openfoodfacts";
+
+/**
+ * A provider that did not answer a text search: offline, timed out,
+ * rate-limited, refused, or not configured in this build.
+ *
+ * Thrown rather than returned as `[]` so the search can tell the person, and
+ * so "no matches" only ever means the provider answered and knew nothing
+ * (conjureos-fitness#70). A search the caller cancelled is not one of these:
+ * nobody is waiting for its answer.
+ */
+export class ProviderUnavailableError extends Error {
+  constructor(
+    readonly provider: SearchProvider,
+    /** The HTTP status, when the provider answered with a refusal. */
+    readonly status?: number,
+  ) {
+    super(`${provider} did not answer${status ? ` (HTTP ${status})` : ""}`);
+    this.name = "ProviderUnavailableError";
+  }
+}

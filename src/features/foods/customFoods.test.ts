@@ -57,7 +57,7 @@ describe("custom foods", () => {
     vi.spyOn(off, "searchText").mockResolvedValue([]);
     vi.spyOn(usda, "searchText").mockResolvedValue([]);
     const found = await searchFoods("grandma oat");
-    expect(found[0]?.name).toBe("Grandma's Oat Bar");
+    expect(found.foods[0]?.name).toBe("Grandma's Oat Bar");
   });
 
   it("tells the user when the save fails", async () => {

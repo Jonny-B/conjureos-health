@@ -94,7 +94,8 @@ import {
   type WorkoutOrigin,
 } from "../features/exercise";
 import { daySnapshot, effectiveTargets, recentSnapshots } from "../features/dataApi";
-import { lookupBarcode, searchFoods } from "../features/foods/foodSearch";
+import { lookupBarcode, PROVIDER_NAMES, searchFoods } from "../features/foods/foodSearch";
+import type { SearchProvider } from "../features/foods/http";
 import { notifyDataChanged } from "../features/dataEvents";
 import { coerceFinite } from "../features/num";
 import { aiErrorMessage } from "./ai";
@@ -1079,8 +1080,10 @@ const SOURCE_NAMES: Record<FoodItem["source"], string> = {
 
 /**
  * Nutrition for a barcode or a search, from the user's own foods, USDA, Open
- * Food Facts and the community food database. Needs the network; searches
- * may be rate-limited when the app has no USDA key.
+ * Food Facts and the community food database. Needs the network. A search
+ * that found nothing because a provider did not answer fails with that reason
+ * instead of reporting no food (conjureos-fitness#70); one that found foods
+ * says which provider's may be missing.
  */
 async function findFood(raw?: unknown): Promise<{ foods: FoundFood[]; value: string }> {
   const p = asObject(raw);
@@ -1090,6 +1093,7 @@ async function findFood(raw?: unknown): Promise<{ foods: FoundFood[]; value: str
 
   let found: FoodItem[];
   let asked: string;
+  let unanswered: SearchProvider[] = [];
   if (hasBarcode) {
     const code = asString(p.barcode, "barcode", 20).replace(/[\s-]/g, "");
     if (!/^\d{6,14}$/.test(code)) throw new Error("params.barcode must be 6 to 14 digits");
@@ -1102,7 +1106,13 @@ async function findFood(raw?: unknown): Promise<{ foods: FoundFood[]; value: str
     if (query.length < 3) throw new Error("params.query needs at least 3 characters");
     asked = `"${query}"`;
     const limit = p.limit === undefined || p.limit === null ? 5 : asPositiveAmount(p.limit, "limit", 1, 10, true);
-    found = await searchFoods(query, limit);
+    const res = await searchFoods(query, limit);
+    found = res.foods;
+    unanswered = res.unanswered;
+  }
+  const missing = unanswered.map((p) => PROVIDER_NAMES[p]).join(" and ");
+  if (found.length === 0 && missing) {
+    throw new Error(`${missing} did not answer, so the search for ${asked} could not finish. Try again in a minute.`);
   }
   const foods: FoundFood[] = found.map((f) => ({
     name: f.name,
@@ -1117,7 +1127,8 @@ async function findFood(raw?: unknown): Promise<{ foods: FoundFood[]; value: str
   return {
     foods,
     value: top
-      ? `${top.brand ? `${top.brand} ` : ""}${top.name}: ${cal(top.calories)} per ${top.servingSize} (from ${SOURCE_NAMES[top.source]})`
+      ? `${top.brand ? `${top.brand} ` : ""}${top.name}: ${cal(top.calories)} per ${top.servingSize} (from ${SOURCE_NAMES[top.source]})` +
+        (missing ? `. ${missing} did not answer, so some foods may be missing.` : "")
       : `No food found for ${asked}`,
   };
 }

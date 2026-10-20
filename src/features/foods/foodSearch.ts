@@ -3,7 +3,8 @@
  *
  *   - Text search fans out to Open Food Facts (branded) AND USDA (whole foods)
  *     in parallel, interleaving results so the list isn't dominated by one
- *     source. Either provider failing is non-fatal: we return what we got.
+ *     source. Either provider failing is non-fatal: we return what we got,
+ *     and name the provider that did not answer so the screen can say so.
  *   - Barcode lookup tries Conjure Health DB FIRST (server-side, which itself
  *     falls through to OFF + backfills our DB on hit), then OFF directly as a
  *     fallback for the DEMO / offline / unconfigured cases. Caches positive
@@ -16,6 +17,7 @@ import * as off from "./openFoodFacts";
 import * as usda from "./usda";
 import * as conjure from "./conjureHealthDb";
 import { searchCustomFoods } from "./customFoods";
+import type { SearchProvider } from "./http";
 
 const CACHE_PATH = "food-cache.json";
 const CACHE_VERSION = 2 as const;
@@ -154,6 +156,26 @@ function mergeUsFirst<T>(primary: T[], secondary: T[], pw = 2, sw = 1): T[] {
   return out;
 }
 
+/** A text search's answer. */
+export interface FoodSearchResult {
+  foods: FoodItem[];
+  /**
+   * Providers that did not answer: offline, timed out, rate-limited or down.
+   * Their foods are missing from `foods`, so an empty `foods` is a real "no
+   * match" only when this is empty too (conjureos-fitness#70). In a fixed
+   * order, USDA first.
+   */
+  unanswered: SearchProvider[];
+}
+
+const PROVIDER_ORDER: SearchProvider[] = ["usda", "openfoodfacts"];
+
+/** How the providers are named to the person. */
+export const PROVIDER_NAMES: Record<SearchProvider, string> = {
+  usda: "USDA",
+  openfoodfacts: "Open Food Facts",
+};
+
 /**
  * Text search across Open Food Facts (branded) + USDA (whole foods), run in
  * parallel and merged USDA-first to bias toward US results (see mergeUsFirst).
@@ -162,15 +184,19 @@ function mergeUsFirst<T>(primary: T[], secondary: T[], pw = 2, sw = 1): T[] {
  * the UI can paint the fast provider's hits (USDA is usually sub-second) without
  * waiting on the slow one (OFF's search endpoint often takes seconds). Both
  * requests are individually timed out, so a dead provider can't stall the other.
+ *
+ * Never throws. A provider that did not answer is named in `unanswered`, never
+ * passed off as having found nothing; a search the caller cancelled names
+ * nobody, since nobody is waiting for it.
  */
 export async function searchFoods(
   query: string,
   limit = 20,
   signal?: AbortSignal,
   onPartial?: (foods: FoodItem[]) => void,
-): Promise<FoodItem[]> {
+): Promise<FoodSearchResult> {
   const q = query.trim();
-  if (q.length < 3) return [];
+  if (q.length < 3) return { foods: [], unanswered: [] };
   // US bias: pull more from USDA (a US database) than OFF, and front-load it in
   // the merge. OFF still contributes branded items USDA lacks.
   const usdaWant = Math.ceil(limit * 0.7);
@@ -178,6 +204,7 @@ export async function searchFoods(
 
   let offResults: FoodItem[] = [];
   let usdaResults: FoodItem[] = [];
+  const failed = new Set<SearchProvider>();
   // The user's own foods lead: they are the only numbers the user vouched for.
   let mine: FoodItem[] = [];
   try {
@@ -194,17 +221,35 @@ export async function searchFoods(
       offResults = r;
       if (!signal?.aborted) onPartial?.(merged());
     })
-    .catch(() => {});
+    .catch(() => {
+      failed.add("openfoodfacts");
+    });
   const usdaP = usda
     .searchText(q, usdaWant, signal)
     .then((r) => {
       usdaResults = r;
       if (!signal?.aborted) onPartial?.(merged());
     })
-    .catch(() => {});
+    .catch(() => {
+      failed.add("usda");
+    });
 
   await Promise.all([offP, usdaP]);
-  return merged();
+  return {
+    foods: merged(),
+    unanswered: signal?.aborted ? [] : PROVIDER_ORDER.filter((p) => failed.has(p)),
+  };
 }
 
-export { USING_DEMO_KEY } from "./usda";
+/**
+ * What a search says about providers that did not answer, or null when every
+ * one did. With nothing found it stands in for "No matches", which would be
+ * untrue; with foods found it says the list may be short.
+ */
+export function unansweredNote(unanswered: SearchProvider[], foundAny: boolean): string | null {
+  if (unanswered.length === 0) return null;
+  const names = unanswered.map((p) => PROVIDER_NAMES[p]).join(" and ");
+  return foundAny
+    ? `${names} did not answer, so some foods may be missing. Try again in a minute.`
+    : `${names} did not answer. Try again in a minute, or add it yourself.`;
+}
