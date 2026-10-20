@@ -244,6 +244,14 @@ export function AddFoodScreen({
 
 const MIN_SEARCH_CHARS = 3;
 const SEARCH_DEBOUNCE_MS = 250;
+/**
+ * Further wait, after the user's own foods are shown, before USDA and Open
+ * Food Facts are asked: 600 ms of stillness in all. USDA goes through one
+ * platform key shared by every Health and Recipes user (conjureos-fitness#70),
+ * and a request already sent is spent even if a later keystroke cancels it, so
+ * only a query the person has stopped typing is sent.
+ */
+const PROVIDER_SETTLE_MS = 350;
 
 function SearchMode({
   meal,
@@ -296,9 +304,15 @@ function SearchMode({
       try {
         // Paint each provider's hits as they land so a fast USDA response shows
         // immediately instead of waiting on a slow Open Food Facts request.
-        const found = await searchFoods(trimmed, 20, controller.signal, (partial) => {
-          if (!controller.signal.aborted) setResults(partial);
-        });
+        const found = await searchFoods(
+          trimmed,
+          20,
+          controller.signal,
+          (partial) => {
+            if (!controller.signal.aborted) setResults(partial);
+          },
+          { settleMs: PROVIDER_SETTLE_MS },
+        );
         if (!controller.signal.aborted) {
           setResults(found.foods);
           setUnanswered(found.unanswered);

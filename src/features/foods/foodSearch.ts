@@ -5,6 +5,9 @@
  *     in parallel, interleaving results so the list isn't dominated by one
  *     source. Either provider failing is non-fatal: we return what we got,
  *     and name the provider that did not answer so the screen can say so.
+ *     Each provider's answer is remembered for ten minutes, and Add food asks
+ *     only once the query has settled, because USDA's quota is one key shared
+ *     across the platform (conjureos-fitness#70).
  *   - Barcode lookup tries Conjure Health DB FIRST (server-side, which itself
  *     falls through to OFF + backfills our DB on hit), then OFF directly as a
  *     fallback for the DEMO / offline / unconfigured cases. Caches positive
@@ -177,6 +180,73 @@ export const PROVIDER_NAMES: Record<SearchProvider, string> = {
 };
 
 /**
+ * How long a provider's answer to a text search is reused instead of asked
+ * again. USDA is asked through ConjureOS's usda-proxy on one key shared by
+ * every Health and Recipes user, at 1000 requests an hour
+ * (conjureos-fitness#70), so a query typed again, backspaced to, or asked by
+ * the assistant after the screen must not spend it twice.
+ */
+export const SEARCH_ANSWER_TTL_MS = 10 * 60_000;
+const SEARCH_ANSWER_MAX = 100;
+
+/** Answers that came back, by provider, size asked and query. Never a failure. */
+const answers = new Map<string, { at: number; foods: FoodItem[] }>();
+
+const answerKey = (provider: SearchProvider, want: number, q: string) =>
+  `${provider}|${want}|${q.toLowerCase()}`;
+
+function answerFor(key: string): FoodItem[] | undefined {
+  const hit = answers.get(key);
+  if (!hit) return undefined;
+  if (Date.now() - hit.at > SEARCH_ANSWER_TTL_MS) {
+    answers.delete(key);
+    return undefined;
+  }
+  return hit.foods;
+}
+
+function rememberAnswer(key: string, foods: FoodItem[]): void {
+  answers.delete(key);
+  answers.set(key, { at: Date.now(), foods });
+  while (answers.size > SEARCH_ANSWER_MAX) {
+    const oldest = answers.keys().next().value;
+    if (oldest === undefined) break;
+    answers.delete(oldest);
+  }
+}
+
+/** Forget every remembered answer. For tests. */
+export function clearSearchAnswers(): void {
+  answers.clear();
+}
+
+/** Resolves true after `ms`, or false as soon as `signal` aborts. */
+function settle(ms: number, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return Promise.resolve(false);
+  if (ms <= 0) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const done = (ok: boolean) => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      resolve(ok);
+    };
+    const onAbort = () => done(false);
+    const timer = setTimeout(() => done(true), ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+export interface SearchFoodsOptions {
+  /**
+   * Wait this long after the user's own foods are shown before asking the
+   * providers, and ask nothing if `signal` aborts in that time. Add food passes
+   * it so a query still being typed costs no USDA request; an answer already
+   * remembered is shown without waiting.
+   */
+  settleMs?: number;
+}
+
+/**
  * Text search across Open Food Facts (branded) + USDA (whole foods), run in
  * parallel and merged USDA-first to bias toward US results (see mergeUsFirst).
  *
@@ -184,6 +254,9 @@ export const PROVIDER_NAMES: Record<SearchProvider, string> = {
  * the UI can paint the fast provider's hits (USDA is usually sub-second) without
  * waiting on the slow one (OFF's search endpoint often takes seconds). Both
  * requests are individually timed out, so a dead provider can't stall the other.
+ *
+ * A provider's answer is reused for `SEARCH_ANSWER_TTL_MS`; a provider that did
+ * not answer, or a search that was cancelled, is asked again next time.
  *
  * Never throws. A provider that did not answer is named in `unanswered`, never
  * passed off as having found nothing; a search the caller cancelled names
@@ -194,6 +267,7 @@ export async function searchFoods(
   limit = 20,
   signal?: AbortSignal,
   onPartial?: (foods: FoodItem[]) => void,
+  opts: SearchFoodsOptions = {},
 ): Promise<FoodSearchResult> {
   const q = query.trim();
   if (q.length < 3) return { foods: [], unanswered: [] };
@@ -215,26 +289,38 @@ export async function searchFoods(
   if (mine.length > 0 && !signal?.aborted) onPartial?.(mine);
   const merged = () => [...mine, ...mergeUsFirst(usdaResults, offResults, 2, 1)].slice(0, limit);
 
-  const offP = off
-    .searchText(q, offWant, signal)
-    .then((r) => {
-      offResults = r;
-      if (!signal?.aborted) onPartial?.(merged());
-    })
-    .catch(() => {
-      failed.add("openfoodfacts");
-    });
-  const usdaP = usda
-    .searchText(q, usdaWant, signal)
-    .then((r) => {
-      usdaResults = r;
-      if (!signal?.aborted) onPartial?.(merged());
-    })
-    .catch(() => {
-      failed.add("usda");
-    });
+  // One wait shared by both providers, started only if one of them has to be
+  // asked.
+  let settled: Promise<boolean> | null = null;
+  const ask = async (
+    provider: SearchProvider,
+    want: number,
+    run: () => Promise<FoodItem[]>,
+    land: (foods: FoodItem[]) => void,
+  ): Promise<void> => {
+    const key = answerKey(provider, want, q);
+    let foods = answerFor(key);
+    if (!foods) {
+      settled ??= settle(opts.settleMs ?? 0, signal);
+      if (!(await settled)) return;
+      try {
+        foods = await run();
+      } catch {
+        failed.add(provider);
+        return;
+      }
+      // A cancelled search resolves [] without having asked; never keep that.
+      if (signal?.aborted) return;
+      rememberAnswer(key, foods);
+    }
+    land(foods);
+    if (!signal?.aborted) onPartial?.(merged());
+  };
 
-  await Promise.all([offP, usdaP]);
+  await Promise.all([
+    ask("openfoodfacts", offWant, () => off.searchText(q, offWant, signal), (r) => (offResults = r)),
+    ask("usda", usdaWant, () => usda.searchText(q, usdaWant, signal), (r) => (usdaResults = r)),
+  ]);
   return {
     foods: merged(),
     unanswered: signal?.aborted ? [] : PROVIDER_ORDER.filter((p) => failed.has(p)),

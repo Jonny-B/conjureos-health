@@ -81,6 +81,14 @@ describe("Add food search", () => {
     expect(text).toContain('Add "banana" as your own food');
   });
 
+  it("asks the food databases only once the query has settled", async () => {
+    searchFoods.mockResolvedValue({ foods: [], unanswered: [] });
+    await searchFor("banana");
+    expect(searchFoods).toHaveBeenCalledTimes(1);
+    const opts = searchFoods.mock.calls[0]![4] as { settleMs?: number } | undefined;
+    expect(opts?.settleMs).toBeGreaterThan(0);
+  });
+
   it("says no matches only when every database answered", async () => {
     searchFoods.mockResolvedValue({ foods: [], unanswered: [] });
     await searchFor("zzqx");
