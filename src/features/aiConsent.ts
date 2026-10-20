@@ -89,6 +89,11 @@ export const DISCLOSURE_SENDS: string[] = [
  * `turnsToSend` in features/ask/ask.ts cuts the turns replayed with each
  * question to that question's entry point, and ask.test.ts ("what each entry
  * point sends") checks the request, not this wording (ConjureOS #1163).
+ * The range line holds for Find patterns' opening question too:
+ * `patternsQuestion` drops any day outside the range it names, and the
+ * journal sends nothing until the month on screen has been read
+ * (features/ask/findPatterns.ts). screens/askEntryPoints.test.tsx drives the
+ * real screens and sheet to check what each one sends.
  */
 export const DISCLOSURE_WITHHOLDS: string[] = [
   "Your name, email, or account details",

@@ -338,6 +338,12 @@ export function summarizeRange(
  * that conversation, and is sent to the model as written, so it keeps the
  * same copy rules as the rest of Ask Health. Building it performs no
  * disclosure; sending it does, so only call it once consent is on file.
+ *
+ * Only days from `from` to `to` go in, whatever `days` holds. The consent
+ * sheet promises Find patterns withholds "anything outside the range you
+ * asked about" (DISCLOSURE_WITHHOLDS in features/aiConsent.ts), and the range
+ * named in the question is the range asked about, so a day outside it is
+ * dropped here rather than trusted to every caller (ConjureOS #1163).
  */
 export function patternsQuestion(
   days: DayJournal[],
@@ -345,7 +351,10 @@ export function patternsQuestion(
   to: string,
   opts: { includeNotes?: boolean } = {},
 ): string {
-  const summary = summarizeRange(days, opts);
+  const summary = summarizeRange(
+    days.filter((d) => d.date >= from && d.date <= to),
+    opts,
+  );
   const range = `${from} to ${to}`;
   return summary
     ? `Here is my journal for ${range}. What patterns do you notice? Anything that seems to go together?\n\n${summary}`
