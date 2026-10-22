@@ -57,7 +57,9 @@ import { newId } from "./id";
 
 const STORE_PATH = "store.json";
 /** Device-local authoritative key. App origins partition it per app already,
- *  but the name is explicit for clarity when inspecting devtools storage. */
+ *  but the name is explicit for clarity when inspecting devtools storage. It
+ *  keeps the app's old name on purpose: every user's saved data sits under
+ *  it, so renaming it would make that data vanish. */
 const LOCAL_KEY = "conjure-fitness:store:v2";
 
 /** v1: profile/goals/diary/weights only. Retained for the migration path. */
@@ -383,6 +385,10 @@ export class MockRepository implements Repository {
       .sort((a, b) => a.loggedAt.localeCompare(b.loggedAt));
   }
 
+  async getDiaryEntry(id: string): Promise<DiaryEntry | null> {
+    return this.store.diary.find((e) => e.id === id) ?? null;
+  }
+
   async addDiaryEntry(entry: NewDiaryEntry): Promise<DiaryEntry> {
     const full: DiaryEntry = { ...entry, id: newId(), loggedAt: new Date().toISOString() };
     return this.mutate((s) => {
@@ -580,7 +586,7 @@ export class MockRepository implements Repository {
     });
   }
 
-  // ── v2: plans + daily check-off + workout sessions ──────────────────
+  // ── v2: plans + daily check-off + exercise entries ──────────────────
 
   async getPlan(): Promise<Plan | null> {
     return this.store.plan;

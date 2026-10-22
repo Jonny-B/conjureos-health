@@ -23,7 +23,8 @@ function expectCopyRules(html: string) {
   const text = html.replace(/<[^>]+>/g, " ");
   expect(text).not.toContain("—");
   expect(text).not.toMatch(/\b(now|no longer|yet)\b/i);
-  expect(html).not.toMatch(/coach/i);
+  expect(html).not.toMatch(/coach|trainer/i);
+  expect(html).not.toMatch(/ask about food|food questions/i);
 }
 
 describe("Ask Health card", () => {
@@ -34,6 +35,12 @@ describe("Ask Health card", () => {
     expect(html).toMatch(/class="home-card-title"><svg[\s\S]*?<\/svg> Ask Health<\/span>/);
     expect(html).toContain('aria-label="Ask Health a question"');
     expectCopyRules(html);
+  });
+
+  it("keeps its scope line: nutrition questions, nothing changed", async () => {
+    const { AskHealthCard } = await import("./AskHealthCard");
+    const html = renderToStaticMarkup(<AskHealthCard onAsk={() => {}} />);
+    expect(html).toContain("Nutrition questions, answered. Your plan and diary stay untouched.");
   });
 });
 
@@ -61,11 +68,6 @@ describe("Ask Health sheet", () => {
   });
 });
 
-/**
- * Every control on the card and in its sheet is at least 44px tall. The
- * text fields sit at about 42px on padding and font alone, so each one has to
- * say so; the buttons get it from `.sheet-foot .btn` or their own rule.
- */
 /** Whether some rule in styles.css gives exactly `selector` a 44px+ height. */
 async function tallRule(): Promise<(selector: string) => boolean> {
   const css = (await import("../styles.css?raw")).default.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -81,6 +83,11 @@ async function tallRule(): Promise<(selector: string) => boolean> {
     );
 }
 
+/**
+ * Every control on the card and in its sheet is at least 44px tall. The
+ * text fields sit at about 42px on padding and font alone, so each one has to
+ * say so; the buttons get it from `.sheet-foot .btn` or their own rule.
+ */
 describe("Ask Health touch targets", () => {
   it("gives every input and button a 44px minimum", async () => {
     const tall = await tallRule();
@@ -90,6 +97,7 @@ describe("Ask Health touch targets", () => {
       ".chat-sheet .sheet-head .icon-btn", // the sheet's close button
       ".chat-foot .text-input", // the sheet's follow-up field
       ".sheet-foot .btn", // the sheet's Send button
+      ".journal-actions .btn.small", // Find patterns, which opens the sheet
     ]) {
       expect(tall(selector), selector).toBe(true);
     }
@@ -100,10 +108,18 @@ describe("Ask Health touch targets", () => {
  * Settings, under Privacy, is where a person withdraws the Ask Health and Find
  * patterns agreement, opens the policy, and withdraws consent to collection.
  * Those buttons are `btn small`, which is about 30px tall on padding and font
- * alone, so the block gives them the 44px its neighbours (the reset rows, the
- * journal's Find patterns) already have.
+ * alone, so the block gives them a 44px minimum.
  */
-describe("Settings privacy touch targets", () => {
+describe("Settings privacy", () => {
+  it("names Ask Health beside Find patterns, and no coach", async () => {
+    const src = (await import("../screens/SettingsSheet.tsx?raw")).default;
+    const block = /<div className="privacy-block">([\s\S]*?)\n {10}<\/div>/.exec(src)?.[1];
+    expect(block).toBeDefined();
+    expect(block).toContain("<strong>Find patterns</strong> and <strong>Ask Health</strong>");
+    expect(block).toContain("time you use Find patterns or Ask Health.");
+    expect(block).not.toMatch(/coach/i);
+  });
+
   it("gives the privacy block's buttons a 44px minimum", async () => {
     const tall = await tallRule();
     expect(tall(".privacy-block .btn"), ".privacy-block .btn").toBe(true);
@@ -133,6 +149,11 @@ describe("Settings privacy touch targets", () => {
     const labels = [...block!.matchAll(/<label\b([^>]*)>/g)].map((m) => m[1]!);
     expect(labels.length).toBeGreaterThanOrEqual(1);
     for (const attrs of labels) expect(attrs).toMatch(/className="consent-toggle"/);
+  });
+
+  it("gives each Reset health data button, Ask Health's row among them, a 44px minimum", async () => {
+    const tall = await tallRule();
+    expect(tall(".reset-btn"), ".reset-btn").toBe(true);
   });
 });
 

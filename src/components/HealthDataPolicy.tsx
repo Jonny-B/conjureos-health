@@ -9,78 +9,34 @@
  * Two rules for editing this file. It must describe what the code actually
  * does — the "what we send" list renders from the same `DISCLOSURE_SENDS`
  * constant the consent sheet uses, so the two cannot drift into saying
- * different things. And a material change here means bumping
- * `DISCLOSURE_VERSION`, which re-asks everyone rather than assuming old
- * agreement covers new wording.
+ * different things. And a material change to what the AI receives means
+ * bumping `DISCLOSURE_VERSION`, which re-asks everyone rather than assuming
+ * old agreement covers new wording.
+ *
+ * The "other apps" section (2026-09-28) did not bump it: that route isn't
+ * authorized by the AI agreement at all but by ConjureOS's own prompt, per
+ * app, before another app's request runs — so re-asking the AI question
+ * would authorize nothing. Its lists must match bridge/actions.ts and
+ * features/sharedSummary.ts.
  *
  * Plain-language policy written against how the app behaves. Final copy as of
- * 2026-10-08 (POLICY_UPDATED); keep it true when a data flow changes.
+ * 2026-10-01 (POLICY_UPDATED); keep it true when a data flow changes.
  */
 
 import { DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features/aiConsent";
-import { WORKOUTS_ENABLED } from "../features/flags";
 
 /**
  * Last material revision. Shown so a reader can tell what they agreed to.
  *
- * 2026-10-08 is the date of the PAUSED wording of "When it leaves" below.
- * `PLAN_BUILD_SENDS` and the two workout lines read WORKOUTS_ENABLED, so
- * turning workouts back on widens the policy without editing this file: move
- * this date to the release that turns them on (flags.ts, "Turning it back on",
- * item 4). HealthDataPolicy.test.tsx fails until it is later than 2026-10-08.
- *
  * A wording edit that changes nothing sent and names nothing the policy did
- * not already name is not material and leaves this date (and
- * DISCLOSURE_VERSION) alone. The withdraw line under "Your choices and
- * rights" naming Find patterns and Ask Health instead of "analysis" is one:
- * both were already named two lines above it, and withdrawing stopped both.
+ * not already name is not material, and leaves this date (and
+ * DISCLOSURE_VERSION) alone. The 2026-10-10 rename is one: the feature this
+ * page called "asking the coach from Ask about food" was renamed Ask Health,
+ * the same feature sending the same data behind the same agreement, and the
+ * withdraw line names Find patterns and Ask Health instead of "analysis",
+ * which both were already behind and which withdrawing already stopped.
  */
-export const POLICY_UPDATED = "2026-10-08";
-
-/**
- * What building a plan sends, matching `buildUserPrompt` in plan/generate.ts.
- * Training experience goes only with a workout plan, and the injury avoid-list
- * only when the wizard asked about injuries (see `intakeInjuries`). The wizard
- * asks for neither while workouts are paused (WORKOUTS_ENABLED), so
- * the paused wording leaves both out. The live wording is the wider one: it
- * must not go out under the paused wording's date (see `POLICY_UPDATED`).
- */
-export const PLAN_BUILD_SENDS = WORKOUTS_ENABLED
-  ? "your goal in your own words, the plan length, your training experience, height, weight, " +
-    "goal weight, age and sex, and, if you told us about an injury, a list of movements to avoid"
-  : "your goal in your own words, the plan length, height, weight, goal weight, age and sex";
-
-/**
- * The AI calls workouts make, which nothing reaches while they are paused, so
- * the paused policy names neither. The program line matches
- * `buildAnalysisPrompt` in plan/analyze.ts, sent by `calibrateToBenchmark`
- * (after the first benchmark), `maybeAdapt` (every few finished workouts) and
- * `advanceToNextGroup` in plan/groups.ts. A result typed in by hand
- * (`recordManualBenchmarkEntry`) goes through the same `recordSessionAndAdapt`
- * as a finished workout, so it reaches the first two as well. The burn line matches `estimateViaAi`
- * in features/calories.ts, which runs only when the profile has no weight for
- * the MET formula, so the weight it carries is never a real one. Like
- * `PLAN_BUILD_SENDS`, these must not go out under the paused wording's date.
- */
-function WorkoutSends() {
-  if (!WORKOUTS_ENABLED) return null;
-  return (
-    <>
-      <li>
-        <strong>Finishing a workout in your program</strong>, entering your benchmark results by
-        hand, or starting the program's next group of workouts can send the exercises in your
-        program, your benchmark results, and what you recorded in recent workouts: the dates,
-        sets, reps, weights, times and distances, and how hard each set felt. That is how the
-        program adjusts to you.
-      </li>
-      <li>
-        <strong>Estimating the calories a workout burned</strong>, when your profile has no
-        weight to work it out from, sends the workout's name and type, how long it took, the
-        distance if there was one, and your age and sex.
-      </li>
-    </>
-  );
-}
+export const POLICY_UPDATED = "2026-10-01";
 
 export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
   return (
@@ -96,58 +52,43 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
           <h3>What this covers</h3>
           <p>
             Conjure Health records things about your body: what you ate, what you weigh, how
-            you slept, how much you drank, symptoms you noticed, and the goals in your plan.
-            Some privacy laws call this <strong>consumer health data</strong>. This page explains
+            you slept, how much you drank, symptoms you noticed, and exercise you did. Some
+            privacy laws call this <strong>consumer health data</strong>. This page explains
             what happens to it.
           </p>
           <p>
             Conjure Health is made by ConjureOS LLC. It is not a doctor, a clinic, an insurer, or
-            any other kind of healthcare provider, and it is not part of one. That means your
-            entries here are not medical records and HIPAA does not apply to them. The
-            protections described on this page are the ones we actually implement, not ones
-            HIPAA imposes on us.
+            any other kind of healthcare provider, and it is not part of one. That means your entries here are
+            not medical records and HIPAA does not apply to them. The protections described
+            on this page are the ones we actually implement, not ones HIPAA imposes on us.
           </p>
 
           <h3>Where it lives</h3>
           <p>
-            Your entries are stored on your device and in your own ConjureOS account, so they can
-            follow you between devices you sign in on. Other people cannot see them. ConjureOS
-            LLC can access stored data only to run and secure the service, or when the law
-            requires it. It is never sold, and it is never used for advertising or marketing,
-            by us or by anyone we send it to.
+            Your journal is stored on your device and in your own ConjureOS account, so it can
+            follow you between devices you sign in on. Other people cannot see it, unless you
+            let another app read it (below). ConjureOS LLC can access stored data only to run
+            and secure the service, or when the law requires it. It is never sold, and it is
+            never used for advertising or marketing, by us or by anyone we send it to.
           </p>
 
           <h3>When it leaves</h3>
           <p>
-            Some features need an AI to work. Each one sends only what that request needs, and
-            only when you use it. Nothing is sent on a schedule, in the background, or while
-            the app is closed.
+            Only when you use a feature that needs it. Nothing is sent on a schedule.
           </p>
+
+          <h4>To an AI, when a feature needs one</h4>
           <ul className="consent-list">
             <li>
-              <strong>Building or changing your plan</strong> sends {PLAN_BUILD_SENDS}.
+              <strong>Building or changing your plan</strong> sends your goal in your own words,
+              the plan length, and, for a plan that tracks food, your height, weight, goal
+              weight, age and sex.
             </li>
             <li>
               <strong>Logging food by describing it or with a photo</strong>, or reading a
               nutrition label or the front of a package, sends the words or the photo you gave
               it.
             </li>
-            <WorkoutSends />
-            <li>
-              <strong>Find patterns</strong> and <strong>Ask Health</strong> send parts of your
-              journal, and ask for your agreement first. They send:
-            </li>
-          </ul>
-          <ul className="consent-list">
-            {DISCLOSURE_SENDS.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-          <p>None of these send:</p>
-          <ul className="consent-list withheld">
-            {DISCLOSURE_WITHHOLDS.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
           </ul>
           <p>
             <strong>Barcodes and food search</strong> look up the food in the shared ConjureOS
@@ -155,6 +96,58 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
             the search words are sent, nothing about you. If you add a food to the shared
             database, it is linked to your account so we can stop abuse; other people can find
             the food, but never see who added it.
+          </p>
+
+          <h4>To an AI, when you ask it about your journal</h4>
+          <p>
+            Two features send part of your journal to an AI: <strong>Find patterns</strong> on
+            the Journal tab, which looks for things that go together, and{" "}
+            <strong>Ask Health</strong> on the home screen. They run only when you press the
+            button, and only after you have agreed to what they send.
+          </p>
+          <p>The AI receives:</p>
+          <ul className="consent-list">
+            {DISCLOSURE_SENDS.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          <p>It does not receive:</p>
+          <ul className="consent-list withheld">
+            {DISCLOSURE_WITHHOLDS.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+
+          <h4>To other apps on ConjureOS, when you allow them</h4>
+          <p>
+            Other apps you install on ConjureOS, and ConjureOS's own assistant, can ask Conjure
+            Health for your data or add to it: a recipe app checking how many calories you
+            have left, say, or a fitness app adding a run. ConjureOS asks you before another
+            app's request goes through, and you choose to allow it once, always, or not at
+            all. ConjureOS's assistant acts when you ask it to. To answer, ConjureOS may start
+            Conjure Health in the background.
+          </p>
+          <p>What they can read:</p>
+          <ul className="consent-list">
+            <li>What you ate: foods, calories, protein, carbs and fat, and your daily targets</li>
+            <li>Your exercise, water and sleep totals, and your weigh-ins</li>
+            <li>Symptoms you logged, with the severity and time</li>
+            <li>
+              A short summary of your food, water and exercise for the last 14 days, which
+              ConjureOS reads to answer a question when nothing else fits
+            </li>
+          </ul>
+          <p>What they never get:</p>
+          <ul className="consent-list withheld">
+            <li>The free-text notes on your symptoms and sleep</li>
+            <li>Your profile, your plan's details, or your AI agreement</li>
+            <li>Why you have no calorie target, if you don't have one</li>
+          </ul>
+          <p>
+            They can add entries (a food, a drink, a workout), correct them, and remove one entry
+            at a time. They cannot change your targets or plan, and cannot clear a history.
+            Once another app has your data, what it does with it is up to that app and its
+            own policy.
           </p>
 
           <h3>Apple Health and Health Connect</h3>
@@ -175,8 +168,9 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
             <strong>Anthropic</strong>, our AI provider, which processes them to produce the
             answer and, under its commercial terms, does not train its models on them. If you
             have added your own AI provider key in ConjureOS Settings, requests go to that
-            provider instead, under your own agreement with them. We do not disclose your health
-            data to anyone else, except where the law requires it.
+            provider instead, under your own agreement with them. Apart from that and the other
+            apps you allow, above, we do not disclose your health data to anyone, except where
+            the law requires it.
           </p>
 
           <h3>Your choices and rights</h3>
@@ -187,20 +181,24 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
               stops at once.
             </li>
             <li>
-              Find patterns and Ask Health send nothing from your journal until you agree to that
-              separately. The first time, you are shown exactly what would be sent and can
-              decline.
+              Nothing from your journal goes to the AI until you agree to it. The first time
+              you use Find patterns or Ask Health, you are shown exactly what would be sent
+              and can decline.
+            </li>
+            <li>
+              Other apps get nothing until you allow them. You can turn app-to-app connections
+              off entirely in ConjureOS Settings → Apps.
             </li>
             <li>
               The free-text note on a symptom is a separate choice, off unless you turn it on.
             </li>
             <li>
-              You can withdraw that agreement at any time in Settings, under Privacy. Find
-              patterns and Ask Health stop sending anything from your journal at once.
-              Withdrawing cannot recall something already sent.
+              You can withdraw your agreement at any time in Settings → Privacy. Find patterns
+              and Ask Health stop sending anything from your journal at once. Withdrawing
+              cannot recall something already sent.
             </li>
             <li>
-              You can delete your journal, all of it or one kind at a time, in Settings, under
+              You can delete your journal, all of it or one kind at a time, in Settings →
               Reset health data. Deleting is permanent.
             </li>
             <li>
@@ -216,7 +214,8 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
           <h3>If something goes wrong</h3>
           <p>
             If health data is ever exposed to someone who should not have it, we will tell you
-            and any regulator we are required to notify.
+            and any regulator we are required to notify. Report a concern from Settings, or
+            through your ConjureOS account.
           </p>
 
           <h3>Contact</h3>

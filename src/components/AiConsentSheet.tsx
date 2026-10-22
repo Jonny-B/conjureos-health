@@ -6,9 +6,9 @@
  * search they never asked for.
  *
  * The introduction, the withdraw line and the button are not part of the
- * versioned DISCLOSURE_* wording. They name Ask Health, whose path that list has
- * covered since v2, and say nothing about what is sent, so they do not move
- * DISCLOSURE_VERSION.
+ * versioned DISCLOSURE_* wording. They name Ask Health, whose path that list
+ * has covered since v2, and say nothing about what is sent, so they do not
+ * move DISCLOSURE_VERSION.
  *
  * Asking the AI to read your journal sends health data to a third party, so
  * the user gets told exactly what travels before any of it does — including a
@@ -22,8 +22,6 @@
  */
 
 import { useState } from "react";
-import { createPortal } from "react-dom";
-import { useScrollLock } from "../hooks/useScrollLock";
 import {
   DISCLOSURE_SAMPLE,
   DISCLOSURE_SENDS,
@@ -50,11 +48,8 @@ export function AiConsentSheet({
 }) {
   const [includeNotes, setIncludeNotes] = useState(false);
   const [busy, setBusy] = useState(false);
-  useScrollLock();
 
-  // Portaled to <body> so no transformed or clipped ancestor can crop the sheet
-  // or hide its footer buttons on a phone.
-  return createPortal(
+  return (
     <div className="sheet-backdrop" onClick={onCancel}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <header className="sheet-head">
@@ -120,7 +115,6 @@ export function AiConsentSheet({
           </button>
         </footer>
       </div>
-    </div>,
-    document.body,
+    </div>
   );
 }

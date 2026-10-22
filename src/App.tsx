@@ -4,8 +4,16 @@ import { DEFAULT_GOALS } from "./types";
 import { getRepository } from "./data/repository";
 import { registerActions } from "./bridge/actions";
 import { HealthConsentGate } from "./components/HealthConsentGate";
-import { loadHealthConsent, recordHealthConsent, withdrawHealthConsent } from "./features/healthConsent";
+import {
+  healthConsentGranted,
+  loadHealthConsent,
+  recordHealthConsent,
+  withdrawHealthConsent,
+} from "./features/healthConsent";
+import { readLaunchIntent } from "./bridge/intents";
 import { todayISO } from "./features/diary";
+import { onDataChanged } from "./features/dataEvents";
+import { writeNutritionSummary } from "./features/sharedSummary";
 import {
   archivePlan,
   commitNewPlan,
@@ -21,23 +29,15 @@ import { PlanBanner } from "./components/PlanBanner";
 import { AddFoodScreen, type AddMode } from "./screens/AddFoodScreen";
 import { PlanScreen } from "./screens/PlanScreen";
 import { JournalScreen } from "./screens/JournalScreen";
-import { WorkoutsScreen } from "./screens/WorkoutsScreen";
-import { WORKOUTS_ENABLED } from "./features/flags";
-import { SettingsSheet, type SettingsView } from "./screens/SettingsSheet";
+import { ExerciseScreen } from "./screens/ExerciseScreen";
+import { SettingsSheet } from "./screens/SettingsSheet";
 import { AppHeader } from "./components/AppHeader";
 import { SaveFailedNotice } from "./components/SaveFailedNotice";
-import {
-  AddIcon,
-  AppleIcon,
-  CalendarIcon,
-  DiaryIcon,
-  TrendsIcon,
-  WorkoutsIcon,
-} from "./components/icons";
+import { AddIcon, AppleIcon, CalendarIcon, DiaryIcon, TrendsIcon } from "./components/icons";
 import { MEAL_LABELS } from "./types";
 import type { ComponentType } from "react";
 
-type Tab = "diary" | "meal" | "add" | "plan" | "journal" | "workouts";
+type Tab = "diary" | "meal" | "add" | "plan" | "journal" | "exercise";
 
 /** Sensible default meal when opening Add from the tab bar (no meal context) —
  *  by time of day. The user can still switch it in the Add screen. */
@@ -67,11 +67,13 @@ export function App() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [ready, setReady] = useState(false);
   // Consent to collect health data (features/healthConsent.ts). Until it is
-  // "yes", only the consent screen renders and no action is registered.
+  // "yes", only the consent screen renders, and every cross-app action
+  // refuses with ConjureOS's needs-consent answer (bridge/actions.ts).
   const [consent, setConsent] = useState<"unknown" | "yes" | "no">("unknown");
-  // Settings sheet: closed, or open on a specific sub-view (main / program editor).
+  // A withdrawal in this session could not clear the stored agreement: the
+  // consent screen says so and offers a retry.
+  const [withdrawalNotSaved, setWithdrawalNotSaved] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsView, setSettingsView] = useState<SettingsView>("main");
   // Plan wizard as a dismissible dialog, plus a per-session dismiss for its
   // banner (resets on reload = shows again while there's still no plan).
   const [planWizardOpen, setPlanWizardOpen] = useState(false);
@@ -90,6 +92,11 @@ export function App() {
   const [activeMeal, setActiveMeal] = useState<MealType>("breakfast");
   // Bumped after any write so the Diary reloads from the repository.
   const [nonce, setNonce] = useState(0);
+  // What a deep link asked the Add screen to start with. `key` remounts the
+  // screen so a second link isn't ignored by state the first one set.
+  const [addPrefill, setAddPrefill] = useState<{ query?: string; barcode?: string; key: number } | null>(
+    null,
+  );
 
   /**
    * Re-read everything a reset can have changed. Bumping `nonce` alone only
@@ -115,12 +122,17 @@ export function App() {
     };
   }, []);
 
+  // Registered at startup, consent or not (ConjureOS #1156). Each action checks
+  // the agreement itself and refuses without one, so nothing is read or kept
+  // before the person agrees. An app that registered nothing until then left
+  // ConjureOS waiting out its timeout and saying the app "did not register the
+  // action", where the refusal lets Chat say what is needed and offer to open
+  // the app.
   useEffect(() => {
-    if (consent !== "yes") return;
     registerActions().catch(() => {
       /* cross-app integration is non-fatal */
     });
-  }, [consent]);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -138,12 +150,26 @@ export function App() {
     };
   }, []);
 
+  // A cross-app action wrote something (another app logged a food, the
+  // assistant fixed a quantity): refresh whatever is on screen.
+  useEffect(() => onDataChanged(() => setNonce((n) => n + 1)), []);
+
+  // Keep the summary ConjureOS may read (see features/sharedSummary) current:
+  // once after startup, then after each change, settling for a moment so a
+  // burst of writes rewrites it once.
+  useEffect(() => {
+    if (!ready || consent !== "yes") return;
+    const t = setTimeout(() => void writeNutritionSummary(), 1500);
+    return () => clearTimeout(t);
+  }, [ready, nonce, consent]);
+
   // The diary's rings read from the plan's targets when it tracks food, falling
   // back to the separately-stored goals otherwise.
   const effectiveGoals = useMemo(() => targetsToGoals(plan, goals), [plan, goals]);
 
   const openAdd = useCallback(
     (meal: MealType, mode: AddMode = "search", returnTo: Tab = "diary") => {
+      setAddPrefill(null);
       setAddMeal(meal);
       setAddMode(mode);
       setAddReturn(returnTo);
@@ -152,14 +178,31 @@ export function App() {
     [],
   );
 
+  // A deep link (bridge/intents) only navigates: it never logs anything.
+  // `get()` can stay pending while the user reads ConjureOS's prompt, which is
+  // why this runs after the first paint rather than holding it up.
+  useEffect(() => {
+    if (!ready) return;
+    let alive = true;
+    void readLaunchIntent().then((intent) => {
+      if (!alive || !intent) return;
+      if (intent.date) setDate(intent.date);
+      if (intent.kind === "addFood") {
+        openAdd(intent.meal ?? mealForNow());
+        // After openAdd, which clears any earlier prefill.
+        setAddPrefill({ query: intent.query, barcode: intent.barcode, key: Date.now() });
+      } else {
+        setTab(intent.kind === "exercise" ? "exercise" : "diary");
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [ready, openAdd]);
+
   const openMeal = useCallback((meal: MealType) => {
     setActiveMeal(meal);
     setTab("meal");
-  }, []);
-
-  const openSettings = useCallback((view: SettingsView = "main") => {
-    setSettingsView(view);
-    setSettingsOpen(true);
   }, []);
 
   const onLogged = useCallback(() => {
@@ -175,7 +218,7 @@ export function App() {
   const onWizardComplete = useCallback(
     async (created: Plan, body: WizardBody) => {
       // Rebuilding over an existing plan: archive the outgoing one first so
-      // history/insight survives (diary/weight/workout history is separate and
+      // history/insight survives (diary/weight/exercise history is separate and
       // untouched).
       if (plan) await archivePlan(plan);
       const res = await commitNewPlan(created, { body, currentProfile: profile, currentGoals: goals });
@@ -192,8 +235,8 @@ export function App() {
   );
 
   // Edit-mode, non-forking change: modify the current plan in place (keep id,
-  // program, group progress) and recompute the calorie target. No archive:
-  // this is the same plan, not a new one.
+  // program, group progress) and recompute the calorie target. No archive, no
+  // recordPlanStarted — this is the same plan, not a new episode.
   const onModifyPlan = useCallback(
     async (body: WizardBody, patch: { endDate?: string; durationWeeks?: number }) => {
       if (!plan) return;
@@ -227,13 +270,39 @@ export function App() {
     setPlanWizardOpen(true);
   }, [plan]);
 
-  // The plan wizard, opened from the banner, owns the screen while active but is
-  // fully dismissible (no longer a mandatory first-run gate).
+  /**
+   * Save a withdrawal: clear the stored agreement, and say on the agreement
+   * screen when that failed. Collection stops for the session either way, but
+   * the next session reads the file, so a failure kept quiet would let a
+   * reload switch collection back on (ConjureOS #1156 review). Calling it
+   * again is the retry.
+   */
+  const saveWithdrawal = useCallback(async () => {
+    const saved = await withdrawHealthConsent();
+    // Agreeing again meanwhile overrules the withdrawal: nothing left to say.
+    if (!healthConsentGranted()) setWithdrawalNotSaved(!saved);
+  }, []);
+
+  /**
+   * Withdraw consent to collect health data. The app goes to the agreement
+   * screen at once, before and whatever the save does, so no screen that
+   * reads or writes health data stays mounted behind Settings.
+   */
+  const withdrawCollection = useCallback(() => {
+    setSettingsOpen(false);
+    setConsent("no");
+    setWithdrawalNotSaved(false);
+    void saveWithdrawal();
+  }, [saveWithdrawal]);
+
   if (consent === "unknown") return null;
   if (consent === "no") {
     return (
       <HealthConsentGate
+        withdrawalNotSaved={withdrawalNotSaved}
+        onRetryWithdrawal={saveWithdrawal}
         onAgree={() => {
+          setWithdrawalNotSaved(false);
           void recordHealthConsent();
           setConsent("yes");
         }}
@@ -241,6 +310,8 @@ export function App() {
     );
   }
 
+  // The plan wizard, opened from the banner, owns the screen while active but is
+  // fully dismissible (no longer a mandatory first-run gate).
   if (ready && planWizardOpen) {
     return (
       <div className="app">
@@ -261,8 +332,6 @@ export function App() {
     );
   }
 
-  const loggingOnly = plan?.mode === "logging_only";
-
   const planBanner =
     ready && !plan && !planBannerDismissed ? (
       <PlanBanner onOpen={() => setPlanWizardOpen(true)} onDismiss={() => setPlanBannerDismissed(true)} />
@@ -280,7 +349,7 @@ export function App() {
       onChangeDate={setDate}
       onOpenMeal={openMeal}
       onOpenPlan={() => setTab("plan")}
-      onOpenWorkouts={() => setTab("workouts")}
+      onOpenExercise={() => setTab("exercise")}
     />
   );
 
@@ -297,15 +366,13 @@ export function App() {
           ? { title: "Plan" }
           : tab === "journal"
             ? { title: "Journal" }
-          : tab === "workouts"
-            ? WORKOUTS_ENABLED
-              ? { title: "Workouts" }
-              : { title: "Exercise", onBack: () => setTab("diary") }
+          : tab === "exercise"
+            ? { title: "Exercise", onBack: () => setTab("diary") }
             : { title: "Conjure Health" };
 
   return (
     <div className="app">
-      <AppHeader title={header.title} onBack={header.onBack} onSettings={() => openSettings("main")} />
+      <AppHeader title={header.title} onBack={header.onBack} onSettings={() => setSettingsOpen(true)} />
       <SaveFailedNotice />
 
       <main className="screen">
@@ -329,11 +396,20 @@ export function App() {
           />
         ) : tab === "add" ? (
           <AddFoodScreen
+            key={addPrefill?.key ?? 0}
             date={date}
             defaultMeal={addMeal}
             defaultMode={addMode}
-            onLogged={onLogged}
-            onCancel={() => setTab(addReturn)}
+            initialQuery={addPrefill?.query}
+            initialBarcode={addPrefill?.barcode}
+            onLogged={() => {
+              setAddPrefill(null);
+              onLogged();
+            }}
+            onCancel={() => {
+              setAddPrefill(null);
+              setTab(addReturn);
+            }}
             onModeChange={setAddMode}
             units={profile?.units ?? "metric"}
           />
@@ -345,22 +421,12 @@ export function App() {
             profile={profile}
             plan={plan}
             goals={effectiveGoals}
-            units={profile?.units ?? "metric"}
             onPlanChange={setPlan}
             onEditPlan={editPlan}
-            onEditWorkouts={() => openSettings("program")}
             onStartPlan={startNewPlan}
           />
-        ) : tab === "workouts" && !loggingOnly ? (
-          <WorkoutsScreen
-            exerciseOnly={!WORKOUTS_ENABLED}
-            units={profile?.units ?? "metric"}
-            plan={plan}
-            onPlanChange={setPlan}
-            date={date}
-            nonce={nonce}
-            onMutated={() => setNonce((n) => n + 1)}
-          />
+        ) : tab === "exercise" ? (
+          <ExerciseScreen date={date} nonce={nonce} onMutated={() => setNonce((n) => n + 1)} />
         ) : (
           diaryScreen
         )}
@@ -376,13 +442,15 @@ export function App() {
           </span>
           <span className="rail-brand-name">Conjure Health</span>
         </div>
-        <TabButton label="Diary" Icon={DiaryIcon} active={tab === "diary" || tab === "meal"} onClick={() => setTab("diary")} />
+        <TabButton
+          label="Diary"
+          Icon={DiaryIcon}
+          active={tab === "diary" || tab === "meal" || tab === "exercise"}
+          onClick={() => setTab("diary")}
+        />
         <TabButton label="Add" Icon={AddIcon} active={tab === "add"} onClick={() => openAdd(mealForNow())} />
         <TabButton label="Plan" Icon={TrendsIcon} active={tab === "plan"} onClick={() => setTab("plan")} />
         <TabButton label="Journal" Icon={CalendarIcon} active={tab === "journal"} onClick={() => setTab("journal")} />
-        {!loggingOnly && WORKOUTS_ENABLED && (
-          <TabButton label="Workouts" Icon={WorkoutsIcon} active={tab === "workouts"} onClick={() => setTab("workouts")} />
-        )}
       </nav>
 
       <div className="app-version">v{__APP_VERSION__}</div>
@@ -391,17 +459,10 @@ export function App() {
         <SettingsSheet
           goals={goals}
           profile={profile}
-          plan={plan}
-          initialView={settingsView}
           onClose={() => setSettingsOpen(false)}
           onSave={onSaveGoals}
-          onPlanChange={setPlan}
           onDataCleared={onDataCleared}
-          onWithdrawHealthConsent={() => {
-            void withdrawHealthConsent();
-            setSettingsOpen(false);
-            setConsent("no");
-          }}
+          onWithdrawHealthConsent={withdrawCollection}
         />
       )}
     </div>

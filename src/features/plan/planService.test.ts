@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { Plan, Profile, WorkoutProgram } from "../../types";
+import type { Plan, Profile } from "../../types";
 import { getRepository, __resetRepository } from "../../data/repository";
 import { commitNewPlan, decidePlanEdit, modifyPlanInPlace } from "./planService";
 
@@ -23,7 +23,7 @@ const plan: Plan = {
   endDate: "2026-08-04",
   goals: [],
   targets: { dailyCalories: 2100, protein: 150, carbs: 200, fat: 70 },
-  safety: { ageBand: "40_59", pregnant: false, cardiacFlag: false, injuries: [], activityLevel: "very_active" },
+  safety: { ageBand: "40_59", pregnant: false, cardiacFlag: false, activityLevel: "very_active" },
   liability: { acknowledged: true, acceptedAt: "2026-07-22T00:00:00Z" },
   createdAt: "2026-07-22T00:00:00Z",
 };
@@ -111,7 +111,8 @@ describe("decidePlanEdit", () => {
 describe("modifyPlanInPlace", () => {
   beforeEach(() => __resetRepository());
 
-  const workoutProgram: WorkoutProgram = {
+  // What a plan from before workouts moved out can still carry on disk.
+  const legacyProgram = {
     workouts: [
       {
         id: "pw1",
@@ -127,7 +128,7 @@ describe("modifyPlanInPlace", () => {
     currentGroup: 1,
     groupsPerCycle: 4,
   };
-  const both: Plan = { ...plan, program: workoutProgram };
+  const both: Plan = { ...plan, program: legacyProgram };
   const cur: Profile = { sex: "male", age: 45, heightCm: 180, weightKg: 85, activityLevel: "very_active", direction: "lose", goalWeightKg: 78, units: "imperial" };
 
   it("recomputes the calorie target from an updated goal weight and moves stored Goals", async () => {
@@ -145,7 +146,7 @@ describe("modifyPlanInPlace", () => {
     expect((await repo.getGoals()).calories).toBe(res.goals.calories);
   });
 
-  it("keeps the plan id and the whole program (benchmarks + completedAt)", async () => {
+  it("keeps the plan id, and a legacy plan's stored program exactly as it was", async () => {
     const res = await modifyPlanInPlace(
       both,
       cur,
@@ -154,12 +155,12 @@ describe("modifyPlanInPlace", () => {
     );
     expect(res.plan.id).toBe(both.id);
     expect(res.plan.endDate).toBe("2026-08-11");
-    expect(res.plan.program?.workouts[0]?.completedAt).toBe("2026-07-23T10:00:00Z");
-    expect(res.plan.program?.benchmarks[0]?.baseline).toBe(20);
-    expect(res.plan.program?.currentGroup).toBe(1);
+    expect(res.plan.program).toEqual(legacyProgram);
+    const repo = await getRepository();
+    expect((await repo.getPlan())?.program).toEqual(legacyProgram);
   });
 
-  it("leaves the calorie target null for a workouts-only plan", async () => {
+  it("leaves the calorie target null for a legacy get-fit plan", async () => {
     const getFit: Plan = { ...both, mode: "get_fit", targets: { dailyCalories: null } };
     const res = await modifyPlanInPlace(
       getFit,

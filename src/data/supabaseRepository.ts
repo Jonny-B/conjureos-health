@@ -158,6 +158,14 @@ export class SupabaseRepository implements Repository {
     return rows.map(rowToEntry);
   }
 
+  async getDiaryEntry(id: string): Promise<DiaryEntry | null> {
+    const rows = await this.client.select<DiaryRow>(
+      "diary_entries",
+      `select=*&id=eq.${encodeURIComponent(id)}&limit=1`,
+    );
+    return rows[0] ? rowToEntry(rows[0]) : null;
+  }
+
   async addDiaryEntry(entry: NewDiaryEntry): Promise<DiaryEntry> {
     const rows = await this.client.insert<DiaryRow>("diary_entries", {
       date: entry.date,

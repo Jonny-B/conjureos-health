@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aiErrorMessage, extractJson } from "./ai";
+import { aiErrorMessage, extractJson, RAN_OUT_MESSAGE } from "./ai";
 
 describe("aiErrorMessage", () => {
   it("names the real problem when the host says the user is out of credits", () => {
@@ -66,6 +66,30 @@ describe("aiErrorMessage", () => {
   it("names a busy provider and a real network failure plainly", () => {
     expect(aiErrorMessage(new Error("The AI service is busy right now. Try again in a moment."))).toMatch(/busy/i);
     expect(aiErrorMessage(new Error("TypeError: Failed to fetch"))).toMatch(/connection/i);
+  });
+
+  it("says a thinking model ran out of room, not that the connection failed (conjureos-health#10)", () => {
+    // ConjureOS's typed rejection, word for word, as Ask Health shows it.
+    const ranOut = Object.assign(
+      new Error("The model ran out of room before answering. Try again, or ask for something shorter."),
+      { name: "AIRanOutOfRoomError" },
+    );
+    const msg = aiErrorMessage(ranOut, "Something went wrong reaching the AI service. Try again in a moment.");
+    expect(msg).toBe(RAN_OUT_MESSAGE);
+    expect(msg).not.toMatch(/went wrong reaching|connection/i);
+    expect(msg).not.toMatch(/—|\bnow\b|no longer|\byet\b/i);
+  });
+
+  it("gives ran-out advice a photo scan can follow too, with no question to shorten", () => {
+    // A nutrition label or a meal photo reaches this same line
+    // (PackageCapture, AddFoodScreen): there is nothing to make shorter.
+    const ranOut = Object.assign(new Error("The model ran out of room before answering."), {
+      name: "AIRanOutOfRoomError",
+    });
+    const msg = aiErrorMessage(ranOut, "The estimator didn't respond. Try again.");
+    expect(msg).toBe(RAN_OUT_MESSAGE);
+    expect(msg).not.toMatch(/shorter|ask/i);
+    expect(msg).toMatch(/try again/i);
   });
 
   it("keeps an unrecognised host reason visible instead of swallowing it", () => {

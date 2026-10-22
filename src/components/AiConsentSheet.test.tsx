@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features/aiConsent";
 
@@ -6,22 +6,7 @@ import { DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features/aiConsent";
  * One consent sheet serves Find patterns and Ask Health, under one agreement.
  * Its framing names both, and the button a person agrees with names what they
  * asked for: a food question is not agreed to as "find patterns".
- *
- * The sheet portals to <body>. A server render has no document, so the portal
- * renders in place and `document.body` is a stand-in.
  */
-vi.mock("react-dom", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("react-dom")>()),
-  createPortal: (node: unknown) => node,
-}));
-
-beforeAll(() => {
-  vi.stubGlobal("document", { body: {} });
-});
-afterAll(() => {
-  vi.unstubAllGlobals();
-});
-
 async function render(purpose: "patterns" | "ask"): Promise<{ html: string; text: string }> {
   const { AiConsentSheet } = await import("./AiConsentSheet");
   const html = renderToStaticMarkup(
@@ -67,12 +52,11 @@ describe("the AI consent sheet", () => {
   it.each(["ask", "patterns"] as const)("keeps to the copy rules (%s)", async (purpose) => {
     const { html, text } = await render(purpose);
     expect(text).not.toContain("—");
-    // "Not now" is the decline label every consent gate in the app shares (the
-    // health-data gate, the plan disclaimer): a way to say no, not a line
-    // comparing the app with an earlier version of itself. Everything else
-    // on the sheet is held to the rule.
+    // "Not now" is the decline label every consent gate in the app shares: a
+    // way to say no, not a line comparing the app with an earlier version of
+    // itself. Everything else on the sheet is held to the rule.
     expect(text).toContain(" Not now ");
     expect(text.replace(" Not now ", " ")).not.toMatch(/\b(now|no longer|yet)\b/i);
-    expect(html).not.toMatch(/coach/i);
+    expect(html).not.toMatch(/coach|ask about food/i);
   });
 });

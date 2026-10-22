@@ -6,6 +6,7 @@
 
 import type { Goals, Plan } from "../types";
 import { planModeLabel, visiblePlanGoals } from "../features/plan/display";
+import { planTracksCalories } from "../features/plan/model";
 import { ChevronRight, TrendsIcon } from "./icons";
 
 /** Home-screen card summarizing the active plan, or a create-a-plan prompt
@@ -38,8 +39,13 @@ export function PlanCard({
         <>
           <div className="plan-card-plan">
             <span className="plan-card-mode">{planModeLabel(plan)}</span>
-            <span className="muted small">·</span>
-            <span className="muted small">{goals.calories.toLocaleString()} cal/day</span>
+            {/* A logging-only plan has no calorie target to show. */}
+            {planTracksCalories(plan) && (
+              <>
+                <span className="muted small">·</span>
+                <span className="muted small">{goals.calories.toLocaleString()} cal/day</span>
+              </>
+            )}
           </div>
           {topGoals.length > 0 && (
             <ul className="plan-card-goals">

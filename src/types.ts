@@ -1,5 +1,5 @@
 /**
- * Domain model shared across Conjure Fitness.
+ * Domain model shared across Conjure Health.
  *
  * Kept narrow and additive — these shapes are persisted (to Supabase rows and
  * to the VFS mock store), so adding optional fields later is cheap but
@@ -9,7 +9,7 @@
 
 // ── Nutrition primitives ─────────────────────────────────────────────
 
-/** The four headline numbers Conjure Fitness tracks against goals. */
+/** The four headline numbers Conjure Health tracks against goals. */
 export interface Macros {
   /** Energy in kilocalories. */
   calories: number;
@@ -226,9 +226,6 @@ export type ActivityLevel =
  *  vs current weight, and sets the calorie deficit/surplus. */
 export type GoalDirection = "lose" | "maintain" | "gain";
 
-/** How much training background the user has — tunes workout difficulty. */
-export type ExperienceLevel = "beginner" | "intermediate" | "advanced";
-
 /**
  * The user's body + activity inputs. Used to derive recommended goals via
  * Mifflin-St Jeor; the user can always override the resulting numbers.
@@ -244,8 +241,6 @@ export interface Profile {
   weightKg: number;
   activityLevel: ActivityLevel;
   direction: GoalDirection;
-  /** Training background — tunes generated workout difficulty. */
-  experienceLevel?: ExperienceLevel;
   /** Target weight in kilograms (for lose/gain). */
   goalWeightKg?: number;
   /** Display unit preference. Storage is always metric. */
@@ -326,84 +321,17 @@ export interface WeightEntry {
   weightKg: number;
 }
 
-// ── Fitness / workouts (scaffolded slice) ────────────────────────────
-
-/** Where a workout came from. Treated as "built-in" when omitted. */
-export type WorkoutOrigin = "built-in" | "user";
-
-/** One prescribed set. Exactly one of `reps`/`durationSec` is non-null:
- *  reps for countable work, durationSec for holds and timed intervals. */
-export interface ExerciseSet {
-  /** Target reps, or null for a timed set. */
-  reps: number | null;
-  /** Target seconds for a timed/hold set, or null for a rep set. */
-  durationSec: number | null;
-  /** Rest after this set, seconds. */
-  restSec: number;
-  /** Optional target weight in kilograms. */
-  weightKg?: number;
-}
-
-/** One movement within a workout, plus its prescribed sets. */
-export interface Exercise {
-  id: string;
-  name: string;
-  sets: ExerciseSet[];
-  /** Optional cue shown during the set. */
-  notes?: string;
-  /** Inline explainer override; otherwise resolved by key (see ExerciseExplainer). */
-  explainer?: ExerciseExplainer;
-}
-
-/**
- * How-to / muscles-worked / useful-data for an exercise. Resolved by
- * `exerciseKey` from two layers: the user's own VFS note first, then an
- * AI-generated one, cached (features/explainers/resolve.ts).
- */
-export interface ExerciseExplainer {
-  exerciseKey: string;
-  /** Step-by-step how-to. */
-  howTo: string;
-  /** Primary muscles worked. */
-  worksMuscles?: string[];
-  /** Tips, typical ranges, common mistakes. */
-  usefulData?: string;
-  source: "user" | "ai";
-  /** ISO timestamp — set for AI-generated entries so the cache can age out. */
-  cachedAt?: string;
-}
-
-/** Workout modality. Absent ⇒ "strength" (the guided step player); cardio
- *  kinds route to the distance tracker instead of buildSteps. */
-export type WorkoutKind = "strength" | "run" | "bike";
-
-/** A complete workout: a named, ordered list of exercises the player runs. */
-export interface Workout {
-  id: string;
-  name: string;
-  /** Short pitch / focus, e.g. "Full-body, 20 min, no equipment". */
-  summary?: string;
-  /** Longer overview shown on the pre-workout splash — what it trains, who
-   *  it's for, how to approach it. Falls back to `summary` when absent. */
-  description?: string;
-  exercises: Exercise[];
-  /** Modality — absent means strength (back-compat with the built-in seeds). */
-  kind?: WorkoutKind;
-  /** For cardio kinds: an optional distance/time goal shown during the run. */
-  cardioTarget?: { distanceKm?: number; durationSec?: number };
-  /** Provenance — defaults to built-in when omitted. */
-  origin?: WorkoutOrigin;
-}
-
-// ── v2: plans, check-off, workout sessions ───────────────────────────
+// ── v2: plans, check-off, exercise ───────────────────────────────────
 //
 // These persist as VFS app data in the on-device store on every backend
 // (owner call, DECISIONS 2026-06-24), with no Supabase tables. All shapes are additive and
 // self-contained so Phase 9 platform sync can back the JSON up as-is.
 
 /**
- * How a plan is oriented. `logging_only` is the safety fallback: the intake
- * gate (under-18 / pregnant / cardiac) forces it, hiding the workout surface.
+ * How a plan is oriented. New plans are `eat_better`, or `logging_only` — the
+ * safety fallback the intake gate (under-18 / pregnant / cardiac) forces, with
+ * no calorie target. `get_fit` and `both` are legacy: stored plans from before
+ * workouts moved to their own app can still carry them.
  */
 export type PlanMode = "eat_better" | "get_fit" | "both" | "logging_only";
 
@@ -412,8 +340,8 @@ export type AgeBand = "under_18" | "18_39" | "40_59" | "60_plus";
 
 /**
  * The short safety questionnaire captured at wizard step 2. Drives the intake
- * gate (layer 1) and the injury-region exclusion list (layer 2). Deliberately
- * coarse: bands and booleans, no medical detail.
+ * gate (layer 1). Deliberately coarse: bands and booleans, no medical detail.
+ * (Plans from before workouts moved out may also carry an `injuries` list.)
  */
 export interface SafetyIntake {
   ageBand: AgeBand;
@@ -421,11 +349,6 @@ export interface SafetyIntake {
   pregnant: boolean;
   /** Any cardiac condition / doctor advisory — forces logging_only. */
   cardiacFlag: boolean;
-  /** Injury regions to exclude movements for (keys into the exclusion map).
-   *  `[]` on plans the wizard builds while workouts are paused: it asks only
-   *  while WORKOUTS_ENABLED is on (see `intakeInjuries`). Older plans
-   *  keep what they recorded. */
-  injuries: string[];
   /** Self-reported baseline, reuses the profile scale. */
   activityLevel: ActivityLevel;
 }
@@ -436,10 +359,12 @@ export interface SafetyIntake {
  */
 export interface PlanGoal {
   id: string;
-  /** User-facing line, e.g. "Hit 120 g protein" or "20-min workout". */
+  /** User-facing line, e.g. "Hit 120 g protein". */
   label: string;
+  /** New plans only get "nutrition" and "habit"; "workout" survives on legacy
+   *  plans and is never shown (see plan/display). */
   kind: "nutrition" | "workout" | "habit";
-  /** Optional machine detail (target grams, workout id) for future automation. */
+  /** Optional machine detail (e.g. target grams) for future automation. */
   detail?: string;
 }
 
@@ -453,99 +378,6 @@ export interface LiabilityAck {
   acceptedAt: string;
   /** App version at acceptance, for audit. */
   appVersion?: string;
-}
-
-/**
- * What a benchmark measures. Determines how a finished session's result maps to
- * a single comparable number, and (with `lowerIsBetter`) which direction counts
- * as improvement.
- */
-export type BenchmarkMetric = "reps" | "weightKg" | "durationSec" | "distanceKm";
-
-/** One measurement of a benchmark over time. */
-export interface BenchmarkPoint {
-  value: number;
-  /** ISO timestamp. */
-  at: string;
-  /** The WorkoutSession this measurement came from. */
-  sessionId?: string;
-}
-
-/**
- * A measurable baseline the plan is built to improve — the heart of the
- * adaptive loop. `baseline` is null until the benchmark workout is first
- * completed; that completion sets `baseline` and pushes the first `history`
- * point. `target` is the value to reach. For most metrics higher is better;
- * a timed effort over a fixed distance sets `lowerIsBetter`.
- */
-export interface Benchmark {
-  id: string;
-  /** Exercise this benchmark tracks — normalized join key to sessions. */
-  exerciseKey: string;
-  /** Display name of the tracked effort. */
-  name: string;
-  metric: BenchmarkMetric;
-  /** First measured value; null until the benchmark session finishes. */
-  baseline: number | null;
-  /** The value to reach (improvement goal). */
-  target: number;
-  /** Display unit, e.g. "reps", "kg", "min", "km". */
-  unit: string;
-  /** True when a smaller number is the improvement (e.g. a timed distance). */
-  lowerIsBetter?: boolean;
-  /** ISO timestamp of the baseline measurement. */
-  measuredAt?: string;
-  /** All measurements, oldest first. */
-  history: BenchmarkPoint[];
-}
-
-/** One workout within a program, optionally the benchmark-measuring one. */
-export interface ProgramWorkout {
-  id: string;
-  workout: Workout;
-  /** True when finishing this workout measures one or more benchmarks. */
-  isBenchmark?: boolean;
-  /** Which Benchmark this workout measures (Benchmark.id). Kept for back-compat;
-   *  new plans use `benchmarkIds` (a single assessment can measure several). */
-  benchmarkId?: string;
-  /** All Benchmarks this workout measures — an assessment can set several
-   *  baselines at once (e.g. Murph: pull-ups + push-ups + run). Additive;
-   *  when absent, `benchmarkId` (if any) is the single measured benchmark. */
-  benchmarkIds?: string[];
-  /**
-   * Which group this workout belongs to (1-based). Group 1 is the evaluation
-   * group; training groups follow. Absent on pre-groups plans — derived as
-   * group 1 for benchmark/assessment workouts, group 2 otherwise.
-   */
-  group?: number;
-  /** ISO timestamp the user finished (or manually checked off) this workout
-   *  within its group. Cleared on clones when a new group is built. */
-  completedAt?: string;
-}
-
-/**
- * A structured workout program attached to a Plan (get_fit / both). Additive —
- * absent for eat_better / logging_only and all pre-W4 plans. `analysisCursor`
- * is the session count at the last AI adaptation pass (W5).
- */
-export interface WorkoutProgram {
-  workouts: ProgramWorkout[];
-  benchmarks: Benchmark[];
-  /** Sessions logged when the adaptation engine last ran (W5). */
-  analysisCursor?: number;
-  /**
-   * The group the user is currently working through (see ProgramWorkout.group).
-   * Groups replace "weeks" — no dates, no falling behind: finish the group,
-   * start the next. Absent on pre-groups plans; derived there (evaluation group
-   * until every benchmark has a baseline, else the first training group).
-   */
-  currentGroup?: number;
-  /**
-   * How many groups make one cycle. The first group of every cycle is an
-   * EVALUATION group (re-test the benchmarks); the rest are training groups.
-   * Defaults to 4 (evaluation + 3 training groups).
-   */
-  groupsPerCycle?: number;
 }
 
 /**
@@ -585,8 +417,8 @@ export interface Plan {
   liability: LiabilityAck;
   /** ISO timestamp the plan was created. */
   createdAt: string;
-  /** The free-text goal the user typed in the wizard ("get better at the half
-   *  Murph"). Additive — absent on pre-1.17 plans; the plan-edit diff then can't
+  /** The free-text goal the user typed in the wizard ("lose a couple of
+   *  pounds"). Additive — absent on pre-1.17 plans; the plan-edit diff then can't
    *  compare goal text for those and only mode/start-date fork a new plan. */
   goalText?: string;
   /**
@@ -599,20 +431,21 @@ export interface Plan {
    * Additive; absent on every plan before this shipped.
    */
   weeklyExerciseDays?: number;
-  /** Structured, adaptive workout program (W4). Additive — absent on food-only
-   *  and all pre-W4 plans. */
-  program?: WorkoutProgram;
+  /**
+   * Legacy: the adaptive workout program a plan could carry before workouts
+   * moved out of Conjure Health into their own app. Never read here. Declared
+   * so it's clear it must survive: plan edits spread the stored plan, which
+   * keeps it for the user to take elsewhere.
+   */
+  program?: unknown;
 }
 
 /**
  * A single day's plan progress. Meals are NOT duplicated here — they live in
  * the diary and are read by date; this record only holds what the diary can't
- * express (which plan goals were ticked, the day's weigh-in).
- *
- * Day logs saved by older versions may also carry a `checkin`, the answers to
- * the removed coach's evening check-in. Nothing reads it, and saves merge, so
- * it stays as stored until the user clears workout history (its own row, or
- * "Clear all history" while workouts are paused and that row is hidden).
+ * express (which plan goals were ticked, the day's weigh-in). Older records
+ * can also hold the retired evening check-in; saves merge onto the stored
+ * record, so it's kept.
  */
 export interface DailyCheckoff {
   /** YYYY-MM-DD. */
@@ -631,86 +464,37 @@ export interface DailyCheckoff {
 }
 
 /**
- * One recorded set. Timestamps bound the set so a "slow set" (the adaptation
- * engine's key signal) is derivable as completedAt − startedAt vs the
- * prescribed duration. All metric fields optional so a single shape covers
- * rep, timed, and weighted sets.
- */
-export interface SetActual {
-  reps?: number;
-  weightKg?: number;
-  durationSec?: number;
-  /** Subjective exertion, 1–10 (RPE), when the user records it. */
-  rpe?: number;
-  /** ISO timestamp the set became active. */
-  startedAt: string;
-  /** ISO timestamp the user marked it done. */
-  completedAt: string;
-  /** Actual rest taken after this set, seconds. */
-  restActualSec?: number;
-}
-
-/** A workout's recorded sets for one exercise, keyed for cross-session joins. */
-export interface ExerciseActual {
-  /** Normalized exercise name — the join key across sessions + explainers. */
-  exerciseKey: string;
-  /** Display name as prescribed. */
-  name: string;
-  sets: SetActual[];
-}
-
-/** Recorded result of a cardio (run/bike) session. */
-export interface CardioActual {
-  distanceKm: number;
-  durationSec: number;
-  avgPaceSecPerKm?: number;
-  /** Where the distance came from. */
-  source: "gps" | "steps" | "manual";
-  /** Per-km split times, seconds. */
-  splits?: number[];
-  /** Raw GPS breadcrumb when tracked (t = epoch ms). */
-  track?: { lat: number; lon: number; t: number; accuracy?: number }[];
-}
-
-/**
- * A completed (or abandoned) workout run. `planned`/`actual` are the legacy
- * flat snapshots (kept populated for back-compat); the structured
- * `byExercise` (strength) and `cardio` fields are the v2 record. Readers prefer
- * the structured fields when present. Sessions saved by older versions also
- * carry an always-empty `reprompts` list from the removed coach; nothing reads
- * it.
+ * One exercise entry on the calorie ring: added by hand, logged by another app
+ * through the `logWorkout` action, or a session from the workout player this
+ * app had before workouts moved to their own app. Entries of that last kind
+ * carry more fields than are listed here (planned and recorded sets, GPS,
+ * benchmark links); nothing reads them, and writes spread the stored entry, so
+ * nothing drops them either.
  */
 export interface WorkoutSession {
   id: string;
   /** YYYY-MM-DD. */
   date: string;
-  /** The Workout this session was based on, when it came from the library. */
-  workoutId?: string;
-  /** Display name of the workout, for the "completed today" list. Additive. */
+  /** Display name, e.g. "Evening walk" or "Running". */
   workoutName?: string;
-  planned: ExerciseSet[];
-  actual: ExerciseSet[];
-  /** Structured strength result — recorded sets grouped by exercise. */
-  byExercise?: ExerciseActual[];
-  /** Structured cardio result, for run/bike sessions. */
-  cardio?: CardioActual;
-  /** Set when this session was a benchmark run (links to Plan benchmark). */
-  benchmarkId?: string;
-  /** Benchmarks this session measured, when it was an assessment covering
-   *  several (e.g. a Murph test). Union'd with `benchmarkId` at fold-in. */
-  benchmarkIds?: string[];
   /** ISO timestamp the session finished. */
   completedAt: string;
-  /** Wall-clock length of the session in seconds (start → finish). Additive —
-   *  absent on pre-1.18 sessions; used to estimate calories burned. Cardio also
-   *  carries duration on `cardio.durationSec`. */
+  /** Length in seconds, when known. */
   durationSec?: number;
-  /** Active energy burned, kcal — from the wearable/health broker, a manual
-   *  log, or the in-app post-workout estimate. Feeds the diary's exercise-
-   *  calories add-back. Additive/optional. */
+  /** Active energy burned, kcal — from a manual entry, another app, or the
+   *  old in-app estimate. Feeds the diary's exercise-calories add-back. */
   caloriesBurned?: number;
-  /** Where the session came from. Absent = in-app player (default). */
+  /** Where the entry came from. Absent = the old in-app workout player. */
   source?: "manual" | "healthkit" | "health_connect" | "logWorkout";
+  /** The sending app's own id for a `logWorkout` entry, so a retry or a
+   *  re-sync replaces the entry instead of counting the workout twice. */
+  externalId?: string;
+  /** The sending app's name for a `logWorkout` entry, as it asked to be
+   *  credited ("Conjure Fitness"). Shown as "From <name>". */
+  sourceApp?: string;
+  /** Legacy: an old in-app run or ride. Only its duration is read, as a
+   *  fallback when `durationSec` is absent. */
+  cardio?: { durationSec?: number };
 }
 
 // ── Derived view models ──────────────────────────────────────────────

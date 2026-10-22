@@ -129,10 +129,10 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
   ];
 
   /**
-   * Build the prompt and open the chat. Split out from the button so the
-   * consent sheet can call it on accept without duplicating the wording.
-   * Never call this without checking consent first — it is the step that
-   * performs the disclosure.
+   * Build the question and open Ask Health with it. Split out from the button
+   * so the consent sheet can call it on accept without duplicating the
+   * wording. Never call this without checking consent first: it is the step
+   * that performs the disclosure.
    */
   const runPatterns = (includeNotes: boolean) => {
     // Null while the month on screen is being read: nothing goes until the

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { HISTORY_ITEMS, clearAllHistories, visibleHistoryItems, type HistoryKind } from "./resetData";
 
 const calls: string[] = [];
@@ -66,18 +66,13 @@ describe("clearAllHistories", () => {
 });
 
 /**
- * Older versions kept the removed coach's memory in `coach.json`, and the
- * questions asked in-app, with the removed coach's replies, in
- * `coach-chat.json`. Nothing reads either any more (Ask Health keeps its own
- * file), and nothing deletes a user's stored data for them, so both stay on
- * disk until the user clears them here.
+ * Older versions kept the retired trainer's memory in `coach.json`, and the
+ * questions asked in-app, with that trainer's replies, in `coach-chat.json`.
+ * Nothing reads either (Ask Health keeps its own file), and nothing deletes a
+ * user's stored data for them, so both stay on disk until the user clears
+ * them here.
  */
 describe("stored files from older versions", () => {
-  afterEach(() => {
-    vi.doUnmock("./flags");
-    vi.resetModules();
-  });
-
   it("offers Ask Health as its own row, and it clears both conversation files", async () => {
     const { clearHistory } = await import("./resetData");
     const row = HISTORY_ITEMS.find((i) => i.kind === "askHealth");
@@ -88,36 +83,35 @@ describe("stored files from older versions", () => {
     expect(calls).toEqual(["rm:ask-health.json", "rm:coach-chat.json"]);
   });
 
-  it.each([false, true])(
-    "clears the old coach memory with Current plan (workouts on: %s)",
-    async (on) => {
-      vi.resetModules();
-      vi.doMock("./flags", () => ({ WORKOUTS_ENABLED: on }));
-      const { clearHistory } = await import("./resetData");
-      await clearHistory("plan");
-      expect(calls).toEqual(["plan", "rm:coach.json"]);
-    },
-  );
+  it("clears the old trainer memory with Current plan, the only row that reaches it", async () => {
+    const { clearHistory } = await import("./resetData");
+    await clearHistory("plan");
+    expect(calls).toEqual(["plan", "rm:coach.json"]);
+  });
 
-  it("names no coach in any row a person reads", () => {
+  it("names no coach and no old name in any row a person reads", () => {
     for (const i of HISTORY_ITEMS) {
-      expect(`${i.kind} ${i.label} ${i.desc}`).not.toMatch(/coach/i);
+      expect(`${i.kind} ${i.label} ${i.desc}`).not.toMatch(/coach|trainer|food questions|about food/i);
     }
   });
 });
 
 describe("visibleHistoryItems", () => {
-  it("still offers the wellbeing rows while workouts are paused", () => {
+  it("offers the food and wellbeing rows", () => {
     const kinds = visibleHistoryItems().map((i) => i.kind);
+    expect(kinds).toContain("diary");
+    expect(kinds).toContain("weights");
     expect(kinds).toContain("sleep");
     expect(kinds).toContain("water");
     expect(kinds).toContain("symptoms");
+    expect(kinds).toContain("askHealth");
   });
 
-  it("hides only the paused workout slice, and keeps Ask Health", () => {
-    const kinds = visibleHistoryItems().map((i) => i.kind);
-    expect(kinds).not.toContain("workouts");
-    expect(kinds).toContain("askHealth");
-    expect(HISTORY_ITEMS.length - kinds.length).toBe(1);
+  it("offers the exercise on the ring, which the user can see and add to", () => {
+    expect(visibleHistoryItems().map((i) => i.kind)).toContain("workouts");
+  });
+
+  it("offers every row: no slice is hidden from Settings", () => {
+    expect(visibleHistoryItems()).toEqual(HISTORY_ITEMS);
   });
 });

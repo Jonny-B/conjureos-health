@@ -1,6 +1,6 @@
 /**
  * Ask Health on the home screen: the entry point to the app's own AI
- * conversation (features/ask).
+ * conversation, the nutrition Q&A (features/ask).
  *
  * The rotating suggestions are the whole point of the card: an empty box with a
  * cursor teaches nobody what to type, so the placeholder cycles real questions
@@ -103,7 +103,7 @@ export function AskHealthCard({ onAsk }: { onAsk: (question: string) => void }) 
         </div>
 
         <div className="muted small ask-hint">
-          Ask about your food, your weight, your sleep or anything else you have logged. Your plan and diary stay untouched.
+          Nutrition questions, answered. Your plan and diary stay untouched.
         </div>
       </section>
       {pending !== null && (

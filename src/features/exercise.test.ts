@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 vi.mock("../bridge/health", () => ({ readWorkouts: vi.fn(async () => []) }));
 
@@ -13,6 +13,7 @@ import {
   setSessionKcal,
   removeSession,
   wearableKey,
+  addManualExercise,
 } from "./exercise";
 import type { WorkoutSession } from "../types";
 
@@ -30,8 +31,6 @@ const wear = (over: Partial<WorkoutBurn> = {}): WorkoutBurn => ({
 const session = (over: Partial<WorkoutSession> = {}): WorkoutSession => ({
   id: "s1",
   date: DATE,
-  planned: [],
-  actual: [],
   completedAt: `${DATE}T09:00:00Z`,
   caloriesBurned: 150,
   workoutName: "Full body",
@@ -96,5 +95,82 @@ describe("manualExerciseProblem", () => {
     expect(manualExerciseProblem({ name: " ", calories: 100 })).toMatch(/name/i);
     expect(manualExerciseProblem({ name: "Walk" })).toMatch(/calories/i);
     expect(manualExerciseProblem({ name: "Walk", calories: 9000 })).toMatch(/5,000/);
+  });
+});
+
+describe("where an entry came from", () => {
+  it("adds a hand-entered exercise to the day's calories, labelled as the user's", async () => {
+    await addManualExercise(DATE, { name: "Evening walk", durationMin: 30, calories: 120 });
+    expect(await exerciseCaloriesForDate(DATE)).toBe(120);
+    expect(await listCompletedWorkouts(DATE)).toMatchObject([
+      { name: "Evening walk", kcal: 120, durationSec: 1800, sourceLabel: "Added by you" },
+    ]);
+  });
+
+  it("labels an entry another app logged, and one from the old workout player", async () => {
+    const repo = await getRepository();
+    await repo.saveWorkoutSession(session({ id: "a", source: "logWorkout", workoutName: "Running" }));
+    await repo.saveWorkoutSession(session({ id: "b", completedAt: `${DATE}T07:00:00Z` }));
+    const labels = Object.fromEntries((await listCompletedWorkouts(DATE)).map((i) => [i.key, i.sourceLabel]));
+    expect(labels).toEqual({ a: "From an app", b: "In-app" });
+  });
+});
+
+describe("exercise combine (linked fitness app)", () => {
+  // A fitness app matched to the `workoutSource` need (bridge/workoutSource.ts).
+  const linkedKey = "linked:/apps/conjure-fitness:fw1";
+
+  beforeEach(async () => {
+    const { resetWorkoutSourceCache } = await import("../bridge/workoutSource");
+    resetWorkoutSourceCache();
+    (globalThis as { window?: unknown }).window = {
+      __conjureos: {
+        actions: {
+          discover: async () => [
+            { appPath: "/apps/conjure-fitness", displayName: "Conjure Fitness", action: "listWorkouts", binding: "exact" },
+          ],
+          invoke: async () => ({
+            workouts: [
+              { id: "fw1", date: DATE, name: "Leg Day", durationMin: 40, caloriesBurned: 200, completedAt: `${DATE}T18:00:00Z` },
+            ],
+          }),
+        },
+      },
+    };
+  });
+
+  afterEach(() => {
+    delete (globalThis as { window?: unknown }).window;
+  });
+
+  it("ADDS a linked app's workouts to the day's exercise calories", async () => {
+    const repo = await getRepository();
+    await repo.saveWorkoutSession(session());
+    expect(await exerciseCaloriesForDate(DATE)).toBe(350); // 150 + 200
+    const linked = (await listCompletedWorkouts(DATE)).find((i) => i.source === "linked")!;
+    expect(linked).toMatchObject({ key: linkedKey, sourceLabel: "Conjure Fitness", name: "Leg Day", kcal: 200, durationSec: 2400, excluded: false });
+  });
+
+  it("lets the user remove one from the ring, or correct its calories, without touching the other app", async () => {
+    const before = await exerciseCaloriesForDate(DATE); // includes the linked 200
+    await excludeWearable(DATE, linkedKey);
+    expect(await exerciseCaloriesForDate(DATE)).toBe(before - 200);
+    expect((await listCompletedWorkouts(DATE)).find((i) => i.key === linkedKey)).toMatchObject({ excluded: true });
+    await restoreWearable(DATE, linkedKey);
+    await setWearableKcal(DATE, linkedKey, 180);
+    expect(await exerciseCaloriesForDate(DATE)).toBe(before - 20);
+  });
+
+  it("counts a workout once when the same app also sent it through logWorkout", async () => {
+    const repo = await getRepository();
+    await repo.saveWorkoutSession(
+      session({ id: "sent-fw1", source: "logWorkout", externalId: "fw1", sourceApp: "conjure fitness", caloriesBurned: 210 }),
+    );
+    // Same app (names compared case-insensitively), same id: the stored entry wins.
+    const items = await listCompletedWorkouts(DATE);
+    expect(items.some((i) => i.source === "linked")).toBe(false);
+    expect(items.some((i) => i.key === "sent-fw1")).toBe(true);
+    await removeSession("sent-fw1");
+    expect((await listCompletedWorkouts(DATE)).some((i) => i.source === "linked")).toBe(true);
   });
 });

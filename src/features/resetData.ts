@@ -1,14 +1,14 @@
 /**
  * "Reset health data" (settings) — itemized, permanent history clears.
  *
- * Each item wipes ONE history: the food diary, weight history, workout history
- * (sessions + daily check-offs), sleep, water, symptoms, the Ask Health
+ * Each item wipes ONE history: the food diary, weight history, exercise
+ * (entries + daily check-offs), sleep, water, symptoms, the Ask Health
  * conversation, the current plan, or archived plans. "Clear all history" runs
  * the lot. Deliberately NOT touched: the profile and settings/units, which
  * aren't histories.
  *
  * Nothing here runs on its own: a user's stored data is only ever deleted by
- * the user, from these rows. That includes the files the removed coach left:
+ * the user, from these rows. That includes the files the removed trainer left:
  * `coach.json`, its memory, which the "Current plan" row removes, and
  * `coach-chat.json`, which the "Ask Health" row removes. Nothing reads
  * either, and "Clear all history" removes both.
@@ -19,7 +19,6 @@
 
 import { getRepository } from "../data/repository";
 import { vfs } from "../bridge/vfs";
-import { WORKOUTS_ENABLED } from "./flags";
 
 /** One independently clearable slice of the user's history. */
 export type HistoryKind =
@@ -38,7 +37,7 @@ export type HistoryKind =
 export const HISTORY_ITEMS: { kind: HistoryKind; label: string; desc: string }[] = [
   { kind: "diary", label: "Food diary", desc: "Every logged meal and snack" },
   { kind: "weights", label: "Weight history", desc: "All weigh-ins and the trend graph" },
-  { kind: "workouts", label: "Workout history", desc: "Completed sessions and daily check-offs" },
+  { kind: "workouts", label: "Exercise", desc: "Exercise you've added or corrected" },
   { kind: "sleep", label: "Sleep", desc: "Every night you've recorded" },
   { kind: "water", label: "Water", desc: "Every drink you've logged" },
   { kind: "symptoms", label: "Symptoms", desc: "Everything under \u201cHow you felt\u201d" },
@@ -84,8 +83,8 @@ export async function clearHistory(kind: HistoryKind): Promise<void> {
     case "askHealth":
       // The Ask Health conversation, from the home card and Find patterns,
       // and `coach-chat.json`, where older versions kept the questions asked
-      // in-app. Ask Health never reads that file, since it also holds the
-      // removed coach's replies (see features/ask/ask.ts), and this row is
+      // in-app. Ask Health never reads that file, since it can also hold the
+      // removed trainer's replies (see features/ask/ask.ts), and this row is
       // how a user wipes it.
       await rm("ask-health.json");
       await rm("coach-chat.json");
@@ -98,12 +97,11 @@ export async function clearHistory(kind: HistoryKind): Promise<void> {
       // removed the archive — so a user who cleared everything still landed on
       // the Plan tab with their old plan intact.
       await repo.clearPlan().catch(() => {});
-      // `coach.json` is the memory the removed coach kept: plan notes,
-      // a narrative ABOUT the plan, so it goes with the plan. Nothing reads
-      // it and it has no row of its own, so this is how a user wipes it,
-      // always, whatever the workouts flag says. The Ask Health conversation
-      // is deliberately NOT cleared here: those are the user's own
-      // questions, they have their own row, and they outlive any one plan.
+      // `coach.json` is the memory the removed trainer kept: a narrative
+      // ABOUT the plan, so it goes with the plan. Nothing reads it and it has
+      // no row of its own, so this is how a user wipes it. The Ask Health
+      // conversation is deliberately NOT cleared here: those are the user's
+      // own questions, they have their own row, and they outlive any one plan.
       await rm("coach.json");
       return;
   }
@@ -118,17 +116,13 @@ export async function clearAllHistories(): Promise<void> {
   await rm("food-cache.json");
 }
 
-/** Slices belonging to the paused workout features (see features/flags). */
-const PAUSED_KINDS: ReadonlySet<HistoryKind> = new Set<HistoryKind>(["workouts"]);
-
 /**
- * The history rows Settings should actually offer. While the workout program
- * is paused there is no visible feature producing that data, so offering to
- * clear it just raises questions: the row is hidden and the data is left
- * intact for revival. "Clear all history" still wipes everything, including
- * the hidden slice, so it keeps meaning all.
+ * The history rows Settings should actually offer: every one. Each row is a
+ * slice a visible feature produces, and the files no feature reads have no
+ * row of their own (they go with "Current plan" and "Ask Health", above), so
+ * nothing is hidden. "Clear all history" walks the same list, so it keeps
+ * meaning all.
  */
 export function visibleHistoryItems(): typeof HISTORY_ITEMS {
-  if (WORKOUTS_ENABLED) return HISTORY_ITEMS;
-  return HISTORY_ITEMS.filter((i) => !PAUSED_KINDS.has(i.kind));
+  return HISTORY_ITEMS;
 }

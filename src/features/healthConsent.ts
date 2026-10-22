@@ -44,21 +44,70 @@ export interface HealthConsent {
   version: number;
 }
 
-let granted = false;
+/**
+ * What this session knows about the agreement.
+ *
+ * - "unknown": the gate has not read the file yet, as at startup. The
+ *   cross-app guard reads the file for itself and settles nothing.
+ * - "granted": the gate read a current agreement, or the person agreed here.
+ * - "absent": the gate read the file and found no current agreement.
+ * - "withdrawn": the person withdrew here. That stands until they agree again,
+ *   whatever the file says. The write that clears the file can fail or still
+ *   be in progress, and an agreement read back from it must never switch
+ *   collection on again (ConjureOS #1156 review).
+ */
+type SessionConsent = "unknown" | "granted" | "absent" | "withdrawn";
+let session: SessionConsent = "unknown";
+/** Bumped by every record and withdrawal, so a read that started before one does not overrule it. */
+let decisions = 0;
 
-/** Synchronous view for code that cannot await (cross-app action guards). */
+/**
+ * Which agreement-or-withdrawal this session is on: moves on every record and
+ * every withdrawal. Something that started under one and finishes under
+ * another (an Ask Health answer still on its way) keeps nothing.
+ */
+export function healthConsentGeneration(): number {
+  return decisions;
+}
+
+/** Synchronous view for code that cannot await. */
 export function healthConsentGranted(): boolean {
-  return granted;
+  return session === "granted";
 }
 
 /**
- * Whether a current agreement is on file. Fails CLOSED: an unreadable file is
- * an unknown agreement, and an unknown agreement is not an agreement.
+ * Whether an agreement is on file, for the cross-app action guard. The
+ * actions are registered at startup, before the gate has read the file
+ * (ConjureOS #1156), so a call that lands first must not be refused for a
+ * read that has not finished: until the gate has read it, this reads the file
+ * itself. Once the gate has read it, or the person has agreed or withdrawn,
+ * the session's answer is final and the file is not read again.
+ */
+export async function healthConsentOnFile(): Promise<boolean> {
+  if (session !== "unknown") return session === "granted";
+  const onFile = await readAgreement();
+  // The gate may have read the file, or the person decided, meanwhile.
+  return session === "unknown" ? onFile : session === "granted";
+}
+
+/**
+ * The gate's read. Whether a current agreement is on file. Fails CLOSED: an
+ * unreadable file is an unknown agreement, and an unknown agreement is not an
+ * agreement. A withdrawal in this session stands over whatever the file says.
  */
 export async function loadHealthConsent(): Promise<boolean> {
+  if (session === "withdrawn") return false;
+  const before = decisions;
+  const onFile = await readAgreement();
+  if (decisions !== before) return session === "granted";
+  session = onFile ? "granted" : "absent";
+  return onFile;
+}
+
+/** Reads the file and changes nothing. */
+async function readAgreement(): Promise<boolean> {
   const stored = await readJson<HealthConsent | null>(PATH, null).catch(() => null);
-  granted = !!stored && stored.version === HEALTH_CONSENT_VERSION && typeof stored.acceptedAt === "string";
-  return granted;
+  return !!stored && stored.version === HEALTH_CONSENT_VERSION && typeof stored.acceptedAt === "string";
 }
 
 /**
@@ -67,7 +116,8 @@ export async function loadHealthConsent(): Promise<boolean> {
  * asks again next time rather than pretending a record exists.
  */
 export async function recordHealthConsent(): Promise<boolean> {
-  granted = true;
+  session = "granted";
+  decisions++;
   try {
     await writeJsonOrThrow(PATH, { acceptedAt: new Date().toISOString(), version: HEALTH_CONSENT_VERSION });
     return true;
@@ -76,8 +126,23 @@ export async function recordHealthConsent(): Promise<boolean> {
   }
 }
 
-/** Withdraw. Collection stops at once; deleting what is stored is Reset health data. */
-export async function withdrawHealthConsent(): Promise<void> {
-  granted = false;
-  await writeJsonOrThrow(PATH, null).catch(() => {});
+/**
+ * Withdraw. Collection stops at once and stays stopped for the session, even
+ * when clearing the file fails; deleting what is stored is Reset health data.
+ *
+ * Returns whether the withdrawal was saved. The next session reads the file,
+ * so a withdrawal that could not clear it leaves the old agreement in force
+ * after a reload: the caller says so and offers a retry (the agreement
+ * screen), rather than letting it pass in silence (ConjureOS #1156 review).
+ * Calling it again is the retry.
+ */
+export async function withdrawHealthConsent(): Promise<boolean> {
+  session = "withdrawn";
+  decisions++;
+  try {
+    await writeJsonOrThrow(PATH, null);
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -67,6 +67,8 @@ export interface Repository {
 
   /** Diary entries for one calendar date (YYYY-MM-DD). */
   listDiary(date: string): Promise<DiaryEntry[]>;
+  /** One logged entry by id, or null when there is none. */
+  getDiaryEntry(id: string): Promise<DiaryEntry | null>;
   /** Log a food; returns the stored entry with its assigned id + loggedAt. */
   addDiaryEntry(entry: NewDiaryEntry): Promise<DiaryEntry>;
   /** Patch a logged entry in place. No-op for an unknown id. */
@@ -135,7 +137,7 @@ export interface Repository {
   /** Delete every recorded symptom. Destructive; no undo. */
   clearSymptoms(): Promise<void>;
 
-  // ── v2: plans + daily check-off + workout sessions ──────────────────
+  // ── v2: plans + daily check-off + exercise entries ──────────────────
   // No server tables: every backend keeps these in the on-device store.
 
   /** The active plan, or null when the user hasn't created one. */
@@ -233,7 +235,7 @@ async function buildRepository(): Promise<Repository> {
       if (import.meta.env.DEV) {
         // eslint-disable-next-line no-console
         console.warn(
-          "[conjure-fitness] Supabase backend unreachable; falling back to local store",
+          "[conjure-health] Supabase backend unreachable; falling back to local store",
           err,
         );
       }
@@ -245,7 +247,7 @@ async function buildRepository(): Promise<Repository> {
   await mock.init();
   if (import.meta.env.DEV) {
     // eslint-disable-next-line no-console
-    console.info("[conjure-fitness] using mock data layer (no reachable shared-project backend)");
+    console.info("[conjure-health] using mock data layer (no reachable shared-project backend)");
   }
   return mock;
 }

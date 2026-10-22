@@ -68,7 +68,8 @@ export async function estimateFromFront(
     raw = await complete({
       system: SYSTEM,
       messages: [{ role: "user", content: userText, images: [image] }],
-      maxTokens: 1024,
+      // The estimate JSON (about 1,000 tokens) plus room to think. conjureos-health#10.
+      maxTokens: 4000,
       tier: "capable",
     });
   } catch {

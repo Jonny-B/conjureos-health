@@ -18,7 +18,7 @@ export function saveFailedMessage(what: string): string {
 export function reportSaveFailure(what: string, err: unknown): void {
   if (import.meta.env.DEV) {
     // eslint-disable-next-line no-console
-    console.warn(`[conjure-fitness] save failed: ${what}`, err);
+    console.warn(`[conjure-health] save failed: ${what}`, err);
   }
   const target = (globalThis as { window?: Window }).window;
   if (!target || typeof target.dispatchEvent !== "function" || typeof CustomEvent === "undefined") return;
