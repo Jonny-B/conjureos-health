@@ -163,9 +163,10 @@ describe("askHealth", () => {
   it("sends prior turns so follow-ups make sense", async () => {
     const { askHealth } = await import("./ask");
     complete.mockResolvedValue("ok");
+    const at = new Date().toISOString();
     await askHealth("what about the green ones?", [
-      { role: "user", content: "are bananas high in fiber?" },
-      { role: "assistant", content: "about 3 g" },
+      { role: "user", content: "are bananas high in fiber?", at },
+      { role: "assistant", content: "about 3 g", at },
     ]);
     const req = sentRequest();
     expect(req.messages).toHaveLength(3);
@@ -335,6 +336,186 @@ describe("personal context requires consent", () => {
     const sys = sentRequest().system;
     expect(sys).toContain("Heartburn");
     expect(sys).toContain("2200 cal");
+  });
+});
+
+/**
+ * ConjureOS #1163. The consent sheet says what each entry point sends:
+ *
+ *   - "Find patterns: anything outside the range you asked about" is withheld
+ *   - "Ask Health: anything from more than 2 days before today" is withheld
+ *
+ * and the request did not match: a Find patterns run also carried today's
+ * context, and every question replayed the last 10 stored turns, a month of
+ * journal from a Find patterns run and weeks-old questions included. These
+ * assert what the request contains from each entry point (the home card, a
+ * Find patterns run, and a follow-up typed in either sheet), not the wording.
+ */
+describe("what each entry point sends", () => {
+  type Req = { system: string; messages: { role: string; content: string }[] };
+  const req = (n = 0) => complete.mock.calls[n]![0] as Req;
+  /** Everything one request puts in front of the model. */
+  const everything = (r: Req) => [r.system, ...r.messages.map((m) => m.content)].join("\n");
+  const contents = (r: Req) => r.messages.map((m) => m.content);
+
+  const nowIso = () => new Date().toISOString();
+  const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
+
+  // A September run: a symptom and a food that appear nowhere in today's data.
+  const SEPT_PATTERNS =
+    "Here is my journal for 2026-09-01 to 2026-09-30. What patterns do you notice?\n\n" +
+    "2026-09-03: 2140 cal from 9 items; symptoms: Migraine at 14:00 (4/5); ate: aged cheddar";
+
+  const run = (id: string) => ({ kind: "patterns" as const, run: id });
+
+  it("Find patterns sends its range and nothing from today, the 2 days before, or the profile", async () => {
+    const { askHealth } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    await askHealth(SEPT_PATTERNS, [], run("r1"));
+    const all = everything(req());
+    expect(all).toContain("Migraine"); // positive control: the range itself goes
+    expect(all).not.toContain("Greek yogurt"); // today's diary
+    expect(all).not.toContain("Tortilla chips");
+    expect(all).not.toContain("Heartburn"); // today's symptom
+    expect(all).not.toContain("2200 cal"); // targets
+    expect(all).not.toContain("losing weight"); // goal
+    expect(all).not.toContain("ABOUT THIS USER");
+    expect(contents(req())).toEqual([SEPT_PATTERNS]);
+  });
+
+  it("Find patterns tells the model it has only the range, so it does not report an empty today", async () => {
+    const { askHealth } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    await askHealth(SEPT_PATTERNS, [], run("r1"));
+    expect(req().system).toMatch(/not given today's diary/);
+    expect(req().system).not.toContain("—");
+  });
+
+  it("Find patterns carries no home card turn and no earlier run", async () => {
+    const { askHealth } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    const at = nowIso();
+    await askHealth(SEPT_PATTERNS, [
+      { role: "user", content: "is 2x tortilla chips too much?", at },
+      { role: "assistant", content: "about 600 cal of your 2200", at },
+      { role: "user", content: "Here is my journal for 2026-08-01 to 2026-08-31.", at, patternsRun: "r0" },
+      { role: "assistant", content: "August: hives after shellfish", at, patternsRun: "r0" },
+    ], run("r1"));
+    expect(contents(req())).toEqual([SEPT_PATTERNS]);
+  });
+
+  it("a follow-up in a Find patterns sheet carries that run, and still nothing from today", async () => {
+    const { askHealth } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    const at = nowIso();
+    await askHealth("what about the cheese?", [
+      { role: "user", content: "what should I eat tonight?", at },
+      { role: "assistant", content: "you have 1450 cal left", at },
+      { role: "user", content: SEPT_PATTERNS, at, patternsRun: "r1" },
+      { role: "assistant", content: "Migraines follow aged cheddar.", at, patternsRun: "r1" },
+    ], run("r1"));
+    expect(contents(req())).toEqual([SEPT_PATTERNS, "Migraines follow aged cheddar.", "what about the cheese?"]);
+    const all = everything(req());
+    expect(all).not.toContain("Greek yogurt");
+    expect(all).not.toContain("Heartburn");
+    expect(all).not.toContain("1450 cal left");
+  });
+
+  it("the home card does not resend a Find patterns run", async () => {
+    const { askHealth } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    const at = nowIso();
+    await askHealth("what should I eat tonight?", [
+      { role: "user", content: SEPT_PATTERNS, at, patternsRun: "r1" },
+      { role: "assistant", content: "Migraines follow aged cheddar.", at, patternsRun: "r1" },
+    ]);
+    const all = everything(req());
+    expect(all).not.toContain("Migraine");
+    expect(all).not.toContain("aged cheddar");
+    expect(all).toContain("Greek yogurt"); // positive control: today's context still goes
+    expect(contents(req())).toEqual(["what should I eat tonight?"]);
+  });
+
+  it("the home card resends only today's turns, never a turn from before today", async () => {
+    const { askHealth } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    const old = daysAgo(3).toISOString();
+    const yday = daysAgo(1).toISOString();
+    const at = nowIso();
+    await askHealth("and the green ones?", [
+      { role: "user", content: "I had heartburn all week, what should I avoid?", at: old },
+      { role: "assistant", content: "skip the late coffee", at: old },
+      // Answered with yesterday's window, which reached 3 days back.
+      { role: "user", content: "anything for a 9pm snack?", at: yday },
+      { role: "assistant", content: "the 180 cal yogurt from Sunday", at: yday },
+      { role: "user", content: "are bananas high in fiber?", at },
+      { role: "assistant", content: "about 3 g", at },
+    ]);
+    expect(contents(req())).toEqual(["are bananas high in fiber?", "about 3 g", "and the green ones?"]);
+  });
+
+  it("never resends a turn stored before turns carried a date", async () => {
+    // Nothing on such a turn says which entry point or day it came from.
+    const { askHealth } = await import("./ask");
+    complete.mockResolvedValue("ok");
+    await askHealth("anything else?", [
+      { role: "user", content: "Here is my journal for 2026-07-01 to 2026-07-31." },
+      { role: "assistant", content: "July: knee pain after runs" },
+    ]);
+    expect(contents(req())).toEqual(["anything else?"]);
+  });
+
+  it("opens the conversation with a question when the cap cuts a pair", async () => {
+    const { turnsToSend } = await import("./ask");
+    const at = nowIso();
+    const turns = Array.from({ length: 11 }, (_, i) => ({
+      role: (i % 2 === 0 ? "assistant" : "user") as "user" | "assistant",
+      content: `t${i}`,
+      at,
+    }));
+    const sent = turnsToSend(turns, { kind: "ask" });
+    expect(sent[0]!.role).toBe("user");
+    expect(sent.at(-1)!.content).toBe("t10");
+  });
+
+  /**
+   * The sheet's own path: what it stores is what the next question reads, so
+   * this runs a whole day through `askAndAppend` the way the sheet does.
+   */
+  it("the sheet stamps what it stores, so each later question sends only its own entry point's turns", async () => {
+    const { askAndAppend, ASK_FROM_HOME } = await import("./ask");
+    complete.mockImplementation(async (r: Req) => `reply ${r.messages.length}`);
+    const sept = run("r1");
+
+    // Three days ago, from the home card.
+    let h = await askAndAppend("I had heartburn all week, what should I avoid?", [], ASK_FROM_HOME, undefined, daysAgo(3));
+    // Today: Find patterns, then a follow-up typed in its sheet.
+    let shown: unknown[] = [];
+    h = await askAndAppend(SEPT_PATTERNS, h, sept, (items) => (shown = items));
+    expect(shown.at(-1)).toMatchObject({ role: "user", content: SEPT_PATTERNS, patternsRun: "r1" });
+    h = await askAndAppend("what about the cheese?", h, sept);
+    // Then the home card, and a follow-up typed in its sheet.
+    h = await askAndAppend("what should I eat tonight?", h, ASK_FROM_HOME);
+    h = await askAndAppend("and for dessert?", h, ASK_FROM_HOME);
+
+    expect(h).toHaveLength(10);
+    expect(h.every((m) => typeof m.at === "string")).toBe(true);
+
+    // Find patterns: its range alone.
+    expect(contents(req(1))).toEqual([SEPT_PATTERNS]);
+    expect(everything(req(1))).not.toContain("Greek yogurt");
+    // Its follow-up: the run, and nothing else.
+    expect(contents(req(2))).toEqual([SEPT_PATTERNS, "reply 1", "what about the cheese?"]);
+    expect(everything(req(2))).not.toContain("Greek yogurt");
+    // The home card: today's context, no run, nothing from 3 days ago.
+    expect(contents(req(3))).toEqual(["what should I eat tonight?"]);
+    expect(everything(req(3))).toContain("Greek yogurt");
+    // Its follow-up: today's home card turns only.
+    expect(contents(req(4))).toEqual(["what should I eat tonight?", "reply 1", "and for dessert?"]);
+    for (const n of [3, 4]) {
+      expect(everything(req(n))).not.toContain("Migraine");
+      expect(everything(req(n))).not.toContain("heartburn all week");
+    }
   });
 });
 

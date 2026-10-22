@@ -40,7 +40,7 @@ describe("Ask Health card", () => {
 describe("Ask Health sheet", () => {
   it("is titled Ask Health, for sighted and screen-reader users alike", async () => {
     const { AskHealthSheet } = await import("./AskHealthSheet");
-    const html = renderToStaticMarkup(<AskHealthSheet initialQuestion={null} onClose={() => {}} />);
+    const html = renderToStaticMarkup(<AskHealthSheet initialQuestion={null} from={{ kind: "ask" }} onClose={() => {}} />);
     expect(html).toMatch(/role="dialog"[^>]*aria-label="Ask Health"/);
     expect(html).toContain("<h2>Ask Health</h2>");
     expectCopyRules(html);
@@ -50,7 +50,7 @@ describe("Ask Health sheet", () => {
     steer.emptyHistory = true;
     try {
       const { AskHealthSheet } = await import("./AskHealthSheet");
-      const html = renderToStaticMarkup(<AskHealthSheet initialQuestion={null} onClose={() => {}} />);
+      const html = renderToStaticMarkup(<AskHealthSheet initialQuestion={null} from={{ kind: "ask" }} onClose={() => {}} />);
       // Prove the steer landed: otherwise this would read the loading state.
       expect(html).toContain("chat-empty");
       expect(html).toContain("Your questions and answers show up here.");

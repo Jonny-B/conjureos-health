@@ -16,12 +16,40 @@ import { readJson, writeJson } from "../../bridge/vfs";
 import { getRepository } from "../../data/repository";
 import { daySnapshot, recentSnapshots, renderDayForPrompt, renderRecentForPrompt } from "../dataApi";
 import { hasAiJournalConsent } from "../aiConsent";
+import { todayISO } from "../diary";
 import { fmtWeight } from "../units";
 
 /** One turn of the conversation, as stored and as sent. */
 export interface AskChatItem {
   role: "user" | "assistant";
   content: string;
+  /**
+   * When the question was asked (ISO), on the question and on its answer
+   * alike, so the pair is always kept or dropped together. Missing on turns
+   * stored before it was recorded.
+   */
+  at?: string;
+  /** The "Find patterns" run this turn belongs to. Missing on an ordinary question. */
+  patternsRun?: string;
+}
+
+/**
+ * Which entry point a question comes from. The two send different things
+ * (the DISCLOSURE_* lines in features/aiConsent.ts), so every question names
+ * its entry point and `askHealth` decides what goes with it.
+ *
+ *   - `ask`: the home card, and follow-ups in a sheet it opened.
+ *   - `patterns`: one "Find patterns" run, and follow-ups in the sheet it
+ *     opened. `run` ties the follow-ups to that run and no other.
+ */
+export type AskFrom = { kind: "ask" } | { kind: "patterns"; run: string };
+
+/** The home card's entry point. */
+export const ASK_FROM_HOME: AskFrom = { kind: "ask" };
+
+/** A fresh "Find patterns" run. Each press of the button is a new one. */
+export function newPatternsRun(): AskFrom {
+  return { kind: "patterns", run: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}` };
 }
 
 /**
@@ -91,6 +119,16 @@ LIMITS
 - You cannot change the user's plan, targets or diary. If asked, say that is done in the Plan tab.`;
 
 /**
+ * Added for a "Find patterns" run, which is sent without today's context
+ * (see `askHealth`). Without it the SCOPE lines above tell the model it has
+ * today's diary, and it would report an empty day it was never shown.
+ */
+const PATTERNS_SCOPE = `THIS CONVERSATION
+- The user shared their journal for a range of dates in their first message here. That range is all you
+  have. You were not given today's diary or their targets, so the SCOPE lines about today do not apply.
+- Answer from that range. If a question needs today's diary, say it is best asked from the home screen.`;
+
+/**
  * Everything Ask Health should already know before the user says a word.
  *
  * This used to be three lines (targets, weight, direction), which meant
@@ -105,10 +143,11 @@ LIMITS
  * health data, and handing them to the AI is a disclosure exactly like
  * "Find patterns": same consent, same DISCLOSURE_* wording (see
  * features/aiConsent.ts). askContext is the only place that builds this
- * string, and every caller (the home card, the journal's "Find patterns",
- * and whatever calls it next) goes through askHealth, so gating here,
- * instead of in each caller, is what makes it impossible for a future caller
- * to route around consent by forgetting to check it. No consent, no context:
+ * string, and every question (the home card, and whatever calls it next)
+ * goes through askHealth, so gating here, instead of in each caller, is what
+ * makes it impossible for a future caller to route around consent by
+ * forgetting to check it. A "Find patterns" run never gets this context at
+ * all: it sends only its own range (see `askHealth`). No consent, no context:
  * not a trimmed-down context, because deciding what's "safe enough" to leak
  * without asking is the same mistake with extra steps. Fails CLOSED like
  * `hasAiJournalConsent` itself: any failure to confirm consent is treated as
@@ -165,30 +204,74 @@ export async function saveAskHistory(items: AskChatItem[]): Promise<void> {
 }
 
 /**
+ * The earlier turns that may go out with a new question, oldest first.
+ *
+ * Every stored turn shares one file and one sheet, but not one disclosure, so
+ * the replay is cut to what the consent sheet says each entry point sends
+ * (ConjureOS #1163):
+ *
+ *   - From the home card: only turns asked from the home card TODAY. A turn
+ *     from yesterday was answered with yesterday's window (yesterday plus the
+ *     2 days before it), so replaying it would send data from 3 days back,
+ *     against "anything from more than 2 days before today". A "Find
+ *     patterns" turn never goes: it holds a whole range of the journal.
+ *   - From a "Find patterns" run: only that run's own turns. Another run is
+ *     another range, and a home card turn is today's data, both outside "the
+ *     range you asked about".
+ *
+ * A turn with no `at` was stored before any of this was recorded, so nothing
+ * says which entry point or day it came from. It stays out: the sheet still
+ * shows it, it just never goes to the model again.
+ */
+export function turnsToSend(history: AskChatItem[], from: AskFrom, now: Date = new Date()): AskChatItem[] {
+  const today = todayISO(now);
+  const kept = history.filter((m) =>
+    from.kind === "patterns"
+      ? m.patternsRun === from.run
+      : m.patternsRun === undefined && typeof m.at === "string" && todayISO(new Date(m.at)) === today,
+  );
+  const recent = kept.slice(-MAX_CONTEXT_TURNS);
+  // The conversation sent to the model opens with the user; the cap can leave
+  // an answer at the front whose question fell off.
+  while (recent[0]?.role === "assistant") recent.shift();
+  return recent;
+}
+
+/**
  * Answer one question, given the conversation so far (oldest first, WITHOUT
- * the new question).
+ * the new question) and the entry point it was asked from.
  *
  * Returns the reply text. Never throws and never mutates anything but the
  * conversation: a failed call comes back as a sentence the user can read.
  */
-export async function askHealth(question: string, history: AskChatItem[] = []): Promise<string> {
+export async function askHealth(
+  question: string,
+  history: AskChatItem[] = [],
+  from: AskFrom = ASK_FROM_HOME,
+): Promise<string> {
   const q = question.trim();
   if (!q) return "";
   if (!isAiAvailable()) {
     return "I need the ConjureOS AI service to answer, and I can't reach it from here. Open Conjure Health inside ConjureOS and try again.";
   }
 
-  const ctx = await askContext();
+  // A "Find patterns" run carries its own range in its opening question, and
+  // nothing else: no today, no 2 days before.
+  const ctx = from.kind === "patterns" ? "" : await askContext();
   const messages: ChatMessage[] = [
-    ...history
-      .slice(-MAX_CONTEXT_TURNS)
-      .map((m) => ({ role: m.role, content: m.content }) as ChatMessage),
+    ...turnsToSend(history, from).map((m) => ({ role: m.role, content: m.content }) as ChatMessage),
     { role: "user", content: q },
   ];
+  const system =
+    from.kind === "patterns"
+      ? `${SYSTEM}\n\n${PATTERNS_SCOPE}`
+      : ctx
+        ? `${SYSTEM}\n\nABOUT THIS USER\n${ctx}`
+        : SYSTEM;
 
   try {
     const reply = await complete({
-      system: ctx ? `${SYSTEM}\n\nABOUT THIS USER\n${ctx}` : SYSTEM,
+      system,
       messages,
       maxTokens: 400,
       tier: "capable",
@@ -198,4 +281,28 @@ export async function askHealth(question: string, history: AskChatItem[] = []): 
   } catch (err) {
     return aiErrorMessage(err, "Something went wrong reaching the AI service. Try again in a moment.");
   }
+}
+
+/**
+ * One question asked from a sheet: the conversation with the question and its
+ * answer added, both stamped with when it was asked and, for a "Find
+ * patterns" run, the run. Those stamps are what `turnsToSend` reads on the
+ * next question, so the sheet stores through this and never builds turns of
+ * its own.
+ *
+ * `onAsked` gets the conversation with the question added, before the answer
+ * arrives, so the sheet can show it in flight.
+ */
+export async function askAndAppend(
+  question: string,
+  history: AskChatItem[],
+  from: AskFrom,
+  onAsked?: (items: AskChatItem[]) => void,
+  now: Date = new Date(),
+): Promise<AskChatItem[]> {
+  const stamp = from.kind === "patterns" ? { at: now.toISOString(), patternsRun: from.run } : { at: now.toISOString() };
+  const withUser: AskChatItem[] = [...history, { role: "user", content: question, ...stamp }];
+  onAsked?.(withUser);
+  const reply = await askHealth(question, history, from);
+  return [...withUser, { role: "assistant", content: reply, ...stamp }];
 }

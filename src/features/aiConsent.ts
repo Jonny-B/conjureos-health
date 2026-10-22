@@ -47,11 +47,12 @@ import { getRepository } from "../data/repository";
  * Nothing new is sent and nothing new is named, so v2 agreements still cover
  * what goes.
  *
- * Known gap, older than the rename (ConjureOS #1163): Find patterns also
- * carries Ask Health's today-plus-2-days context, and later Ask Health
- * questions replay a Find patterns summary, so two withheld lines below are
- * untrue of the code. Fixing the code to match keeps v2; rewording to
- * match the code widens the disclosure and needs v3.
+ * Not bumped for ConjureOS #1163 either. Find patterns used to carry Ask
+ * Health's today-plus-2-days context, and every question replayed the last
+ * 10 stored turns, a Find patterns range and turns weeks old included, so two
+ * withheld lines below were untrue of the code. The code was narrowed to
+ * match them (features/ask/ask.ts, `turnsToSend`); the wording did not move,
+ * and sending less needs no new agreement.
  */
 export const DISCLOSURE_VERSION = 2;
 
@@ -74,7 +75,19 @@ export const DISCLOSURE_SENDS: string[] = [
   "The names of foods you ate (up to 12 a day for Find patterns; up to 25 for today, with Ask Health)",
 ];
 
-/** What is held back regardless, so the sheet can be specific about limits. */
+/**
+ * What is held back regardless, so the sheet can be specific about limits.
+ *
+ * The two windows hold for the conversation history as well as the context:
+ * `turnsToSend` in features/ask/ask.ts cuts the turns replayed with each
+ * question to that question's entry point, and ask.test.ts ("what each entry
+ * point sends") checks the request, not this wording (ConjureOS #1163).
+ * The range line holds for Find patterns' opening question too:
+ * `patternsQuestion` drops any day outside the range it names, and the
+ * journal sends nothing until the month on screen has been read
+ * (features/ask/findPatterns.ts). screens/askEntryPoints.test.tsx drives the
+ * real screens and sheet to check what each one sends.
+ */
 export const DISCLOSURE_WITHHOLDS: string[] = [
   "Your name, email, or account details",
   "The free-text note on a symptom, unless you turn that on below",
