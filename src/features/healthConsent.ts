@@ -46,6 +46,18 @@ export interface HealthConsent {
 
 let granted = false;
 
+/** Moves on every record and every withdrawal. See `healthConsentGeneration`. */
+let generation = 0;
+
+/**
+ * Which agreement-or-withdrawal this session is on: moves on every record and
+ * every withdrawal. Something that started under one and finishes under
+ * another (an Ask Health answer still on its way) keeps nothing.
+ */
+export function healthConsentGeneration(): number {
+  return generation;
+}
+
 /** Synchronous view for code that cannot await (cross-app action guards). */
 export function healthConsentGranted(): boolean {
   return granted;
@@ -68,6 +80,7 @@ export async function loadHealthConsent(): Promise<boolean> {
  */
 export async function recordHealthConsent(): Promise<boolean> {
   granted = true;
+  generation++;
   try {
     await writeJsonOrThrow(PATH, { acceptedAt: new Date().toISOString(), version: HEALTH_CONSENT_VERSION });
     return true;
@@ -79,5 +92,6 @@ export async function recordHealthConsent(): Promise<boolean> {
 /** Withdraw. Collection stops at once; deleting what is stored is Reset health data. */
 export async function withdrawHealthConsent(): Promise<void> {
   granted = false;
+  generation++;
   await writeJsonOrThrow(PATH, null).catch(() => {});
 }

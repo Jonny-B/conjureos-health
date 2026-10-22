@@ -88,6 +88,7 @@ const bubbles = () => [...container.querySelectorAll(".chat-bubble:not(.thinking
 let container: HTMLDivElement;
 let root: Root;
 let consent: typeof import("../features/aiConsent");
+let collection: typeof import("../features/healthConsent");
 
 beforeEach(async () => {
   // A withdrawal holds for the session it happened in; each test is one.
@@ -101,6 +102,11 @@ beforeEach(async () => {
   writesFail = false;
   profileSaveFails = false;
   consent = await import("../features/aiConsent");
+  // The app shows nothing that asks until the person agrees to it keeping
+  // health data (components/HealthConsentGate), so every test starts agreed.
+  files["health-consent.json"] = JSON.stringify({ acceptedAt: "2026-09-01T09:00:00.000Z", version: 1 });
+  collection = await import("../features/healthConsent");
+  expect(await collection.loadHealthConsent()).toBe(true);
   profile = {
     sex: "female", age: 34, heightCm: 168, weightKg: 70, activityLevel: "moderate",
     direction: "lose", units: "metric",
@@ -269,6 +275,50 @@ describe("an answer in flight when the withdrawal lands", () => {
     expect(bubbles()).toEqual([]);
     expect(container.textContent).not.toContain("the salmon");
     expect(stored()).toEqual([]);
+  });
+});
+
+describe("withdrawing consent to keep health data, with an answer in flight", () => {
+  // The app leaves for the agreement screen at once, which closes the sheet
+  // (App.tsx). The question is already out: its answer is not kept.
+  async function askThenClose() {
+    let answer!: (s: string) => void;
+    complete.mockImplementation(() => new Promise<string>((r) => (answer = r)));
+    await home();
+    await type("Ask Health a question", "what should I eat tonight?");
+    await click("Ask");
+    expect(complete).toHaveBeenCalledTimes(1);
+    await click("Close");
+    return (s: string) => answer(s);
+  }
+
+  it("keeps nothing of it: the conversation is health data", async () => {
+    const answer = await askThenClose();
+    await act(async () => {
+      await collection.withdrawHealthConsent();
+    });
+    await act(async () => answer("the salmon"));
+    await settle();
+    expect(files["ask-health.json"] ?? "").not.toContain("salmon");
+    expect(stored()).toEqual([]);
+  });
+
+  it("keeps nothing of it when the person agrees again before it lands", async () => {
+    const answer = await askThenClose();
+    await act(async () => {
+      await collection.withdrawHealthConsent();
+      await collection.recordHealthConsent();
+    });
+    await act(async () => answer("the salmon"));
+    await settle();
+    expect(stored()).toEqual([]);
+  });
+
+  it("keeps it when nothing changed (positive control)", async () => {
+    const answer = await askThenClose();
+    await act(async () => answer("the salmon"));
+    await settle();
+    expect(stored().map((m) => m.content)).toEqual(["what should I eat tonight?", "the salmon"]);
   });
 });
 
