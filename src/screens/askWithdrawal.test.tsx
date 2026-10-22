@@ -134,8 +134,9 @@ async function render(el: ReactElement) {
   await settle();
 }
 
+/** Any button on the page: the consent sheet is drawn outside the screen on some lines. */
 function button(text: string): HTMLButtonElement {
-  const b = [...container.querySelectorAll("button")].find(
+  const b = [...document.body.querySelectorAll("button")].find(
     (x) => x.textContent?.trim() === text || x.getAttribute("aria-label") === text,
   );
   if (!b) throw new Error(`no button "${text}"`);
