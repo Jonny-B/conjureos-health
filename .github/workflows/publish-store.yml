@@ -6,11 +6,28 @@ name: Publish to ConjureOS App Store
 # The store slug is `health` (both publish steps below): it is Conjure Health's
 # App Store listing. `fitness` is a withdrawn listing, Conjure Health's old one
 # under a legacy name; it must never be published to again, from here or by
-# hand. This workflow only adds versions to a listing that exists: the listing
-# itself is created once per project, by hand, with ConjureOS's
-# `scripts/publish-app.mjs --first-publish` (ANCHOR_APP_CI_SETUP.md). A run
-# before that fails with "No existing store app found for slug". The test
-# `scripts/storeSlug.test.mjs` holds both slug lines.
+# hand. The test `scripts/storeSlug.test.mjs` holds both slug lines.
+#
+# GitHub runs the copy of this file on the branch picked under "Use workflow
+# from" (a Release runs the copy at its tag; both default to `main`, the
+# default branch). Run it only from a branch whose copy says `slug: health`.
+#
+# This workflow only adds versions to a listing that exists. A run before the
+# listing exists fails with "No existing store app found for slug". The listing
+# is created once per project, by hand, with ConjureOS's publish CLI
+# (ANCHOR_APP_CI_SETUP.md step 3); a rerun fails, so run it with --dry-run
+# first. Build with that project's VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
+# (the values in the build step below) and its SUPABASE_URL, SUPABASE_ANON_KEY,
+# PUBLISH_BOT_EMAIL and PUBLISH_BOT_PASSWORD set, then from this repo's root:
+#   npm ci && npm run build:inline
+#   node <ConjureOS>/scripts/publish-app.mjs --first-publish --featured \
+#     --slug health --display-name "Conjure Health" --visibility public \
+#     --package-json ./package.json --html dist/index.html \
+#     --changelog "Initial version"
+# `--featured` is load-bearing: `/launch/health` resolves only for a featured
+# row, and only a featured slug is reserved across publishers (ConjureOS
+# migration 031). The bot account must be an admin for it to take; the CLI
+# prints "Marked featured" when it did.
 #
 # Two Supabase projects (Phase 24 split), selected by trigger:
 #   - workflow_dispatch  -> DEV  project (test against dev.conjureos.pages.dev)

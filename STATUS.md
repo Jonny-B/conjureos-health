@@ -1,6 +1,6 @@
 # Conjure Health, project status
 
-> **2026-10-22, branch `claude/health-new-listing`, from `dev` 1.43.6, not versioned or published (the PM takes the number at merge).** **One line, on a new listing** (owner decision 2026-10-22). `main` (1.40.7) is merged into the dev line keeping dev's tree, so the dev line is the only line from here. Conjure Health publishes to a new App Store listing, slug `health`, on dev and prod: both publish steps in `.github/workflows/publish-store.yml` name it, and the deep-link examples (`src/bridge/intents.ts`, README) open `/launch/health`. `fitness` is the old listing, withdrawn, and is never published to again. Held by `scripts/storeSlug.test.mjs`. The new listing is a separate app, so nothing installed from `fitness` carries over (owner: early alpha, old data does not matter). Before the workflow can add a version, the listing is created once per project with ConjureOS's `scripts/publish-app.mjs --first-publish` (a PM step). Unchanged on purpose: the `fitness` Supabase schema and the local store key `conjure-fitness:store:v2`, which are data names, not the listing.
+> **2026-10-22, branch `claude/health-new-listing`, from `dev` 1.43.6, not versioned or published (the PM takes the number at merge).** **One line, on a new listing** (owner decision 2026-10-22). `main` (1.40.7) is merged into the dev line keeping dev's tree, so the dev line is the only line from here. Conjure Health publishes to a new App Store listing, slug `health`, on dev and prod: both publish steps in `.github/workflows/publish-store.yml` name it, and the deep-link examples (`src/bridge/intents.ts`, README) open `/launch/health`. `fitness` is the old listing, withdrawn, and is never published to again. Held by `scripts/storeSlug.test.mjs`. The new listing is a separate app, so nothing installed from `fitness` carries over (owner: early alpha, old data does not matter). Before the workflow can add a version, the listing is created once per project with ConjureOS's `scripts/publish-app.mjs --first-publish --featured --display-name "Conjure Health"` (a PM step; the workflow's header has the whole command). `--featured` is load-bearing: `/launch/health` resolves only for a featured row, and only a featured slug is reserved across publishers. **Merge PR #16 with "Create a merge commit", not squash or rebase:** the merge of `main` changes no file (its diff against `dev` is empty), so its whole effect is ancestry, which a squash or rebase drops. **Until `dev` is promoted to `main`, `main`'s copy of the workflow publishes to `fitness`,** and `main` is the default branch that Run workflow and a new Release both start from: dispatch with "Use workflow from: dev", and promote `dev` to `main` (merge commit) before cutting any Release. Unchanged on purpose: the `fitness` Supabase schema and the local store key `conjure-fitness:store:v2`, which are data names, not the listing.
 
 > **2026-10-22, `dev` 1.43.6, not published.** The manifest declares its app type the new way: `appType: "sealed"` plus `editable: false`, no `editStyle` (ConjureOS Phase 62). It declared neither, so it was read as an AI-editable applet. Pinned in `src/manifest.test.ts`. Nothing a user sees changes.
 
@@ -211,12 +211,22 @@ Nothing is deleted from the code. The listing is `health` on both projects;
 `fitness` is a withdrawn listing and is never published to.
 
 - **Once per project, first:** create the `health` listing by hand with
-  ConjureOS's `scripts/publish-app.mjs --first-publish` (ANCHOR_APP_CI_SETUP.md).
-  The workflow only adds versions to a listing that exists; before this it fails
-  with "No existing store app found for slug".
-- **Dev:** Actions, "Publish to ConjureOS App Store", Run workflow
-  (`workflow_dispatch`, target dev).
-- **Prod:** publish a GitHub Release (the release-published trigger ships to the
-  prod project), or Run workflow with target prod.
+  ConjureOS's `scripts/publish-app.mjs --first-publish --featured --slug health
+  --display-name "Conjure Health" --package-json ./package.json --html
+  dist/index.html` (ANCHOR_APP_CI_SETUP.md step 3; the whole command, with the
+  build and env it needs, is in the header of
+  `.github/workflows/publish-store.yml`). Run it with `--dry-run` first: a rerun
+  fails. `--featured` is what makes `/launch/health` resolve and reserves the
+  slug. The workflow only adds versions to a listing that exists; before this it
+  fails with "No existing store app found for slug".
+- **Which branch:** GitHub runs the copy of the workflow on the branch picked
+  under "Use workflow from" (a Release runs the copy at its tag), and both
+  default to `main`. Until `dev` is promoted to `main`, `main`'s copy publishes
+  to `fitness`, so pick `dev`, and cut no Release before the promotion.
+- **Dev:** Actions, "Publish to ConjureOS App Store", Run workflow, Use workflow
+  from `dev` (`workflow_dispatch`, target dev).
+- **Prod:** promote `dev` to `main` first (a merge commit), then publish a
+  GitHub Release from `main` (the release-published trigger ships to the prod
+  project), or Run workflow from `main` with target prod.
 
 Bump the version in `package.json` first.
