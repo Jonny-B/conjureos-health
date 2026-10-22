@@ -81,3 +81,21 @@ describe("Health's ConjureOS manifest", () => {
     expect(Object.keys(SHIPPED)).toContain("./App.tsx");
   });
 });
+
+/**
+ * Conjure Health is a sealed anchor app (ConjureOS Phase 62): the AI changes
+ * nothing in it. A manifest that declares no type is read as an AI-editable
+ * applet, so dropping either key below is a silent change of what the app is.
+ * The legacy `editStyle` key is not declared: the store and the kernel write
+ * the old keys themselves.
+ */
+describe("the app type the manifest declares", () => {
+  it("is sealed, with the editable mirror older clients read", () => {
+    expect(manifest.appType).toBe("sealed");
+    expect(manifest.editable).toBe(false);
+  });
+
+  it("does not declare the old editStyle key", () => {
+    expect("editStyle" in manifest).toBe(false);
+  });
+});
