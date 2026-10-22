@@ -21,6 +21,8 @@ const files: Record<string, string> = {};
 let writesFail = false;
 /** When true, saving the profile fails. */
 let profileSaveFails = false;
+/** Runs on the first read of the journal's symptoms, while today's context is being built. */
+let whileReadingToday: (() => void) | null = null;
 
 vi.mock("../../bridge/ai", async (orig) => ({
   ...(await orig<typeof import("../../bridge/ai")>()),
@@ -50,8 +52,12 @@ vi.mock("../../data/repository", () => ({
     listDiary: async () => [],
     listWater: async () => [],
     listSleep: async () => [],
-    listSymptoms: async (d: string) =>
-      [{ id: "s1", label: "Heartburn", loggedAt: `${d}T21:40:00Z`, severity: 3 }],
+    listSymptoms: async (d: string) => {
+      const during = whileReadingToday;
+      whileReadingToday = null;
+      during?.();
+      return [{ id: "s1", label: "Heartburn", loggedAt: `${d}T21:40:00Z`, severity: 3 }];
+    },
     listWeights: async () => [],
   }),
 }));
@@ -92,6 +98,7 @@ beforeEach(async () => {
   for (const k of Object.keys(files)) delete files[k];
   writesFail = false;
   profileSaveFails = false;
+  whileReadingToday = null;
   consent = await import("../aiConsent");
   ask = await import("./ask");
   profile = {
@@ -149,6 +156,41 @@ describe("after the agreement is withdrawn, nothing is sent", () => {
     expect(await consent.withdrawAiJournalConsent()).toBe(true);
     expect(consent.aiWithdrawalNotSaved()).toBe(false);
     expect(profile.aiJournalConsent).toBeUndefined();
+  });
+});
+
+describe("a withdrawal that lands while today is read", () => {
+  // Reading today's context takes several reads of the journal. A question
+  // that passed the gate before them must not go out after them.
+  it("sends nothing: not the question, the conversation or today's health data", async () => {
+    whileReadingToday = () => void consent.withdrawAiJournalConsent();
+    const reply = await ask.askHealth("and for dessert?", await ask.loadAskHistory(), ask.ASK_FROM_HOME);
+    expect(complete).not.toHaveBeenCalled();
+    expect(reply).toBeNull();
+  });
+
+  it("sends nothing when it was withdrawn on another device meanwhile", async () => {
+    whileReadingToday = () => void delete profile.aiJournalConsent;
+    const reply = await ask.askHealth("and for dessert?", await ask.loadAskHistory(), ask.ASK_FROM_HOME);
+    expect(complete).not.toHaveBeenCalled();
+    expect(reply).toBeNull();
+  });
+
+  it("keeps nothing in the sheet's conversation either", async () => {
+    whileReadingToday = () => void consent.withdrawAiJournalConsent();
+    const asking = await ask.askAndAppend("and for dessert?", await ask.loadAskHistory(), ask.ASK_FROM_HOME);
+    expect(asking).toBeNull();
+    expect(complete).not.toHaveBeenCalled();
+    expect(stored()).toEqual([]);
+  });
+
+  it("sends today when nothing changed (positive control)", async () => {
+    let read = false;
+    whileReadingToday = () => void (read = true);
+    await ask.askHealth("and for dessert?", await ask.loadAskHistory(), ask.ASK_FROM_HOME);
+    expect(read).toBe(true);
+    const sent = complete.mock.calls[0]![0] as { system: string };
+    expect(sent.system).toContain("Heartburn (3/5)");
   });
 });
 
