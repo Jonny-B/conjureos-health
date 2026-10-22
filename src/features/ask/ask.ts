@@ -15,7 +15,9 @@ import { aiErrorMessage, complete, isAiAvailable, type ChatMessage } from "../..
 import { readJson, writeJson } from "../../bridge/vfs";
 import { getRepository } from "../../data/repository";
 import { daySnapshot, recentSnapshots, renderDayForPrompt, renderRecentForPrompt } from "../dataApi";
-import { hasAiJournalConsent } from "../aiConsent";
+import { aiConsentGeneration, currentAiAgreement, hasAiJournalConsent } from "../aiConsent";
+import type { AiJournalConsent } from "../../types";
+import { ASK_CHAT_PATH } from "./conversationFile";
 import { todayISO } from "../diary";
 import { fmtWeight } from "../units";
 
@@ -65,9 +67,11 @@ export function newPatternsRun(): AskFrom {
  *
  * Nothing deletes a user's stored data for them: `coach-chat.json` stays on
  * disk, and Settings, Reset health data, "Ask Health" clears it along with
- * this file (features/resetData.ts).
+ * this file (features/resetData.ts). The one other thing that empties this
+ * file is the person withdrawing the AI agreement, which takes the
+ * conversation with it (features/aiConsent.ts, owner decision 2026-10-22).
+ * `ASK_CHAT_PATH` lives in ./conversationFile.ts for that reason.
  */
-const ASK_CHAT_PATH = "ask-health.json";
 
 /** Turns kept on disk. Old turns fall off the top; the cap keeps the doc small
  *  enough to stay cheap to read on every home render. */
@@ -151,7 +155,9 @@ const PATTERNS_SCOPE = `THIS CONVERSATION
  * not a trimmed-down context, because deciding what's "safe enough" to leak
  * without asking is the same mistake with extra steps. Fails CLOSED like
  * `hasAiJournalConsent` itself: any failure to confirm consent is treated as
- * no consent.
+ * no consent. `askHealth` checks the agreement before it gets here and sends
+ * nothing at all without one; this check stays as the second lock on the one
+ * place that reads today.
  */
 async function askContext(): Promise<string> {
   if (!(await hasAiJournalConsent())) return "";
@@ -192,10 +198,37 @@ async function askContext(): Promise<string> {
   }
 }
 
-/** Read the stored conversation, oldest first. Never throws. */
+/**
+ * Read the conversation, oldest first: the turns asked under the agreement in
+ * force, and nothing without one. Never throws.
+ */
 export async function loadAskHistory(): Promise<AskChatItem[]> {
+  const agreement = await currentAiAgreement();
+  if (!agreement) return [];
   const raw = await readJson<AskChatItem[]>(ASK_CHAT_PATH, []).catch(() => []);
-  return Array.isArray(raw) ? raw : [];
+  return Array.isArray(raw) ? turnsUnderAgreement(raw, agreement) : [];
+}
+
+/**
+ * The turns asked under `agreement`, oldest first. Agreeing again starts a
+ * fresh conversation (owner decision 2026-10-22, ConjureOS #1163), so a turn
+ * asked before the agreement in force is neither shown nor sent, and nor is
+ * anything stored before it. A withdrawal clears the file as well; this is
+ * what holds when that clear failed, or when an answer from another device
+ * was saved after it.
+ *
+ * A turn stored before turns carried a date says nothing about when it was
+ * asked. It stays (shown, never sent: see `turnsToSend`) unless a dated turn
+ * after it shows the file reaches back past the agreement.
+ */
+export function turnsUnderAgreement(history: AskChatItem[], agreement: AiJournalConsent): AskChatItem[] {
+  const since = Date.parse(agreement.acceptedAt);
+  if (!Number.isFinite(since)) return [];
+  let start = 0;
+  history.forEach((m, i) => {
+    if (typeof m.at === "string" && !(Date.parse(m.at) >= since)) start = i + 1;
+  });
+  return history.slice(start);
 }
 
 /** Persist the conversation, trimmed to the most recent MAX_STORED turns. */
@@ -241,16 +274,29 @@ export function turnsToSend(history: AskChatItem[], from: AskFrom, now: Date = n
  * Answer one question, given the conversation so far (oldest first, WITHOUT
  * the new question) and the entry point it was asked from.
  *
- * Returns the reply text. Never throws and never mutates anything but the
- * conversation: a failed call comes back as a sentence the user can read.
+ * Returns the reply text, or null when there is nothing to keep: no
+ * agreement is in force, so nothing was sent, or the agreement was withdrawn
+ * while the question was out, so its answer is thrown away. Never throws and
+ * never mutates anything but the conversation: a failed call comes back as a
+ * sentence the user can read.
+ *
+ * THE GATE for every entry point. Owner decision, 2026-10-22 (ConjureOS
+ * #1163): "Withdrawn consent means they have withdrawn consent." Without a
+ * current agreement nothing leaves: not the question, not an earlier turn,
+ * not today's context, not a Find patterns range. It used to send the
+ * question and the earlier turns with no context, and a Find patterns
+ * follow-up resent the whole month, unchecked.
  */
 export async function askHealth(
   question: string,
   history: AskChatItem[] = [],
   from: AskFrom = ASK_FROM_HOME,
-): Promise<string> {
+): Promise<string | null> {
   const q = question.trim();
   if (!q) return "";
+  const asked = aiConsentGeneration();
+  const agreement = await currentAiAgreement();
+  if (!agreement || asked !== aiConsentGeneration()) return null;
   if (!isAiAvailable()) {
     return "I need the ConjureOS AI service to answer, and I can't reach it from here. Open Conjure Health inside ConjureOS and try again.";
   }
@@ -259,7 +305,9 @@ export async function askHealth(
   // nothing else: no today, no 2 days before.
   const ctx = from.kind === "patterns" ? "" : await askContext();
   const messages: ChatMessage[] = [
-    ...turnsToSend(history, from).map((m) => ({ role: m.role, content: m.content }) as ChatMessage),
+    ...turnsToSend(turnsUnderAgreement(history, agreement), from).map(
+      (m) => ({ role: m.role, content: m.content }) as ChatMessage,
+    ),
     { role: "user", content: q },
   ];
   const system =
@@ -269,6 +317,7 @@ export async function askHealth(
         ? `${SYSTEM}\n\nABOUT THIS USER\n${ctx}`
         : SYSTEM;
 
+  let text: string;
   try {
     const reply = await complete({
       system,
@@ -276,11 +325,18 @@ export async function askHealth(
       maxTokens: 400,
       tier: "capable",
     });
-    const text = reply.trim();
-    return text || "I couldn't come up with an answer to that one. Try asking it a different way?";
+    text = reply.trim() || "I couldn't come up with an answer to that one. Try asking it a different way?";
   } catch (err) {
-    return aiErrorMessage(err, "Something went wrong reaching the AI service. Try again in a moment.");
+    text = aiErrorMessage(err, "Something went wrong reaching the AI service. Try again in a moment.");
   }
+  // A withdrawal that landed while the question was out, here or on another
+  // device, throws the answer away, failure sentence included: nothing of it
+  // is shown or kept. So does a withdrawal followed by a new agreement, which
+  // starts a fresh conversation.
+  if (asked !== aiConsentGeneration()) return null;
+  const still = await currentAiAgreement();
+  if (asked !== aiConsentGeneration() || still?.acceptedAt !== agreement.acceptedAt) return null;
+  return text;
 }
 
 /**
@@ -292,6 +348,10 @@ export async function askHealth(
  *
  * `onAsked` gets the conversation with the question added, before the answer
  * arrives, so the sheet can show it in flight.
+ *
+ * Null when `askHealth` has nothing to keep (no agreement in force, or one
+ * withdrawn while the question was out): the sheet then keeps nothing, on
+ * screen or on disk.
  */
 export async function askAndAppend(
   question: string,
@@ -299,10 +359,11 @@ export async function askAndAppend(
   from: AskFrom,
   onAsked?: (items: AskChatItem[]) => void,
   now: Date = new Date(),
-): Promise<AskChatItem[]> {
+): Promise<AskChatItem[] | null> {
   const stamp = from.kind === "patterns" ? { at: now.toISOString(), patternsRun: from.run } : { at: now.toISOString() };
   const withUser: AskChatItem[] = [...history, { role: "user", content: question, ...stamp }];
   onAsked?.(withUser);
   const reply = await askHealth(question, history, from);
+  if (reply === null) return null;
   return [...withUser, { role: "assistant", content: reply, ...stamp }];
 }
