@@ -115,7 +115,7 @@ const stored = () =>
 let container: HTMLDivElement;
 let root: Root;
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(2026, 9, 20, 12, 0, 0));
   // jsdom lays nothing out, so it has no scrollIntoView for the sheet to call.
@@ -123,6 +123,11 @@ beforeEach(() => {
   complete.mockReset();
   complete.mockImplementation(async (r: Req) => `reply ${r.messages.length}`);
   for (const k of Object.keys(files)) delete files[k];
+  // The app shows nothing that asks until the person agrees to it keeping
+  // health data (components/HealthConsentGate).
+  files["health-consent.json"] = JSON.stringify({ acceptedAt: "2026-09-01T09:00:00.000Z", version: 1 });
+  const { loadHealthConsent } = await import("../features/healthConsent");
+  expect(await loadHealthConsent()).toBe(true);
   gates.clear();
   container = document.createElement("div");
   document.body.appendChild(container);

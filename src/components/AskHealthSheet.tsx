@@ -13,12 +13,15 @@
  * Withdrawn consent means withdrawn consent (owner decision 2026-10-22,
  * ConjureOS #1163). When the agreement goes, here or on another device, the
  * sheet lets go of the whole conversation, sends no follow-up, and keeps
- * nothing of an answer that was still on its way, on screen or on disk.
+ * nothing of an answer that was still on its way, on screen or on disk. An
+ * answer that lands after the person withdrew consent to keep health data is
+ * not saved either.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { askAndAppend, loadAskHistory, saveAskHistory, type AskChatItem, type AskFrom } from "../features/ask/ask";
 import { aiConsentGeneration, onAiConsentWithdrawn } from "../features/aiConsent";
+import { healthConsentGeneration } from "../features/healthConsent";
 import { useScrollLock } from "../hooks/useScrollLock";
 import { CloseIcon } from "./icons";
 
@@ -65,6 +68,9 @@ export function AskHealthSheet({
     busyRef.current = true;
     setBusy(true);
     const asked = aiConsentGeneration();
+    // The agreement to keep health data this question was asked under: an
+    // answer that lands after it was withdrawn is not saved (saveAskHistory).
+    const collecting = healthConsentGeneration();
     const withReply = await askAndAppend(question, base, from, (shown) => {
       if (asked === aiConsentGeneration()) setItems(shown);
     });
@@ -78,7 +84,7 @@ export function AskHealthSheet({
       return;
     }
     setItems(withReply);
-    await saveAskHistory(withReply);
+    await saveAskHistory(withReply, collecting);
   };
 
   useEffect(() => {

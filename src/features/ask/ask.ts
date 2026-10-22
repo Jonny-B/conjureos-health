@@ -17,6 +17,7 @@ import { readJson, writeJson } from "../../bridge/vfs";
 import { getRepository } from "../../data/repository";
 import { daySnapshot, recentSnapshots, renderDayForPrompt, renderRecentForPrompt } from "../dataApi";
 import { aiConsentGeneration, currentAiAgreement, hasAiJournalConsent } from "../aiConsent";
+import { healthConsentGeneration, healthConsentGranted } from "../healthConsent";
 import type { AiJournalConsent } from "../../types";
 import { ASK_CHAT_PATH } from "./conversationFile";
 import { todayISO } from "../diary";
@@ -253,8 +254,20 @@ export function turnsUnderAgreement(history: AskChatItem[], agreement: AiJournal
   return history.slice(start);
 }
 
-/** Persist the conversation, trimmed to the most recent MAX_STORED turns. */
-export async function saveAskHistory(items: AskChatItem[]): Promise<void> {
+/**
+ * Persist the conversation, trimmed to the most recent MAX_STORED turns.
+ *
+ * Only under the agreement to keep health data that was in force when the
+ * question was asked: `collecting` is `healthConsentGeneration()` read then.
+ * The conversation is health data (what they ate, how they felt), so an
+ * answer that lands after the person withdrew that agreement is not kept, and
+ * nor is one that lands after they withdrew and agreed again (owner decision
+ * 2026-10-22, ConjureOS #1163: "Withdrawn consent means they have withdrawn
+ * consent"). Fails closed: with no agreement known in this session, nothing
+ * is written.
+ */
+export async function saveAskHistory(items: AskChatItem[], collecting: number): Promise<void> {
+  if (!healthConsentGranted() || collecting !== healthConsentGeneration()) return;
   await writeJson(ASK_CHAT_PATH, items.slice(-MAX_STORED)).catch(() => {});
 }
 

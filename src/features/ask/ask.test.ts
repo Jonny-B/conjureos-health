@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ASK_SUGGESTIONS } from "./ask";
 import { DISCLOSURE_VERSION } from "../aiConsent";
+import { healthConsentGeneration, loadHealthConsent, recordHealthConsent } from "../healthConsent";
 import type { AiJournalConsent } from "../../types";
 
 const complete = vi.fn();
@@ -62,11 +63,16 @@ vi.mock("../../data/repository", () => ({
 }));
 vi.mock("../exercise", () => ({ exerciseCaloriesForDate: async () => 0 }));
 
-beforeEach(() => {
+/** The app asks nothing until the person agrees to it keeping health data. */
+const AGREED_TO_KEEP = JSON.stringify({ acceptedAt: "2026-01-01T00:00:00.000Z", version: 1 });
+
+beforeEach(async () => {
   complete.mockReset();
   aiAvailable = true;
   for (const k of Object.keys(files)) delete files[k];
   consent = { version: DISCLOSURE_VERSION, acceptedAt: "2026-01-01T00:00:00.000Z", includeNotes: false };
+  files["health-consent.json"] = AGREED_TO_KEEP;
+  expect(await loadHealthConsent()).toBe(true);
 });
 
 /** The system prompt and settings askHealth sent on its one call. */
@@ -222,15 +228,32 @@ describe("askHealth", () => {
     const { loadAskHistory, saveAskHistory } = await import("./ask");
     expect(await loadAskHistory()).toEqual([]);
     const many = Array.from({ length: 50 }, (_, i) => ({ role: "user" as const, content: `q${i}` }));
-    await saveAskHistory(many);
+    await saveAskHistory(many, healthConsentGeneration());
     const back = await loadAskHistory();
     expect(back).toHaveLength(40);
     expect(back[39]!.content).toBe("q49");
   });
 
+  it("saves nothing without an agreement to keep health data", async () => {
+    const { saveAskHistory } = await import("./ask");
+    delete files["health-consent.json"];
+    expect(await loadHealthConsent()).toBe(false);
+    await saveAskHistory([{ role: "user", content: "and soy?" }], healthConsentGeneration());
+    expect(files["ask-health.json"]).toBeUndefined();
+  });
+
+  it("saves nothing asked under an earlier agreement to keep health data", async () => {
+    const { saveAskHistory } = await import("./ask");
+    const asked = healthConsentGeneration();
+    // Withdrawn and agreed again while the answer was out.
+    await recordHealthConsent();
+    await saveAskHistory([{ role: "user", content: "and soy?" }], asked);
+    expect(files["ask-health.json"]).toBeUndefined();
+  });
+
   it("keeps its conversation in a file of its own", async () => {
     const { loadAskHistory, saveAskHistory } = await import("./ask");
-    await saveAskHistory([{ role: "user", content: "and soy?" }]);
+    await saveAskHistory([{ role: "user", content: "and soy?" }], healthConsentGeneration());
     expect(JSON.parse(files["ask-health.json"]!)).toEqual([{ role: "user", content: "and soy?" }]);
     expect(await loadAskHistory()).toEqual([{ role: "user", content: "and soy?" }]);
   });
@@ -279,7 +302,7 @@ describe("the older conversation file", () => {
     const before = JSON.stringify(OLD_TURNS);
     files["coach-chat.json"] = before;
     const { saveAskHistory } = await import("./ask");
-    await saveAskHistory([{ role: "user", content: "is rice filling?" }]);
+    await saveAskHistory([{ role: "user", content: "is rice filling?" }], healthConsentGeneration());
     expect(files["coach-chat.json"]).toBe(before);
   });
 });
