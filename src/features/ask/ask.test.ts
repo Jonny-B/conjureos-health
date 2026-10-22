@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ASK_SUGGESTIONS } from "./ask";
 import { DISCLOSURE_VERSION } from "../aiConsent";
+import { healthConsentGeneration, loadHealthConsent, recordHealthConsent } from "../healthConsent";
 import type { AiJournalConsent } from "../../types";
 
 const complete = vi.fn();
@@ -62,11 +63,16 @@ vi.mock("../../data/repository", () => ({
 }));
 vi.mock("../exercise", () => ({ exerciseCaloriesForDate: async () => 0 }));
 
-beforeEach(() => {
+/** The app asks nothing until the person agrees to it keeping health data. */
+const AGREED_TO_KEEP = JSON.stringify({ acceptedAt: "2026-01-01T00:00:00.000Z", version: 1 });
+
+beforeEach(async () => {
   complete.mockReset();
   aiAvailable = true;
   for (const k of Object.keys(files)) delete files[k];
   consent = { version: DISCLOSURE_VERSION, acceptedAt: "2026-01-01T00:00:00.000Z", includeNotes: false };
+  files["health-consent.json"] = AGREED_TO_KEEP;
+  expect(await loadHealthConsent()).toBe(true);
 });
 
 /** The system prompt and settings askHealth sent on its one call. */
@@ -222,15 +228,32 @@ describe("askHealth", () => {
     const { loadAskHistory, saveAskHistory } = await import("./ask");
     expect(await loadAskHistory()).toEqual([]);
     const many = Array.from({ length: 50 }, (_, i) => ({ role: "user" as const, content: `q${i}` }));
-    await saveAskHistory(many);
+    await saveAskHistory(many, healthConsentGeneration());
     const back = await loadAskHistory();
     expect(back).toHaveLength(40);
     expect(back[39]!.content).toBe("q49");
   });
 
+  it("saves nothing without an agreement to keep health data", async () => {
+    const { saveAskHistory } = await import("./ask");
+    delete files["health-consent.json"];
+    expect(await loadHealthConsent()).toBe(false);
+    await saveAskHistory([{ role: "user", content: "and soy?" }], healthConsentGeneration());
+    expect(files["ask-health.json"]).toBeUndefined();
+  });
+
+  it("saves nothing asked under an earlier agreement to keep health data", async () => {
+    const { saveAskHistory } = await import("./ask");
+    const asked = healthConsentGeneration();
+    // Withdrawn and agreed again while the answer was out.
+    await recordHealthConsent();
+    await saveAskHistory([{ role: "user", content: "and soy?" }], asked);
+    expect(files["ask-health.json"]).toBeUndefined();
+  });
+
   it("keeps its conversation in a file of its own", async () => {
     const { loadAskHistory, saveAskHistory } = await import("./ask");
-    await saveAskHistory([{ role: "user", content: "and soy?" }]);
+    await saveAskHistory([{ role: "user", content: "and soy?" }], healthConsentGeneration());
     expect(JSON.parse(files["ask-health.json"]!)).toEqual([{ role: "user", content: "and soy?" }]);
     expect(await loadAskHistory()).toEqual([{ role: "user", content: "and soy?" }]);
   });
@@ -279,7 +302,7 @@ describe("the older conversation file", () => {
     const before = JSON.stringify(OLD_TURNS);
     files["coach-chat.json"] = before;
     const { saveAskHistory } = await import("./ask");
-    await saveAskHistory([{ role: "user", content: "is rice filling?" }]);
+    await saveAskHistory([{ role: "user", content: "is rice filling?" }], healthConsentGeneration());
     expect(files["coach-chat.json"]).toBe(before);
   });
 });
@@ -289,44 +312,38 @@ describe("personal context requires consent", () => {
    * The bug: the ask path stapled today's data on regardless of consent, so
    * the home card (which never checked consent at all) and a stale "Find
    * patterns" consent both leaked today's symptoms, weight and goal
-   * direction. This is the regression test for the chokepoint in
-   * askContext(): every assertion here is something that must NOT appear
-   * when there is no current agreement on file.
+   * direction.
+   *
+   * Since the owner's decision of 2026-10-22 (ConjureOS #1163, "Withdrawn
+   * consent means they have withdrawn consent"), no agreement means no call
+   * at all: not a context-free question either. features/ask/withdrawal.test.ts
+   * covers what a withdrawal does to the conversation.
    */
-  it("sends no personal context, and no symptom label, when consent is absent", async () => {
+  it("sends nothing, so no personal context and no symptom label, when consent is absent", async () => {
     consent = undefined;
     const { askHealth } = await import("./ask");
     complete.mockResolvedValue("ok");
-    await askHealth("what should I eat for dinner?");
-    const sys = sentRequest().system;
-    expect(sys).not.toContain("ABOUT THIS USER");
-    expect(sys).not.toContain("2200 cal");
-    expect(sys).not.toContain("Greek yogurt");
-    expect(sys).not.toContain("Tortilla chips");
-    expect(sys).not.toContain("losing weight");
-    expect(sys).not.toContain("Weight:");
-    expect(sys).not.toContain("Heartburn");
+    expect(await askHealth("what should I eat for dinner?")).toBeNull();
+    expect(complete).not.toHaveBeenCalled();
   });
 
-  it("also withholds context when the stored consent is stale wording", async () => {
+  it("also sends nothing when the stored consent is stale wording", async () => {
     // Consent to v(N-1)'s wording is not consent to the current disclosure;
     // that is the entire point of DISCLOSURE_VERSION. A version bump must
     // re-close this gate, not just a missing record.
     consent = { version: DISCLOSURE_VERSION - 1, acceptedAt: "2026-01-01T00:00:00.000Z", includeNotes: false };
     const { askHealth } = await import("./ask");
     complete.mockResolvedValue("ok");
-    await askHealth("what should I eat for dinner?");
-    const sys = sentRequest().system;
-    expect(sys).not.toContain("Heartburn");
-    expect(sys).not.toContain("2200 cal");
+    expect(await askHealth("what should I eat for dinner?")).toBeNull();
+    expect(complete).not.toHaveBeenCalled();
   });
 
-  it("still answers the question with no context at all", async () => {
+  it("does not answer a question with no context, either: nothing goes without the agreement", async () => {
     consent = undefined;
     const { askHealth } = await import("./ask");
     complete.mockResolvedValue("Water and plain crackers are a gentle bet.");
-    const reply = await askHealth("what should I eat for dinner?");
-    expect(reply).toContain("crackers");
+    expect(await askHealth("what should I eat for dinner?")).toBeNull();
+    expect(complete).not.toHaveBeenCalled();
   });
 
   it("sends the symptom label once a current agreement is on file (positive control)", async () => {
@@ -340,7 +357,7 @@ describe("personal context requires consent", () => {
     expect(sys).toContain("2200 cal");
   });
 
-  it("askNeedsConsent reports true exactly when askHealth would run without context", async () => {
+  it("askNeedsConsent reports true exactly when askHealth would send nothing", async () => {
     const { askNeedsConsent } = await import("./ask");
     expect(await askNeedsConsent()).toBe(false); // beforeEach grants consent
     consent = undefined;
@@ -497,15 +514,15 @@ describe("what each entry point sends", () => {
     const sept = run("r1");
 
     // Three days ago, from the home card.
-    let h = await askAndAppend("I had heartburn all week, what should I avoid?", [], ASK_FROM_HOME, undefined, daysAgo(3));
+    let h = (await askAndAppend("I had heartburn all week, what should I avoid?", [], ASK_FROM_HOME, undefined, daysAgo(3)))!;
     // Today: Find patterns, then a follow-up typed in its sheet.
     let shown: unknown[] = [];
-    h = await askAndAppend(SEPT_PATTERNS, h, sept, (items) => (shown = items));
+    h = (await askAndAppend(SEPT_PATTERNS, h, sept, (items) => (shown = items)))!;
     expect(shown.at(-1)).toMatchObject({ role: "user", content: SEPT_PATTERNS, patternsRun: "r1" });
-    h = await askAndAppend("what about the cheese?", h, sept);
+    h = (await askAndAppend("what about the cheese?", h, sept))!;
     // Then the home card, and a follow-up typed in its sheet.
-    h = await askAndAppend("what should I eat tonight?", h, ASK_FROM_HOME);
-    h = await askAndAppend("and for dessert?", h, ASK_FROM_HOME);
+    h = (await askAndAppend("what should I eat tonight?", h, ASK_FROM_HOME))!;
+    h = (await askAndAppend("and for dessert?", h, ASK_FROM_HOME))!;
 
     expect(h).toHaveLength(10);
     expect(h.every((m) => typeof m.at === "string")).toBe(true);
