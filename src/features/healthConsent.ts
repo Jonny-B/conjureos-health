@@ -61,6 +61,15 @@ let session: SessionConsent = "unknown";
 /** Bumped by every record and withdrawal, so a read that started before one does not overrule it. */
 let decisions = 0;
 
+/**
+ * Which agreement-or-withdrawal this session is on: moves on every record and
+ * every withdrawal. Something that started under one and finishes under
+ * another (an Ask Health answer still on its way) keeps nothing.
+ */
+export function healthConsentGeneration(): number {
+  return decisions;
+}
+
 /** Synchronous view for code that cannot await. */
 export function healthConsentGranted(): boolean {
   return session === "granted";

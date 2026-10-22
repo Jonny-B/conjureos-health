@@ -6,6 +6,8 @@ import { useScrollLock } from "../hooks/useScrollLock";
 import { clearAllHistories, clearHistory, visibleHistoryItems } from "../features/resetData";
 import { HealthDataPolicy } from "../components/HealthDataPolicy";
 import {
+  AI_WITHDRAW_NOT_SAVED,
+  aiWithdrawalNotSaved,
   consentIsCurrent,
   readAiJournalConsent,
   setAiJournalNotes,
@@ -40,7 +42,28 @@ export function SettingsSheet({
   const [units, setUnitsState] = useState<Profile["units"]>(profile?.units ?? "metric");
   const [consent, setConsent] = useState<AiJournalConsent | undefined>(undefined);
   const [policyOpen, setPolicyOpen] = useState(false);
+  // A withdrawal of the AI agreement in this session could not be saved.
+  const [aiNotSaved, setAiNotSaved] = useState(aiWithdrawalNotSaved);
+  const [withdrawing, setWithdrawing] = useState(false);
   useScrollLock();
+
+  /**
+   * Withdraw the Find patterns and Ask Health agreement. It holds at once,
+   * before and whatever the save does (features/aiConsent.ts), so the sheet
+   * shows it withdrawn straight away; a save that failed is said here, with a
+   * retry, because the next session reads the profile. Calling it again is
+   * the retry.
+   */
+  const withdrawAiAgreement = async () => {
+    setConsent(undefined);
+    setWithdrawing(true);
+    try {
+      await withdrawAiJournalConsent();
+    } finally {
+      setWithdrawing(false);
+      setAiNotSaved(aiWithdrawalNotSaved());
+    }
+  };
 
   // The agreement on file for sending journal data to the AI. Re-read on open
   // rather than passed in, so it reflects an accept made on the Journal tab
@@ -119,21 +142,34 @@ export function SettingsSheet({
                   />
                   <span>Send the notes I type on symptoms</span>
                 </label>
-                <button
-                  className="btn small ghost"
-                  onClick={async () => {
-                    await withdrawAiJournalConsent();
-                    setConsent(undefined);
-                  }}
-                >
+                <p className="muted small">
+                  Withdrawing stops both at once and clears your Ask Health conversation.
+                </p>
+                <button className="btn small ghost" onClick={() => void withdrawAiAgreement()}>
                   Withdraw agreement
                 </button>
               </>
             ) : (
-              <p className="muted small">
-                Nothing is sent. You will be asked, and shown exactly what would go, the first
-                time you use Find patterns or Ask Health.
-              </p>
+              <>
+                {aiNotSaved && (
+                  <>
+                    <p className="notice notice-error" role="alert">
+                      {AI_WITHDRAW_NOT_SAVED}
+                    </p>
+                    <button
+                      className="btn small ghost"
+                      disabled={withdrawing}
+                      onClick={() => void withdrawAiAgreement()}
+                    >
+                      {withdrawing ? "Withdrawing…" : "Try again"}
+                    </button>
+                  </>
+                )}
+                <p className="muted small">
+                  Nothing is sent. You will be asked, and shown exactly what would go, the first
+                  time you use Find patterns or Ask Health.
+                </p>
+              </>
             )}
             <button className="btn small ghost" onClick={() => setPolicyOpen(true)}>
               Consumer Health Data Privacy
