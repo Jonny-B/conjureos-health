@@ -34,6 +34,7 @@
 
 import type { AiJournalConsent, Profile } from "../types";
 import { getRepository } from "../data/repository";
+import { clearAskConversation } from "./ask/conversationFile";
 
 /**
  * Current disclosure wording. Bump on any material change to `DISCLOSURE_*`
@@ -60,6 +61,12 @@ import { getRepository } from "../data/repository";
  * withheld lines below were untrue of the code. The code was narrowed to
  * match them (features/ask/ask.ts, `turnsToSend`); the wording did not move,
  * and sending less needs no new agreement.
+ *
+ * Nor for the owner's withdrawal decision (2026-10-22, same issue): without
+ * an agreement nothing is sent at all, where a question and its earlier turns
+ * used to go with no context, and a withdrawal clears the conversation. Less
+ * is sent, and the sheet's withdraw line ("neither sends anything more from
+ * your journal") was already true of it.
  */
 export const DISCLOSURE_VERSION = 2;
 
@@ -119,28 +126,84 @@ export function consentIsCurrent(consent: AiJournalConsent | undefined): boolean
   return consent !== undefined && consent.version === DISCLOSURE_VERSION;
 }
 
+/*
+ * Withdrawal in this session. Owner decision, 2026-10-22 (ConjureOS #1163):
+ * "Withdrawn consent means they have withdrawn consent." After a withdrawal
+ * Find patterns and Ask Health send nothing at all: no question, no earlier
+ * turn, no health data, no follow-up.
+ *
+ *   - `withdrawnHere`: the person withdrew in this session. It stands until
+ *     they agree again, whatever the profile says. The write that drops the
+ *     agreement can fail or still be in progress, and an agreement read back
+ *     from before it must never let anything go.
+ *   - `generation`: moves on every withdrawal and every new agreement. A
+ *     question carries the generation it was asked under, and an answer that
+ *     lands under another is thrown away (features/ask/ask.ts).
+ *   - listeners: an open Ask Health sheet lets go of its conversation the
+ *     moment a withdrawal lands.
+ *   - `notSaved`: the last withdrawal could not drop the agreement or clear
+ *     the conversation, which Settings says, with a retry. The next session
+ *     reads the profile, so a failure kept quiet would let a reload send again.
+ */
+let withdrawnHere = false;
+let notSaved = false;
+let generation = 0;
+const withdrawalListeners = new Set<() => void>();
+
+/** Which agreement-or-withdrawal this session is on. See the note above. */
+export function aiConsentGeneration(): number {
+  return generation;
+}
+
+/** Run `fn` when the agreement is withdrawn in this session. Returns the unsubscribe. */
+export function onAiConsentWithdrawn(fn: () => void): () => void {
+  withdrawalListeners.add(fn);
+  return () => {
+    withdrawalListeners.delete(fn);
+  };
+}
+
+/** Whether the last withdrawal in this session could not be saved. */
+export function aiWithdrawalNotSaved(): boolean {
+  return notSaved;
+}
+
 /**
- * Whether the AI pattern-finder may run without asking first.
+ * Shown in Settings when a withdrawal could not be saved, with a "Try again".
+ * Not part of the versioned DISCLOSURE_* wording: it says nothing about what
+ * is sent while the agreement holds.
+ */
+export const AI_WITHDRAW_NOT_SAVED =
+  "Your withdrawal was not saved. Nothing is sent while the app stays open. Try again so it holds after you close it.";
+
+/**
+ * The agreement in force: the stored one, when it covers the current wording
+ * and was not withdrawn in this session. Undefined otherwise.
  *
  * Fails CLOSED: a profile that cannot be read means we do not know what was
  * agreed, and an unknown agreement is not an agreement.
  */
-export async function hasAiJournalConsent(): Promise<boolean> {
-  try {
-    const repo = await getRepository();
-    const profile = await repo.getProfile();
-    return consentIsCurrent(profile?.aiJournalConsent);
-  } catch {
-    return false;
-  }
+export async function currentAiAgreement(): Promise<AiJournalConsent | undefined> {
+  const stored = await readAiJournalConsent();
+  return consentIsCurrent(stored) ? stored : undefined;
 }
 
-/** The stored consent, or undefined when there is none (or none readable). */
+/** Whether Find patterns and Ask Health may send without asking first. */
+export async function hasAiJournalConsent(): Promise<boolean> {
+  return (await currentAiAgreement()) !== undefined;
+}
+
+/**
+ * The stored consent, or undefined when there is none (or none readable), or
+ * when it was withdrawn in this session.
+ */
 export async function readAiJournalConsent(): Promise<AiJournalConsent | undefined> {
+  if (withdrawnHere) return undefined;
   try {
     const repo = await getRepository();
     const profile = await repo.getProfile();
-    return profile?.aiJournalConsent;
+    // A withdrawal can land while the read is out.
+    return withdrawnHere ? undefined : profile?.aiJournalConsent;
   } catch {
     return undefined;
   }
@@ -164,6 +227,9 @@ export async function recordAiJournalConsent(includeNotes: boolean): Promise<boo
     },
   };
   await repo.saveProfile(next);
+  withdrawnHere = false;
+  notSaved = false;
+  generation++;
   return true;
 }
 
@@ -183,14 +249,46 @@ export async function setAiJournalNotes(includeNotes: boolean): Promise<void> {
 }
 
 /**
- * Withdraw consent. The next pattern-finder run asks again from scratch.
+ * Withdraw consent. Find patterns and Ask Health ask again from scratch.
  * Withdrawal has to be as easy as granting, which is why it sits in Settings
  * next to the other health-data controls rather than behind a support email.
+ *
+ * It takes effect before anything is saved, and holds for the session
+ * whatever the saves do: nothing is sent from here on, an answer still on its
+ * way is thrown away, an open sheet lets go of its conversation, and the
+ * stored conversation is cleared, so agreeing again starts a fresh one
+ * (owner decision 2026-10-22, ConjureOS #1163).
+ *
+ * Returns whether it was saved: the agreement dropped from the profile and
+ * the conversation cleared. Calling it again is the retry.
  */
-export async function withdrawAiJournalConsent(): Promise<void> {
-  const repo = await getRepository();
-  const profile = await repo.getProfile();
-  if (!profile) return;
-  const { aiJournalConsent: _dropped, ...rest } = profile;
-  await repo.saveProfile(rest as Profile);
+export async function withdrawAiJournalConsent(): Promise<boolean> {
+  withdrawnHere = true;
+  generation++;
+  for (const fn of [...withdrawalListeners]) {
+    try {
+      fn();
+    } catch {
+      /* one listener failing must not stop the others, or the withdrawal */
+    }
+  }
+  const [cleared, dropped] = await Promise.all([clearAskConversation(), dropAgreement()]);
+  const saved = cleared && dropped;
+  // Agreeing again meanwhile overrules the withdrawal: nothing left to say.
+  if (withdrawnHere) notSaved = !saved;
+  return saved;
+}
+
+/** Remove the agreement from the profile. Returns whether that was saved. */
+async function dropAgreement(): Promise<boolean> {
+  try {
+    const repo = await getRepository();
+    const profile = await repo.getProfile();
+    if (!profile?.aiJournalConsent) return true;
+    const { aiJournalConsent: _dropped, ...rest } = profile;
+    await repo.saveProfile(rest as Profile);
+    return true;
+  } catch {
+    return false;
+  }
 }
