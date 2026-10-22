@@ -3,10 +3,10 @@
  * package.json names what a link may ask for, and ConjureOS asks the user
  * before handing it over. Desktop only for now; feature-detected.
  *
- *   https://conjureos.com/launch/fitness?intent=addFood&query=greek%20yogurt
- *   https://conjureos.com/launch/fitness?intent=addFood&barcode=5200435000027&meal=breakfast
- *   https://conjureos.com/launch/fitness?intent=openDay&date=2026-09-27
- *   https://conjureos.com/launch/fitness?intent=exercise&date=2026-09-27
+ *   https://conjureos.com/launch/health?intent=addFood&query=greek%20yogurt
+ *   https://conjureos.com/launch/health?intent=addFood&barcode=5200435000027&meal=breakfast
+ *   https://conjureos.com/launch/health?intent=openDay&date=2026-09-27
+ *   https://conjureos.com/launch/health?intent=exercise&date=2026-09-27
  *
  * Every intent only NAVIGATES. `addFood` opens the Add screen with the search
  * filled in (or the scanned food's details open), and the user still taps to

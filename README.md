@@ -6,9 +6,9 @@
 
 > Renamed from "Conjure Fitness" on 2026-06-24, and moved here from
 > `Jonny-B/conjureos-fitness` on 2026-09-24 with its full history; that repo is
-> left for a separate fitness app. The store slug stays `fitness`: it names the
-> existing listing and where each user's data lives, so changing it would start
-> a new listing and leave that data behind.
+> left for a separate fitness app. The App Store slug is `health`, Conjure
+> Health's listing. `fitness` is a withdrawn listing (Conjure Health's old one,
+> under a legacy name) and is never published to.
 
 Calorie, nutrition, and weight tracking. A My Net Diary-style daily tracker:
 log food by search, barcode, or plain language; see calories + macros against
@@ -215,7 +215,7 @@ plan. Desktop only for now.
 ### Deep links
 
 ConjureOS opens a link like
-`https://conjureos.com/launch/fitness?intent=addFood&query=greek%20yogurt`
+`https://conjureos.com/launch/health?intent=addFood&query=greek%20yogurt`
 after the user agrees. Links only navigate: nothing is logged until the user
 taps. Desktop only for now.
 

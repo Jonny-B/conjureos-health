@@ -1,5 +1,7 @@
 # Conjure Health, project status
 
+> **2026-10-22, branch `claude/health-new-listing`, from `dev` 1.43.6, not versioned or published (the PM takes the number at merge).** **One line, on a new listing** (owner decision 2026-10-22). `main` (1.40.7) is merged into the dev line keeping dev's tree, so the dev line is the only line from here. Conjure Health publishes to a new App Store listing, slug `health`, on dev and prod: both publish steps in `.github/workflows/publish-store.yml` name it, and the deep-link examples (`src/bridge/intents.ts`, README) open `/launch/health`. `fitness` is the old listing, withdrawn, and is never published to again. Held by `scripts/storeSlug.test.mjs`. The new listing is a separate app, so nothing installed from `fitness` carries over (owner: early alpha, old data does not matter). Before the workflow can add a version, the listing is created once per project with ConjureOS's `scripts/publish-app.mjs --first-publish` (a PM step). Unchanged on purpose: the `fitness` Supabase schema and the local store key `conjure-fitness:store:v2`, which are data names, not the listing.
+
 > **2026-10-22, `dev` 1.43.6, not published.** The manifest declares its app type the new way: `appType: "sealed"` plus `editable: false`, no `editStyle` (ConjureOS Phase 62). It declared neither, so it was read as an AI-editable applet. Pinned in `src/manifest.test.ts`. Nothing a user sees changes.
 
 > **2026-10-20, branch `claude/b3-health-dev`, from `dev` 1.43.4, not versioned or published (the PM takes the number at merge).** (1) **Capable-tier calls leave room to think** (conjureos-health#10, ConjureOS #1159): Sonnet 5.5 thinks and thinking counts toward `maxTokens`, so Ask Health / Find patterns go 400 to 3000 and plan goals, the two meal parsers, label and front parse 900/1024 to 4000; `CAPABLE_MIN_MAX_TOKENS` (3000, `bridge/ai.ts`) is held by `bridge/capableCaps.test.ts` over every `complete({...})` in shipped source; `aiErrorMessage` says "The AI ran out of room before it could answer. Try again." on every surface it reaches (Ask Health, Add food describe and photo, label and front photo, other apps' food estimates), so it gives no advice a photo cannot follow. Rates unchanged; the hold rises at 0.03 credits per token of cap (Ask Health 12 to 90, the others about 30 to 120, plus the prompt). `main` (1.40.x) still has the old caps. (2) **A withdrawal that was not saved says so**: `withdrawHealthConsent` returns whether it cleared the file. The app goes to the agreement screen at once, whatever the save does, so nothing stays mounted behind Settings; when the save failed, that screen shows a not-saved notice and Try again (copy pending owner approval), and Agree waits while a retry runs. Guards: `healthConsent.test.ts`, `withdrawConsent.test.tsx` (including no shared-summary write after a withdrawal). **`main` (1.40.5) still has the silent withdrawal** (`writeJsonOrThrow(PATH, null).catch(() => {})`, and no session hold either): tracked in conjureos-health#13, fixed there by the dev to main promotion or a backport.
@@ -205,12 +207,16 @@ version 3** (Conjure Health, slug `fitness`).
 
 ## To put it back in the stores
 
-Nothing is deleted from the code. Re-publish via the normal flow:
+Nothing is deleted from the code. The listing is `health` on both projects;
+`fitness` is a withdrawn listing and is never published to.
 
+- **Once per project, first:** create the `health` listing by hand with
+  ConjureOS's `scripts/publish-app.mjs --first-publish` (ANCHOR_APP_CI_SETUP.md).
+  The workflow only adds versions to a listing that exists; before this it fails
+  with "No existing store app found for slug".
 - **Dev:** Actions, "Publish to ConjureOS App Store", Run workflow
-  (`workflow_dispatch`).
+  (`workflow_dispatch`, target dev).
 - **Prod:** publish a GitHub Release (the release-published trigger ships to the
-  prod project).
+  prod project), or Run workflow with target prod.
 
-Bump the version in `package.json` first. The publish creates a fresh
-`store_apps` row, so the app comes back as a new listing.
+Bump the version in `package.json` first.

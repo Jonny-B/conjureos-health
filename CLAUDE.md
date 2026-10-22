@@ -24,6 +24,12 @@ npm run typecheck && npm test && npm run build:inline
 
 ## Publishing
 
+The store slug is `health`; never publish to `fitness`, a withdrawn listing
+(Conjure Health's old one, under a legacy name). Both publish steps in
+`.github/workflows/publish-store.yml` name `health`, and
+`scripts/storeSlug.test.mjs` holds them and the `/launch/health` deep-link
+examples.
+
 A push to `dev` or `main` publishes nothing. The store only changes when the
 "Publish to ConjureOS App Store" workflow runs (a hand dispatch, or a published
 release, which goes to prod).
