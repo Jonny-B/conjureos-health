@@ -57,6 +57,11 @@ on:
         description: Changelog for this version
         required: false
         default: ""
+      first_publish:
+        description: Create the health listing on the target project (once per project; refused if it exists)
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: publish-store-${{ github.ref_name }}
@@ -147,6 +152,9 @@ jobs:
           html-path: dist/index.html
           slug: health
           changelog: ${{ steps.changelog.outputs.text }}
+          first-publish: ${{ github.event_name == 'workflow_dispatch' && inputs.first_publish && 'true' || 'false' }}
+          display-name: Conjure Health
+          featured: "true"
 
       # release published -> PROD project. Ships to real users.
       - name: Publish to App Store (prod)
@@ -160,3 +168,6 @@ jobs:
           html-path: dist/index.html
           slug: health
           changelog: ${{ steps.changelog.outputs.text }}
+          first-publish: ${{ github.event_name == 'workflow_dispatch' && inputs.first_publish && 'true' || 'false' }}
+          display-name: Conjure Health
+          featured: "true"
