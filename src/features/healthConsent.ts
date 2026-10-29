@@ -33,6 +33,18 @@ import { readJson, writeJsonOrThrow } from "../bridge/vfs";
  * whose own version holds for the same reason), and nothing new is collected,
  * sent or named. A bump would send every agreed person back through this gate,
  * with collection stopped until they agree again, over a label.
+ *
+ * Nor on 2026-10-29 (ConjureOS #1163), when building a plan and adding food
+ * from a description or a photo moved behind the separate AI agreement, and
+ * CONSENT_BODY said so. They used to send to the AI with only this agreement
+ * behind them; they send the same things, and only once the person has also
+ * agreed to the AI. Nothing new is collected, and less is sent on this
+ * agreement alone. The AI agreement's own version went up, since its wording
+ * got wider (features/aiConsent.ts). The same sentence also names the food
+ * estimates ConjureOS's assistant and other apps ask for, which are behind the
+ * AI agreement too and sent without it before, and says the features send
+ * nothing without it rather than that they ask (the estimates refuse, they do
+ * not ask): same reasoning, nothing new collected and less sent.
  */
 export const HEALTH_CONSENT_VERSION = 1;
 const PATH = "health-consent.json";

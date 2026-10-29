@@ -364,8 +364,15 @@ export class MockRepository implements Repository {
   }
 
   async saveProfile(profile: Profile): Promise<void> {
+    // Never the agreement versions 1 and 2 of the AI agreement kept on the
+    // profile. This version keeps it in a file of its own and never reads this
+    // one, but an older version of the app still does, and callers save the
+    // profile App read at startup, which carries whatever was there then: a
+    // withdrawal dropped it, and a units change would put it back
+    // (features/aiConsent.ts, ConjureOS #1163).
+    const { aiJournalConsent: _legacy, ...rest } = profile;
     await this.mutate((s) => {
-      s.profile = profile;
+      s.profile = rest;
     });
   }
 

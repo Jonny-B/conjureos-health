@@ -192,17 +192,19 @@ describe("the cross-app actions' check", () => {
 
 /**
  * The gate's wording names Ask Health where it named the same feature as "the
- * food coach". That rename is not a material change (see the note on
- * HEALTH_CONSENT_VERSION), so agreements already given still count. Read that
- * note before changing either half of this.
+ * food coach", and puts every feature that sends to the AI behind its own
+ * agreement (2026-10-29). Neither is a material change to what is collected
+ * (see the note on HEALTH_CONSENT_VERSION), so agreements already given still
+ * count. Read that note before changing either half of this.
  */
 describe("the gate's wording", () => {
-  it("names Ask Health behind its own agreement, and names no coach", () => {
+  it("puts every feature that sends to the AI behind its own agreement, and names no coach", () => {
     const body = CONSENT_BODY.join(" ");
     expect(body).toContain(
-      "Find patterns and Ask Health ask for a separate agreement before they send anything.",
+      "Some features send part of it to an AI to work: building a plan, adding food from a description or a photo, food estimates for ConjureOS's assistant and other apps, Find patterns and Ask Health. They send nothing without a separate agreement.",
     );
     expect(body).not.toMatch(/coach|ask about food/i);
+    expect(body).not.toMatch(/\b(now|no longer|yet)\b/i);
   });
 
   it("stays on the version agreements were given under", () => {

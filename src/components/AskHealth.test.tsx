@@ -111,12 +111,14 @@ describe("Ask Health touch targets", () => {
  * alone, so the block gives them a 44px minimum.
  */
 describe("Settings privacy", () => {
-  it("names Ask Health beside Find patterns, and no coach", async () => {
+  it("names Ask Health beside Find patterns, among the features the agreement covers, and no coach", async () => {
     const src = (await import("../screens/SettingsSheet.tsx?raw")).default;
     const block = /<div className="privacy-block">([\s\S]*?)\n {10}<\/div>/.exec(src)?.[1];
     expect(block).toBeDefined();
-    expect(block).toContain("<strong>Find patterns</strong> and <strong>Ask Health</strong>");
-    expect(block).toContain("time you use Find patterns or Ask Health.");
+    // The list is AI_FEATURES (features/aiConsent.ts), which names both.
+    expect(block).toContain("{AI_FEATURES.map((name) => (");
+    const { AI_FEATURES } = await import("../features/aiConsent");
+    expect(AI_FEATURES).toEqual(expect.arrayContaining(["Find patterns", "Ask Health"]));
     expect(block).not.toMatch(/coach/i);
   });
 

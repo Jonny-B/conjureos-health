@@ -71,7 +71,6 @@ vi.mock("../data/repository", () => ({
       units: "metric",
       weightKg: 81,
       direction: "lose",
-      aiJournalConsent: { version: DISCLOSURE_VERSION, acceptedAt: "2026-01-01T00:00:00.000Z", includeNotes: false },
     }),
     listDiary: async (d: string) => {
       await waitFor(d);
@@ -126,6 +125,10 @@ beforeEach(async () => {
   // The app shows nothing that asks until the person agrees to it keeping
   // health data (components/HealthConsentGate).
   files["health-consent.json"] = JSON.stringify({ acceptedAt: "2026-09-01T09:00:00.000Z", version: 1 });
+  // The AI agreement, a file of its own (features/aiConsent.ts).
+  files["ai-consent.json"] = JSON.stringify({
+    version: DISCLOSURE_VERSION, acceptedAt: "2026-01-01T00:00:00.000Z", includeNotes: false,
+  });
   const { loadHealthConsent } = await import("../features/healthConsent");
   expect(await loadHealthConsent()).toBe(true);
   gates.clear();

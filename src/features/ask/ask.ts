@@ -12,11 +12,12 @@
  * the conversation. (Renamed from "Ask about food", 2026-10-10.)
  */
 
-import { aiErrorMessage, complete, isAiAvailable, type ChatMessage } from "../../bridge/ai";
+import { aiErrorMessage, isAiAvailable, type ChatMessage } from "../../bridge/ai";
 import { readJson, writeJson } from "../../bridge/vfs";
 import { getRepository } from "../../data/repository";
 import { daySnapshot, recentSnapshots, renderDayForPrompt, renderRecentForPrompt } from "../dataApi";
-import { aiConsentGeneration, currentAiAgreement, hasAiJournalConsent } from "../aiConsent";
+import { currentAiAgreement, hasAiJournalConsent } from "../aiConsent";
+import { completeUnderAgreement, isAiNotAgreed, takeAiTicket } from "../aiGate";
 import { healthConsentGeneration, healthConsentGranted } from "../healthConsent";
 import type { AiJournalConsent } from "../../types";
 import { ASK_CHAT_PATH } from "./conversationFile";
@@ -331,9 +332,8 @@ export async function askHealth(
 ): Promise<string | null> {
   const q = question.trim();
   if (!q) return "";
-  const asked = aiConsentGeneration();
-  const agreement = await currentAiAgreement();
-  if (!agreement || asked !== aiConsentGeneration()) return null;
+  const ticket = await takeAiTicket();
+  if (!ticket) return null;
   if (!isAiAvailable()) {
     return "I need the ConjureOS AI service to answer, and I can't reach it from here. Open Conjure Health inside ConjureOS and try again.";
   }
@@ -342,13 +342,12 @@ export async function askHealth(
   // nothing else: no today, no 2 days before.
   const ctx = from.kind === "patterns" ? "" : await askContext();
   // Reading today takes several reads, and a withdrawal can land during any
-  // of them, here or on another device. So the agreement is checked again
-  // after the last of them, and nothing below waits on anything before the
-  // request goes: a question that passed the gate above does not go out
-  // after a withdrawal with today's health data on it.
-  if (!(await stillAgreed(asked, agreement))) return null;
+  // of them, here or on another device. So the ticket goes to the gate, which
+  // checks the agreement again after the last of them, with nothing awaited
+  // between that check and the request: a question that passed the check
+  // above does not go out after a withdrawal with today's health data on it.
   const messages: ChatMessage[] = [
-    ...turnsToSend(turnsUnderAgreement(history, agreement), from).map(
+    ...turnsToSend(turnsUnderAgreement(history, ticket.agreement), from).map(
       (m) => ({ role: m.role, content: m.content }) as ChatMessage,
     ),
     { role: "user", content: q },
@@ -360,38 +359,28 @@ export async function askHealth(
         ? `${SYSTEM}\n\nABOUT THIS USER\n${ctx}`
         : SYSTEM;
 
-  let text: string;
   try {
-    const reply = await complete({
-      system,
-      messages,
-      // Room to think plus the answer, whose length the prompt's STYLE lines
-      // bound (four sentences at most). conjureos-health#10.
-      maxTokens: 3000,
-      tier: "capable",
-    });
-    text = reply.trim() || "I couldn't come up with an answer to that one. Try asking it a different way?";
+    const reply = await completeUnderAgreement(
+      {
+        system,
+        messages,
+        // Room to think plus the answer, whose length the prompt's STYLE lines
+        // bound (four sentences at most). conjureos-health#10.
+        maxTokens: 3000,
+        tier: "capable",
+      },
+      ticket,
+    );
+    return reply.trim() || "I couldn't come up with an answer to that one. Try asking it a different way?";
   } catch (err) {
-    text = aiErrorMessage(err, "Something went wrong reaching the AI service. Try again in a moment.");
+    // Withdrawn after the check above, or while the question was out, here or
+    // on another device: the answer is thrown away, failure sentence
+    // included, and nothing of it is shown or kept. So is one that lands
+    // after a withdrawal and a new agreement, which starts a fresh
+    // conversation (features/aiGate.ts).
+    if (isAiNotAgreed(err)) return null;
+    return aiErrorMessage(err, "Something went wrong reaching the AI service. Try again in a moment.");
   }
-  // A withdrawal that landed while the question was out, here or on another
-  // device, throws the answer away, failure sentence included: nothing of it
-  // is shown or kept. So does a withdrawal followed by a new agreement, which
-  // starts a fresh conversation.
-  if (!(await stillAgreed(asked, agreement))) return null;
-  return text;
-}
-
-/**
- * Whether the agreement a question was asked under still holds: no
- * withdrawal or new agreement in this session since `asked`, and the same
- * agreement on file, since another device can withdraw, or withdraw and agree
- * again, and this session only sees the profile change.
- */
-async function stillAgreed(asked: number, agreement: AiJournalConsent): Promise<boolean> {
-  if (asked !== aiConsentGeneration()) return false;
-  const still = await currentAiAgreement();
-  return asked === aiConsentGeneration() && still?.acceptedAt === agreement.acceptedAt;
 }
 
 /**

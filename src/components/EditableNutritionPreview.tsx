@@ -96,7 +96,17 @@ export function EditableNutritionPreview({
   // timer so unmounting (the user hits Back first) cancels it — otherwise it
   // fires onConfirm against a dead screen and logs the food anyway.
   const advanceTimer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(advanceTimer.current), []);
+  // The same for a save still out when the screen goes: Back, or an AI
+  // reading let go of when the AI agreement is withdrawn (ConjureOS #1163).
+  // Nothing is handed on from a screen that is gone.
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      window.clearTimeout(advanceTimer.current);
+    };
+  }, []);
 
   const onSave = async () => {
     setSave({ phase: "saving" });
@@ -108,6 +118,7 @@ export function EditableNutritionPreview({
       aiConfidence: isFix ? undefined : aiConfidence,
       userEdited,
     });
+    if (!alive.current) return;
     if (res.ok) {
       const merged = res.food ?? food;
       onConfirm(merged);

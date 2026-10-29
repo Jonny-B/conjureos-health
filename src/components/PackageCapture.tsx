@@ -10,6 +10,13 @@
  *
  * With only a front photo this falls through to the estimator, which guesses
  * from appearance; with a panel involved the numbers are read, not guessed.
+ *
+ * Both send the photos to the AI, so reading them needs the AI agreement
+ * (owner decision 2026-10-29, ConjureOS #1163). Without it the photos are off
+ * the way Add food's AI mode is: no camera, a line saying they use the AI, and
+ * one tap to the agreement. Taking a photo sends nothing; the read button
+ * checks the agreement again (another device can withdraw it), asks for it in
+ * place when it is gone, and sends only once it is saved.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -18,7 +25,13 @@ import type { FoodItem } from "../types";
 import { parseNutritionLabel } from "../features/foods/labelParse";
 import { estimateFromFront, type FrontEstimate } from "../features/foods/frontParse";
 import { CameraCapture } from "./CameraCapture";
+import { useAiAgreement } from "./useAiAgreement";
+import { AI_AGREEMENT_NOT_SAVED, onAiConsentWithdrawn } from "../features/aiConsent";
+import { isAiNotAgreed } from "../features/aiGate";
 import { ChevronLeft, NutritionPanelIcon, PackageIcon } from "./icons";
+
+/** Said when the agreement was withdrawn before a read came back, or was not there after all. */
+const NOT_READ_WITHDRAWN = "Nothing was read. Reading a photo uses the AI, and needs your agreement.";
 
 type Slot = "label" | "front";
 
@@ -43,10 +56,13 @@ export function PackageCapture({
   const [taking, setTaking] = useState<Slot | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const ai = useAiAgreement("package");
 
   // Preview URLs are object URLs; leaking them holds the whole still in memory.
   const urls = useRef<string[]>([]);
   useEffect(() => () => urls.current.forEach((u) => URL.revokeObjectURL(u)), []);
+  // A withdrawal closes the camera with the rest (the hook turns them off).
+  useEffect(() => onAiConsentWithdrawn(() => setTaking(null)), []);
 
   const captured = (slot: Slot) => (image: ChatImage, url: string) => {
     urls.current.push(url);
@@ -68,7 +84,13 @@ export function PackageCapture({
       return next;
     });
 
-  const read = async () => {
+  /** The read button: asks for the agreement first when there is none. */
+  const read = () => {
+    if (!shots.label && !shots.front) return;
+    ai.withAgreement(() => void send());
+  };
+
+  const send = async () => {
     const label = shots.label?.image;
     const front = shots.front?.image;
     if (!label && !front) return;
@@ -99,11 +121,34 @@ export function PackageCapture({
         ...(est.warningNote ? { warningNote: est.warningNote } : {}),
       });
     } catch (err) {
-      setError(aiErrorMessage(err, "The estimator didn’t respond. Try again."));
+      // Withdrawn while the photos were out, or on another device: nothing
+      // of the answer is handed back (features/aiGate.ts).
+      setError(isAiNotAgreed(err) ? NOT_READ_WITHDRAWN : aiErrorMessage(err, "The estimator didn’t respond. Try again."));
     } finally {
       setBusy(false);
     }
   };
+
+  // Off without the agreement, as Add food's AI mode is. Null while it is read.
+  if (ai.agreed !== true) {
+    return (
+      <div className="mode-body package-capture">
+        <button className="link-btn back-link" onClick={onCancel}>
+          <ChevronLeft size={16} /> Back
+        </button>
+        {ai.agreed === false && (
+          <div className="ai-off">
+            <p>Reading a package photo uses the AI, and needs your agreement first.</p>
+            <button className="btn primary block" onClick={() => ai.withAgreement()}>
+              Review and agree
+            </button>
+            {ai.notSaved && <p className="notice notice-error">{AI_AGREEMENT_NOT_SAVED}</p>}
+          </div>
+        )}
+        {ai.sheet}
+      </div>
+    );
+  }
 
   if (taking) {
     return (
@@ -134,8 +179,8 @@ export function PackageCapture({
       <div className="snap-miss-copy">
         <div>Photograph the package</div>
         <div className="muted small">
-          Either one works on its own. Both together is best — the panel has the real numbers, the
-          front has the product name.
+          The AI reads what you photograph. Either one works on its own, and both together is
+          best: the panel has the real numbers, the front has the product name.
         </div>
       </div>
 
@@ -159,6 +204,7 @@ export function PackageCapture({
       </div>
 
       {error && <div className="notice notice-error">{error}</div>}
+      {ai.notSaved && <div className="notice notice-error">{AI_AGREEMENT_NOT_SAVED}</div>}
 
       <button className="btn primary block" disabled={busy || count === 0} onClick={read}>
         {busy
@@ -179,6 +225,7 @@ export function PackageCapture({
             : "Adding the nutrition panel gives measured numbers instead of an estimate."}
         </div>
       )}
+      {ai.sheet}
     </div>
   );
 }

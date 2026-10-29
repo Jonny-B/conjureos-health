@@ -125,7 +125,10 @@ vi.mock("../features/foods/foodSearch", async (orig) => ({
 // Consent to collect health data (features/healthConsent.ts). Granted for
 // every test except the one that checks the refusal.
 let consentGranted = true;
-vi.mock("../features/healthConsent", () => ({ healthConsentOnFile: async () => consentGranted }));
+vi.mock("../features/healthConsent", () => ({
+  healthConsentOnFile: async () => consentGranted,
+  healthConsentGeneration: () => 0,
+}));
 
 let actions: Record<string, Handler> = {};
 

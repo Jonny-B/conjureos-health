@@ -18,10 +18,14 @@ const SHIPPED = import.meta.glob(["../**/*.{ts,tsx}", "!../**/*.test.{ts,tsx}"],
   eager: true,
 }) as Record<string, string>;
 
-/** The object literal passed to each `complete(` call in `text`, braces balanced. */
+/**
+ * The object literal passed to each `complete(` call in `text`, braces
+ * balanced, and to each `completeUnderAgreement(`, the gate every feature
+ * sends through (features/aiGate.ts).
+ */
 function completeRequests(text: string): string[] {
   const out: string[] = [];
-  const call = /\bcomplete\(\s*\{/g;
+  const call = /\b(?:complete|completeUnderAgreement)\(\s*\{/g;
   for (let m = call.exec(text); m; m = call.exec(text)) {
     const start = m.index + m[0].length - 1;
     let depth = 0;

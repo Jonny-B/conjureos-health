@@ -10,7 +10,9 @@
  */
 
 import type { LiabilityAck, Plan, PlanGoal, PlanTargets } from "../../types";
-import { complete, extractJson, isAiAvailable } from "../../bridge/ai";
+import { extractJson, isAiAvailable } from "../../bridge/ai";
+import { AiNotAgreedError, completeUnderAgreement, isAiNotAgreed } from "../aiGate";
+import { hasAiJournalConsent } from "../aiConsent";
 import { newId } from "../../data/id";
 import { shiftDate, todayISO } from "../diary";
 import { macrosForCalories } from "../goals";
@@ -189,7 +191,7 @@ function parseCore(raw: string): CoreParse {
 
 /** Generate the core plan (goals). Throws on transport error; typed failure otherwise. */
 async function generateCore(input: PlanInput, priorReasons?: string[]): Promise<CoreParse> {
-  const raw = await complete({
+  const raw = await completeUnderAgreement({
     system: SYSTEM_CORE,
     messages: [{ role: "user", content: buildUserPrompt(input, priorReasons) }],
     // The goals JSON (about 900 tokens) plus room to think. conjureos-health#10.
@@ -274,16 +276,24 @@ export interface CreatePlanResult {
 
 /**
  * The wizard's plan call: generate → validate → retry (with the reasons) →
- * fallback template. Never throws. The calorie target is supplied locally
+ * fallback template. The calorie target is supplied locally
  * (`input.calorieTarget`, from Mifflin) so a plan is NOT rejected just because
  * the model omitted the number — the #1 cause of unwanted fallbacks. When it
  * does fall back, `failureReason` records exactly why.
+ *
+ * Building a plan sends the person's answers to the AI, so it needs the AI
+ * agreement (owner decision 2026-10-29, ConjureOS #1163: "If you remove
+ * consent, we should stop the plan builder"). Throws `AiNotAgreedError`, and
+ * builds nothing, when there is no agreement, or when it is withdrawn while a
+ * plan is out: no starter plan in its place, which would read as the builder
+ * having worked, and no retry. Never throws otherwise.
  */
 export async function createPlan(
   input: PlanInput,
   liability: LiabilityAck,
   opts?: CreatePlanOptions,
 ): Promise<CreatePlanResult> {
+  if (!(await hasAiJournalConsent())) throw new AiNotAgreedError("none");
   const ctx = { mode: input.mode, sex: input.sex };
   const onStage = opts?.onStage;
 
@@ -323,6 +333,7 @@ export async function createPlan(
         }
         return { plan: buildPlan(candidate, input, liability), gen: candidate, usedFallback: false };
       } catch (err) {
+        if (isAiNotAgreed(err)) throw err;
         lastError = err instanceof Error ? err.message : String(err);
       }
     }

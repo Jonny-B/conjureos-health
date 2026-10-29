@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features/aiConsent";
+import { AI_FEATURES, DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features/aiConsent";
+import type { AiConsentPurpose } from "./AiConsentSheet";
+
+const PURPOSES = ["ask", "patterns", "plan", "package", "food"] as const;
 
 /**
- * One consent sheet serves Find patterns and Ask Health, under one agreement.
- * Its framing names both, and the button a person agrees with names what they
- * asked for: a food question is not agreed to as "find patterns".
+ * One consent sheet serves every feature that sends to the AI, under one
+ * agreement (ConjureOS #1163, 2026-10-29). Its framing names them all, and the
+ * button a person agrees with names what they asked for: a food question is
+ * not agreed to as "find patterns".
  */
-async function render(purpose: "patterns" | "ask"): Promise<{ html: string; text: string }> {
+async function render(purpose: AiConsentPurpose): Promise<{ html: string; text: string }> {
   const { AiConsentSheet } = await import("./AiConsentSheet");
   const html = renderToStaticMarkup(
     <AiConsentSheet purpose={purpose} onAccept={() => {}} onCancel={() => {}} />,
@@ -32,24 +36,31 @@ describe("the AI consent sheet", () => {
     expect(agreeLabel(html)).toBe("Send and find patterns");
   });
 
-  it.each(["ask", "patterns"] as const)("introduces both features either way (%s)", async (purpose) => {
+  it("agrees to building a plan, reading package photos, and Add food's AI mode by name", async () => {
+    expect(agreeLabel((await render("plan")).html)).toBe("Send and build my plan");
+    expect(agreeLabel((await render("package")).html)).toBe("Send and read");
+    // Agreeing there turns the mode on; nothing is sent until they use it.
+    expect(agreeLabel((await render("food")).html)).toBe("Agree");
+  });
+
+  it.each(PURPOSES)("introduces every feature the agreement covers, whichever opened it (%s)", async (purpose) => {
     const { text } = await render(purpose);
-    expect(text).toContain(
-      "Find patterns and Ask Health send part of your journal to an AI service outside this app.",
-    );
-    expect(text).toContain("One agreement covers both.");
+    expect(text).toContain("These features send what they need to an AI service outside this app.");
+    expect(text).toContain("One agreement covers all of them.");
+    for (const name of AI_FEATURES) expect(text).toContain(name);
+    expect(text).toContain("Withdrawing stops all of them sending anything more, and to use them again you agree again.");
     expect(text).not.toContain("Finding patterns means");
     expect(text).not.toMatch(/future analysis/);
   });
 
-  it.each(["ask", "patterns"] as const)("shows the whole versioned disclosure (%s)", async (purpose) => {
+  it.each(PURPOSES)("shows the whole versioned disclosure (%s)", async (purpose) => {
     const { text } = await render(purpose);
     for (const line of [...DISCLOSURE_SENDS, ...DISCLOSURE_WITHHOLDS]) {
       expect(text).toContain(line.replace(/\s+/g, " "));
     }
   });
 
-  it.each(["ask", "patterns"] as const)("keeps to the copy rules (%s)", async (purpose) => {
+  it.each(PURPOSES)("keeps to the copy rules (%s)", async (purpose) => {
     const { html, text } = await render(purpose);
     expect(text).not.toContain("—");
     // "Not now" is the decline label every consent gate in the app shares: a
