@@ -248,8 +248,10 @@ export interface Profile {
   /** Guided-setup progress. Absent ⇒ setup never started. Additive; rides
    *  saveProfile, so it works on both the mock and Supabase backends. */
   setup?: ProfileSetup;
-  /** Agreement to send journal data to the AI for pattern analysis. Absent
-   *  ⇒ never asked, and nothing may be sent. */
+  /** Where versions 1 and 2 of the AI agreement were kept. Never read: the
+   *  agreement is a file of its own since version 3 (features/aiConsent.ts),
+   *  and withdrawing drops this one too, for an older version of the app on
+   *  another device that still reads it. */
   aiJournalConsent?: AiJournalConsent;
 }
 

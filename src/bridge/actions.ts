@@ -39,6 +39,11 @@
  * Every write that adds a record also returns `display`, the card ConjureOS
  * Chat shows under its line (ConjureOS #1036, #1156).
  *
+ * The two that ask the AI, `estimateNutrition` and `logFood` without
+ * calories, need the person's AI agreement as well as the one to keep health
+ * data: without it they answer `NEEDS_AI_CONSENT`, send nothing and log
+ * nothing (owner decision 2026-10-29, ConjureOS #1163).
+ *
  * Deliberately NOT exposed, and not an oversight:
  *
  *   - Granting AI-journal consent. An agent cannot agree to a health-data
@@ -70,7 +75,8 @@
  * reporting success.
  */
 
-import { healthConsentOnFile } from "../features/healthConsent";
+import { healthConsentGeneration, healthConsentOnFile } from "../features/healthConsent";
+import { isAiNotAgreed } from "../features/aiGate";
 import type { FoodItem, Macros, MealType, Profile, WorkoutSession } from "../types";
 import { MEAL_LABELS, MEAL_TYPES } from "../types";
 import { getRepository, type Repository } from "../data/repository";
@@ -362,6 +368,9 @@ async function estimateFoods(text: string, label: string, retryHint = ""): Promi
   try {
     items = await parseMeal({ text });
   } catch (err) {
+    // No AI agreement, or it was withdrawn while the estimate was out: nothing
+    // was sent, or the answer was thrown away (features/aiGate.ts).
+    if (isAiNotAgreed(err)) throw new Error(NEEDS_AI_CONSENT);
     throw new Error(`Couldn't estimate ${label}. ${estimateFailure(err)}${retryHint}`);
   }
   if (items.length === 0) {
@@ -399,7 +408,13 @@ async function logFood(raw?: unknown): Promise<{
   let foods: FoodItem[];
   const estimated = p.calories === undefined || p.calories === null;
   if (estimated) {
+    // The agreement to keep health data this call runs under. An estimate
+    // that lands after the person withdrew it logs nothing (ConjureOS #1163).
+    const collecting = healthConsentGeneration();
     foods = await estimateFoods(name, `"${name}"`, " Or pass calories to log it with your own numbers.");
+    if (collecting !== healthConsentGeneration() || !(await healthConsentOnFile())) {
+      throw new Error(NEEDS_HEALTH_CONSENT);
+    }
     // One food: keep the words the user used for it rather than the model's
     // rewording of them.
     if (foods.length === 1 && foods[0]) foods = [{ ...foods[0], name }];
@@ -1625,6 +1640,16 @@ async function weightTrend(raw?: unknown): Promise<{
  */
 export const NEEDS_HEALTH_CONSENT =
   "NEEDS_CONSENT:Open Conjure Health and agree to let it keep your health data.";
+
+/**
+ * What an action that needs the AI throws while there is no AI agreement, or
+ * when it was withdrawn while the estimate was out: `estimateNutrition`, and
+ * `logFood` without calories (owner decision 2026-10-29, ConjureOS #1163).
+ * Nothing was sent, or the answer was thrown away, and nothing was logged.
+ * Same marker as above; the agreement is a different one.
+ */
+export const NEEDS_AI_CONSENT =
+  "NEEDS_CONSENT:Open Conjure Health and agree to let it use the AI to estimate food.";
 
 /**
  * Every action refuses while there is no consent to collect health data on

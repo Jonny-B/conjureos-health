@@ -3394,6 +3394,20 @@ input[type="date"].text-input {
 .consent-list.withheld {
   color: var(--muted);
 }
+/* Add food's AI mode before the AI agreement: off, with one tap to it. */
+.ai-off {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ai-off p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.ai-off .btn {
+  min-height: 44px;
+}
 /* A real sample of the payload, not a paraphrase — it wraps rather than
    scrolls so nothing about what is sent is hidden off the right edge. */
 .consent-sample {

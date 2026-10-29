@@ -10,6 +10,11 @@
  *
  * With only a front photo this falls through to the estimator, which guesses
  * from appearance; with a panel involved the numbers are read, not guessed.
+ *
+ * Both send the photos to the AI, so reading them needs the AI agreement
+ * (owner decision 2026-10-29, ConjureOS #1163). Taking a photo sends nothing;
+ * the read button asks for the agreement in place when there is none, and
+ * sends only once it is saved.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -18,7 +23,13 @@ import type { FoodItem } from "../types";
 import { parseNutritionLabel } from "../features/foods/labelParse";
 import { estimateFromFront, type FrontEstimate } from "../features/foods/frontParse";
 import { CameraCapture } from "./CameraCapture";
+import { useAiAgreement } from "./useAiAgreement";
+import { AI_AGREEMENT_NOT_SAVED } from "../features/aiConsent";
+import { isAiNotAgreed } from "../features/aiGate";
 import { ChevronLeft, NutritionPanelIcon, PackageIcon } from "./icons";
+
+/** Said when the agreement was withdrawn before a read came back, or was not there after all. */
+const NOT_READ_WITHDRAWN = "Nothing was read. Reading a photo uses the AI, and needs your agreement.";
 
 type Slot = "label" | "front";
 
@@ -43,6 +54,7 @@ export function PackageCapture({
   const [taking, setTaking] = useState<Slot | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const ai = useAiAgreement("package");
 
   // Preview URLs are object URLs; leaking them holds the whole still in memory.
   const urls = useRef<string[]>([]);
@@ -68,7 +80,13 @@ export function PackageCapture({
       return next;
     });
 
-  const read = async () => {
+  /** The read button: asks for the agreement first when there is none. */
+  const read = () => {
+    if (!shots.label && !shots.front) return;
+    ai.withAgreement(() => void send());
+  };
+
+  const send = async () => {
     const label = shots.label?.image;
     const front = shots.front?.image;
     if (!label && !front) return;
@@ -99,7 +117,9 @@ export function PackageCapture({
         ...(est.warningNote ? { warningNote: est.warningNote } : {}),
       });
     } catch (err) {
-      setError(aiErrorMessage(err, "The estimator didn’t respond. Try again."));
+      // Withdrawn while the photos were out, or on another device: nothing
+      // of the answer is handed back (features/aiGate.ts).
+      setError(isAiNotAgreed(err) ? NOT_READ_WITHDRAWN : aiErrorMessage(err, "The estimator didn’t respond. Try again."));
     } finally {
       setBusy(false);
     }
@@ -159,6 +179,7 @@ export function PackageCapture({
       </div>
 
       {error && <div className="notice notice-error">{error}</div>}
+      {ai.notSaved && <div className="notice notice-error">{AI_AGREEMENT_NOT_SAVED}</div>}
 
       <button className="btn primary block" disabled={busy || count === 0} onClick={read}>
         {busy
@@ -179,6 +200,7 @@ export function PackageCapture({
             : "Adding the nutrition panel gives measured numbers instead of an estimate."}
         </div>
       )}
+      {ai.sheet}
     </div>
   );
 }

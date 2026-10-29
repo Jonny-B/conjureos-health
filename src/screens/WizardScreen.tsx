@@ -19,6 +19,9 @@ import type { PlanInput } from "../features/plan/model";
 import { modeTracksFood } from "../features/plan/model";
 import type { WizardBody } from "../features/plan/planService";
 import { decidePlanEdit } from "../features/plan/planService";
+import { useAiAgreement } from "../components/useAiAgreement";
+import { AI_AGREEMENT_NOT_SAVED } from "../features/aiConsent";
+import { isAiNotAgreed } from "../features/aiGate";
 
 type Step = "disclaimer" | "mode" | "safety" | "inputs" | "review";
 
@@ -134,6 +137,11 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
   const [stage, setStage] = useState<PlanStage | null>(null);
   const [tweakOpen, setTweakOpen] = useState(false);
   const [tweakText, setTweakText] = useState("");
+  // Building a plan sends the answers to the AI, so it needs the AI agreement,
+  // asked for in place on "Build my plan" (owner decision 2026-10-29,
+  // ConjureOS #1163). A plan that lands after a withdrawal is not kept.
+  const ai = useAiAgreement("plan");
+  const [notBuilt, setNotBuilt] = useState(false);
 
   const ageBand = ageToBand(age ?? 30);
   const intake: SafetyIntake = { ageBand, pregnant, cardiacFlag, activityLevel };
@@ -178,10 +186,18 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
   const runPreview = async (extraGoal = "") => {
     setPreviewLoading(true);
     setPreview(null);
+    setNotBuilt(false);
     setStage("calories");
     try {
       const result = await createPlan(buildInput(extraGoal), PLACEHOLDER_ACK, { onStage: setStage });
       setPreview(result);
+    } catch (err) {
+      // No agreement after all, or withdrawn while the plan was being built:
+      // nothing was built and nothing is kept (features/aiGate.ts).
+      if (!isAiNotAgreed(err)) throw err;
+      ai.lost();
+      setNotBuilt(true);
+      setStep("inputs");
     } finally {
       setPreviewLoading(false);
       setStage(null);
@@ -197,10 +213,16 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
   const isModify = editMode && editDecision === "modify";
 
   const goReview = () => {
-    setStep("review");
     // A modify keeps the existing goals, so there's nothing to generate — we
-    // only recompute the calorie target locally.
-    if (!isModify) void runPreview();
+    // only recompute the calorie target locally, and nothing goes to the AI.
+    if (isModify) {
+      setStep("review");
+      return;
+    }
+    ai.withAgreement(() => {
+      setStep("review");
+      void runPreview();
+    });
   };
 
   const inputsValid = tracksFood ? heightCm != null && weightKg != null : true;
@@ -278,7 +300,8 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
         <div className="mode-body wizard-step">
           <WizardHead n={2} title="About you" />
           <p className="muted small">
-            Everything about your body in one place. Nothing leaves your device.
+            Everything about your body in one place. Building your plan sends these to an AI,
+            and only with your agreement.
           </p>
 
           <div className="form-grid">
@@ -387,12 +410,25 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
             </span>
           </div>
 
+          {notBuilt && (
+            <p className="notice notice-error">
+              Your plan was not built. Your AI agreement was withdrawn, and nothing of the plan was
+              kept.
+            </p>
+          )}
+          {ai.notSaved && <p className="notice notice-error">{AI_AGREEMENT_NOT_SAVED}</p>}
+
           <div className="wizard-nav">
             <button className="btn" onClick={() => setStep("safety")}>Back</button>
             <button className="btn primary" disabled={!inputsValid} onClick={goReview}>
               {isModify ? "Review changes" : editMode ? "Rebuild my plan" : "Build my plan"}
             </button>
           </div>
+          {!isModify && ai.agreed === false && (
+            <p className="muted small">
+              Building your plan uses the AI. You are asked to agree before anything is sent.
+            </p>
+          )}
         </div>
       )}
 
@@ -472,9 +508,12 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
                   <button
                     className="btn block"
                     onClick={() => {
-                      setTweakOpen(false);
-                      void runPreview(tweakText.trim());
-                      setTweakText("");
+                      const extra = tweakText.trim();
+                      ai.withAgreement(() => {
+                        setTweakOpen(false);
+                        void runPreview(extra);
+                        setTweakText("");
+                      });
                     }}
                   >
                     Regenerate
@@ -498,6 +537,7 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
           )}
         </div>
       )}
+      {ai.sheet}
     </div>
   );
 }

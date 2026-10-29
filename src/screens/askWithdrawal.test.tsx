@@ -110,12 +110,13 @@ beforeEach(async () => {
   profile = {
     sex: "female", age: 34, heightCm: 168, weightKg: 70, activityLevel: "moderate",
     direction: "lose", units: "metric",
-    aiJournalConsent: {
-      version: consent.DISCLOSURE_VERSION,
-      acceptedAt: new Date(2026, 9, 1, 9, 0, 0).toISOString(),
-      includeNotes: false,
-    },
   };
+  // The AI agreement, a file of its own (features/aiConsent.ts).
+  files["ai-consent.json"] = JSON.stringify({
+    version: consent.DISCLOSURE_VERSION,
+    acceptedAt: new Date(2026, 9, 1, 9, 0, 0).toISOString(),
+    includeNotes: false,
+  });
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -235,8 +236,8 @@ describe("an open sheet, when the withdrawal lands", () => {
     await home();
     await type("Ask Health a question", "what should I eat tonight?");
     await click("Ask");
-    // Withdrawn on another device: this session only sees the profile change.
-    delete profile.aiJournalConsent;
+    // Withdrawn on another device: this session only sees the file change.
+    delete files["ai-consent.json"];
     await type("Ask a follow-up", "and for dessert?");
     await click("Send");
     expect(complete).toHaveBeenCalledTimes(1);
@@ -363,21 +364,21 @@ describe("Settings, under Privacy", () => {
     await settings();
     await click("Withdraw agreement");
     expect(stored()).toEqual([]);
-    expect(profile.aiJournalConsent).toBeUndefined();
+    expect(JSON.parse(files["ai-consent.json"]!)).toBeNull();
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
   it("says when the withdrawal was not saved, and Try again saves it", async () => {
-    profileSaveFails = true;
+    writesFail = true;
     await settings();
     await click("Withdraw agreement");
     expect(container.querySelector('[role="alert"]')?.textContent).toBe(consent.AI_WITHDRAW_NOT_SAVED);
     // Nothing goes meanwhile.
     expect(await consent.hasAiJournalConsent()).toBe(false);
 
-    profileSaveFails = false;
+    writesFail = false;
     await click("Try again");
     expect(container.querySelector('[role="alert"]')).toBeNull();
-    expect(profile.aiJournalConsent).toBeUndefined();
+    expect(JSON.parse(files["ai-consent.json"]!)).toBeNull();
   });
 });

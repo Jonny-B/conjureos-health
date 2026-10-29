@@ -43,39 +43,41 @@ describe("health data policy, Ask Health", () => {
     expect(html).not.toMatch(/coach|trainer|ask about food|food questions/i);
   });
 
-  it("names Ask Health as one of the two features that send part of the journal", async () => {
-    const text = await section(/<h4>To an AI, when you ask it about your journal<\/h4>(.*?)<h4>/s);
+  it("names every feature that sends to the AI, behind one agreement", async () => {
+    const text = await section(/<h4>To an AI, only with your agreement<\/h4>(.*?)<h4>/s);
     expect(text).toContain(
-      "Two features send part of your journal to an AI: Find patterns on the Journal tab, " +
-        "which looks for things that go together, and Ask Health on the home screen.",
+      "These features send what they need to an AI. They run only when you use them, and only " +
+        "after you have agreed to what they send. One agreement covers all of them.",
     );
+    const { AI_FEATURES } = await import("../features/aiConsent");
+    for (const name of AI_FEATURES) expect(text).toContain(name);
     expectCopyRules(text);
   });
 
-  // One agreement covers Find patterns and Ask Health. "Analysis" describes
-  // only Find patterns, so a withdraw line that says analysis stops leaves an
-  // Ask Health user unsure whether their questions still send their journal.
-  // The consent sheet says it of both; the policy says the same.
-  it("says withdrawing stops both features sending, not only analysis", async () => {
+  // One agreement covers every feature that sends to the AI (ConjureOS #1163,
+  // 2026-10-29). "Analysis" describes only Find patterns, and a line naming
+  // only Find patterns and Ask Health leaves a person unsure whether building
+  // a plan or a food photo still sends. The consent sheet says it of all of
+  // them; the policy says the same.
+  it("says withdrawing stops every feature that sends to the AI", async () => {
     const text = await section(/<h3>Your choices and rights<\/h3>(.*?)<h3>/s);
     expect(text).not.toMatch(/future analysis/i);
     expect(text).toContain(
-      "The first time you use Find patterns or Ask Health, you are shown exactly what would " +
-        "be sent and can decline.",
+      "Nothing goes to the AI until you agree to it. The first time you use a feature that " +
+        "needs the AI, you are shown exactly what would be sent and can decline.",
     );
     expect(text).toContain(
-      "You can withdraw your agreement at any time in Settings → Privacy. Find patterns and " +
-        "Ask Health stop sending anything from your journal at once. Withdrawing cannot " +
-        "recall something already sent.",
+      "You can withdraw your agreement at any time in Settings → Privacy. Every feature that " +
+        "uses the AI stops sending anything at once, and to use them again you agree again. " +
+        "Withdrawing cannot recall something already sent.",
     );
     expectCopyRules(text);
   });
 
-  // The rename is not a material revision: it names the same feature, which
-  // sends what it sent, behind the same agreement. See the note on
-  // POLICY_UPDATED before moving it.
-  it("keeps the date of the last material revision", async () => {
+  // Putting the plan builder and food photos behind the agreement is a
+  // material revision: see the note on POLICY_UPDATED.
+  it("dates the last material revision", async () => {
     const { POLICY_UPDATED } = await import("./HealthDataPolicy");
-    expect(POLICY_UPDATED).toBe("2026-10-01");
+    expect(POLICY_UPDATED).toBe("2026-10-29");
   });
 });

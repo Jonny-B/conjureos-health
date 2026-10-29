@@ -6,6 +6,7 @@ import { useScrollLock } from "../hooks/useScrollLock";
 import { clearAllHistories, clearHistory, visibleHistoryItems } from "../features/resetData";
 import { HealthDataPolicy } from "../components/HealthDataPolicy";
 import {
+  AI_FEATURES,
   AI_WITHDRAW_NOT_SAVED,
   aiWithdrawalNotSaved,
   consentIsCurrent,
@@ -48,7 +49,8 @@ export function SettingsSheet({
   useScrollLock();
 
   /**
-   * Withdraw the Find patterns and Ask Health agreement. It holds at once,
+   * Withdraw the AI agreement, which every feature in `AI_FEATURES` needs
+   * (owner decision 2026-10-29, ConjureOS #1163). It holds at once,
    * before and whatever the save does (features/aiConsent.ts), so the sheet
    * shows it withdrawn straight away; a save that failed is said here, with a
    * retry, because the next session reads the profile. Calling it again is
@@ -119,11 +121,14 @@ export function SettingsSheet({
           <div className="section-label">Privacy</div>
           <div className="privacy-block">
             <p className="muted small">
-              Your journal stays on your device and in your ConjureOS account. Building a plan
-              and logging food from a description or photo send what they need to an AI.{" "}
-              <strong>Find patterns</strong> and <strong>Ask Health</strong> also send part of
-              your journal, and only with the agreement below.
+              Your journal stays on your device and in your ConjureOS account. These features
+              send what they need to an AI, and only with the agreement below:
             </p>
+            <ul className="consent-list consent-features">
+              {AI_FEATURES.map((name) => (
+                <li key={name}>{name}</li>
+              ))}
+            </ul>
             {consentIsCurrent(consent) ? (
               <>
                 <p className="muted small">
@@ -143,7 +148,8 @@ export function SettingsSheet({
                   <span>Send the notes I type on symptoms</span>
                 </label>
                 <p className="muted small">
-                  Withdrawing stops both at once and clears your Ask Health conversation.
+                  Withdrawing stops all of them at once and clears your Ask Health conversation.
+                  To use them again, you agree again.
                 </p>
                 <button className="btn small ghost" onClick={() => void withdrawAiAgreement()}>
                   Withdraw agreement
@@ -166,8 +172,8 @@ export function SettingsSheet({
                   </>
                 )}
                 <p className="muted small">
-                  Nothing is sent. You will be asked, and shown exactly what would go, the first
-                  time you use Find patterns or Ask Health.
+                  Nothing is sent. You are asked, and shown exactly what would go, the first time
+                  you use one of them.
                 </p>
               </>
             )}

@@ -9,7 +9,8 @@
  *
  * Each test loads the modules afresh, because a withdrawal holds for the rest
  * of the session it happened in, and a test's session ends with the test.
- * Only the AI call, the files and the stored profile are stand-ins.
+ * Only the AI call, the files and the stored profile are stand-ins. The
+ * agreement is a file of its own (`ai-consent.json`, features/aiConsent.ts).
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,6 +22,7 @@ const files: Record<string, string> = {};
 let writesFail = false;
 /** When true, saving the profile fails. */
 let profileSaveFails = false;
+const AGREEMENT = "ai-consent.json";
 /** Runs on the first read of the journal's symptoms, while today's context is being built. */
 let whileReadingToday: (() => void) | null = null;
 
@@ -103,8 +105,9 @@ beforeEach(async () => {
   ask = await import("./ask");
   profile = {
     sex: "female", age: 34, heightCm: 168, weightKg: 70, activityLevel: "moderate",
-    direction: "lose", units: "metric", aiJournalConsent: agreement(),
+    direction: "lose", units: "metric",
   };
+  files[AGREEMENT] = JSON.stringify(agreement());
   files["ask-health.json"] = JSON.stringify(conversation());
 });
 
@@ -131,17 +134,17 @@ describe("after the agreement is withdrawn, nothing is sent", () => {
   });
 
   it("not even a question with no context, from anyone who has not agreed", async () => {
-    delete profile.aiJournalConsent;
+    delete files[AGREEMENT];
     const reply = await ask.askHealth("are bananas high in fiber?");
     expect(complete).not.toHaveBeenCalled();
     expect(reply).toBeNull();
   });
 
-  it("not when the profile could not be saved: the withdrawal holds for the session", async () => {
-    profileSaveFails = true;
+  it("not when the withdrawal could not be saved: it holds for the session", async () => {
+    writesFail = true;
     const saved = await consent.withdrawAiJournalConsent();
     expect(saved).toBe(false);
-    expect(profile.aiJournalConsent).toBeDefined(); // the write failed
+    expect(JSON.parse(files[AGREEMENT]!)).toMatchObject({ acceptedAt: AGREED_AT }); // the write failed
     expect(await consent.hasAiJournalConsent()).toBe(false);
     expect(await consent.readAiJournalConsent()).toBeUndefined();
     await ask.askHealth("and for dessert?", conversation(), ask.ASK_FROM_HOME);
@@ -150,11 +153,22 @@ describe("after the agreement is withdrawn, nothing is sent", () => {
   });
 
   it("and trying again clears the not-saved state once it saves", async () => {
-    profileSaveFails = true;
+    writesFail = true;
     await consent.withdrawAiJournalConsent();
-    profileSaveFails = false;
+    writesFail = false;
     expect(await consent.withdrawAiJournalConsent()).toBe(true);
     expect(consent.aiWithdrawalNotSaved()).toBe(false);
+    expect(JSON.parse(files[AGREEMENT]!)).toBeNull();
+  });
+
+  it("says it was not saved when the agreement older versions kept on the profile could not be dropped", async () => {
+    // An older version of the app on another device still reads that one.
+    profile.aiJournalConsent = { version: 2, acceptedAt: AGREED_AT, includeNotes: false };
+    profileSaveFails = true;
+    expect(await consent.withdrawAiJournalConsent()).toBe(false);
+    expect(consent.aiWithdrawalNotSaved()).toBe(true);
+    profileSaveFails = false;
+    expect(await consent.withdrawAiJournalConsent()).toBe(true);
     expect(profile.aiJournalConsent).toBeUndefined();
   });
 });
@@ -170,7 +184,7 @@ describe("a withdrawal that lands while today is read", () => {
   });
 
   it("sends nothing when it was withdrawn on another device meanwhile", async () => {
-    whileReadingToday = () => void delete profile.aiJournalConsent;
+    whileReadingToday = () => void delete files[AGREEMENT];
     const reply = await ask.askHealth("and for dessert?", await ask.loadAskHistory(), ask.ASK_FROM_HOME);
     expect(complete).not.toHaveBeenCalled();
     expect(reply).toBeNull();
@@ -256,12 +270,12 @@ describe("an answer in flight when the withdrawal lands", () => {
   });
 
   it("is thrown away when the agreement was withdrawn somewhere else meanwhile", async () => {
-    // Another device withdrew: this session only sees the profile change.
+    // Another device withdrew: this session only sees the file change.
     let answer!: (s: string) => void;
     complete.mockImplementation(() => new Promise<string>((r) => (answer = r)));
     const asking = ask.askHealth("and for dessert?", [], ask.ASK_FROM_HOME);
     await vi.waitFor(() => expect(complete).toHaveBeenCalledTimes(1));
-    delete profile.aiJournalConsent;
+    delete files[AGREEMENT];
     answer("a square of dark chocolate");
     expect(await asking).toBeNull();
   });
@@ -306,7 +320,7 @@ describe("what a person reads about it", () => {
   it("keeps the copy rules: no em-dash, no now, no longer or yet", async () => {
     const { AGREEMENT_GONE } = await import("../../components/AskHealthSheet");
     const settings = (await import("../../screens/SettingsSheet.tsx?raw")).default;
-    const line = /<p className="muted small">\s*(Withdrawing stops both[^<]*)<\/p>/.exec(settings)?.[1];
+    const line = /<p className="muted small">\s*(Withdrawing stops all of them[^<]*)<\/p>/.exec(settings)?.[1];
     expect(line).toBeDefined();
     for (const text of [AGREEMENT_GONE, consent.AI_WITHDRAW_NOT_SAVED, line!]) {
       expect(text).not.toContain("—");

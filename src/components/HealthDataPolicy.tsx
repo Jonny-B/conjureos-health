@@ -23,7 +23,7 @@
  * 2026-10-01 (POLICY_UPDATED); keep it true when a data flow changes.
  */
 
-import { DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features/aiConsent";
+import { AI_FEATURES, DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features/aiConsent";
 
 /**
  * Last material revision. Shown so a reader can tell what they agreed to.
@@ -35,8 +35,12 @@ import { DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features/aiConsent";
  * the same feature sending the same data behind the same agreement, and the
  * withdraw line names Find patterns and Ask Health instead of "analysis",
  * which both were already behind and which withdrawing already stopped.
+ *
+ * 2026-10-29 is one (ConjureOS #1163, DISCLOSURE_VERSION 3): building a plan,
+ * adding food from a description or a photo, and the estimates other apps
+ * ask for are behind the AI agreement, and withdrawing it stops them too.
  */
-export const POLICY_UPDATED = "2026-10-01";
+export const POLICY_UPDATED = "2026-10-29";
 
 export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
   return (
@@ -77,34 +81,16 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
             Only when you use a feature that needs it. Nothing is sent on a schedule.
           </p>
 
-          <h4>To an AI, when a feature needs one</h4>
-          <ul className="consent-list">
-            <li>
-              <strong>Building or changing your plan</strong> sends your goal in your own words,
-              the plan length, and, for a plan that tracks food, your height, weight, goal
-              weight, age and sex.
-            </li>
-            <li>
-              <strong>Logging food by describing it or with a photo</strong>, or reading a
-              nutrition label or the front of a package, sends the words or the photo you gave
-              it.
-            </li>
+          <h4>To an AI, only with your agreement</h4>
+          <p>
+            These features send what they need to an AI. They run only when you use them, and
+            only after you have agreed to what they send. One agreement covers all of them.
+          </p>
+          <ul className="consent-list consent-features">
+            {AI_FEATURES.map((name) => (
+              <li key={name}>{name}</li>
+            ))}
           </ul>
-          <p>
-            <strong>Barcodes and food search</strong> look up the food in the shared ConjureOS
-            food database, then in Open Food Facts and USDA FoodData Central. Only the barcode or
-            the search words are sent, nothing about you. If you add a food to the shared
-            database, it is linked to your account so we can stop abuse; other people can find
-            the food, but never see who added it.
-          </p>
-
-          <h4>To an AI, when you ask it about your journal</h4>
-          <p>
-            Two features send part of your journal to an AI: <strong>Find patterns</strong> on
-            the Journal tab, which looks for things that go together, and{" "}
-            <strong>Ask Health</strong> on the home screen. They run only when you press the
-            button, and only after you have agreed to what they send.
-          </p>
           <p>The AI receives:</p>
           <ul className="consent-list">
             {DISCLOSURE_SENDS.map((line) => (
@@ -117,6 +103,15 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
               <li key={line}>{line}</li>
             ))}
           </ul>
+
+          <h4>To food databases, when you look a food up</h4>
+          <p>
+            <strong>Barcodes and food search</strong> look up the food in the shared ConjureOS
+            food database, then in Open Food Facts and USDA FoodData Central. Only the barcode or
+            the search words are sent, nothing about you. If you add a food to the shared
+            database, it is linked to your account so we can stop abuse; other people can find
+            the food, but never see who added it.
+          </p>
 
           <h4>To other apps on ConjureOS, when you allow them</h4>
           <p>
@@ -181,9 +176,8 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
               stops at once.
             </li>
             <li>
-              Nothing from your journal goes to the AI until you agree to it. The first time
-              you use Find patterns or Ask Health, you are shown exactly what would be sent
-              and can decline.
+              Nothing goes to the AI until you agree to it. The first time you use a feature
+              that needs the AI, you are shown exactly what would be sent and can decline.
             </li>
             <li>
               Other apps get nothing until you allow them. You can turn app-to-app connections
@@ -193,9 +187,9 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
               The free-text note on a symptom is a separate choice, off unless you turn it on.
             </li>
             <li>
-              You can withdraw your agreement at any time in Settings → Privacy. Find patterns
-              and Ask Health stop sending anything from your journal at once. Withdrawing
-              cannot recall something already sent.
+              You can withdraw your agreement at any time in Settings → Privacy. Every feature
+              that uses the AI stops sending anything at once, and to use them again you agree
+              again. Withdrawing cannot recall something already sent.
             </li>
             <li>
               You can delete your journal, all of it or one kind at a time, in Settings →

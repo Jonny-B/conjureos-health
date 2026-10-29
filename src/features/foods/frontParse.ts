@@ -10,7 +10,8 @@
  */
 
 import type { ChatImage } from "../../bridge/ai";
-import { complete, extractJson } from "../../bridge/ai";
+import { extractJson } from "../../bridge/ai";
+import { completeUnderAgreement, isAiNotAgreed } from "../aiGate";
 import type { FoodItem } from "../../types";
 import { NUTRIENT_SCHEMA, buildParsedFood, clamp01, sanitizeNote, str } from "./parsedFood";
 
@@ -54,6 +55,9 @@ const MIN_CONFIDENCE = 0.25;
  *
  * This is a genuine guess, not a label read: the editable review screen is
  * MANDATORY on this path so the user confirms every number before it is logged.
+ *
+ * Throws `AiNotAgreedError` (features/aiGate.ts) when there is no AI
+ * agreement, or when it was withdrawn while the photo was out.
  */
 export async function estimateFromFront(
   image: ChatImage,
@@ -65,14 +69,17 @@ export async function estimateFromFront(
 
   let raw: string;
   try {
-    raw = await complete({
+    raw = await completeUnderAgreement({
       system: SYSTEM,
       messages: [{ role: "user", content: userText, images: [image] }],
       // The estimate JSON (about 1,000 tokens) plus room to think. conjureos-health#10.
       maxTokens: 4000,
       tier: "capable",
     });
-  } catch {
+  } catch (err) {
+    // Nothing sent, or an answer thrown away after a withdrawal: the caller
+    // says so, rather than "couldn't make out a food".
+    if (isAiNotAgreed(err)) throw err;
     return null;
   }
   return parseFrontJson(raw, barcode);

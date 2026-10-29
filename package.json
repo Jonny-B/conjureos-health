@@ -26,7 +26,7 @@
     "actions": {
       "logFood": {
         "permission": "actions.write",
-        "description": "Log food to the user's diary. Only name is required: without calories, the app estimates the food from its name and records it as an adjustable AI estimate, splitting a combo like \"a chicken sandwich and a beer\" into one entry per food. Pass calories (and protein/carbs/fat in grams, per serving) only when the user states the numbers. meal is breakfast|lunch|dinner|snacks and defaults by time of day; date is YYYY-MM-DD and defaults to today. If the estimate can't be made it fails with the reason instead of logging 0.",
+        "description": "Log food to the user's diary. Only name is required: without calories, the app estimates the food from its name and records it as an adjustable AI estimate, splitting a combo like \"a chicken sandwich and a beer\" into one entry per food. Pass calories (and protein/carbs/fat in grams, per serving) only when the user states the numbers. meal is breakfast|lunch|dinner|snacks and defaults by time of day; date is YYYY-MM-DD and defaults to today. If the estimate can't be made it fails with the reason instead of logging 0. Estimating needs the person's AI agreement in Conjure Health: without it, fails with NEEDS_CONSENT and logs nothing.",
         "params": {
           "type": "object",
           "properties": {
@@ -1171,7 +1171,7 @@
       },
       "estimateNutrition": {
         "permission": "actions.read",
-        "description": "Estimate the calories and macros of a described meal or a recipe's ingredients WITHOUT logging anything - for a recipe or meal-planning app that wants a number. Pass text (\"a bowl of chili with cheese\") OR ingredients (lines like \"2 cups flour\"), plus servings for a per-serving figure. Returns each item, the total and value like \"About 620 cal per serving\". Always an AI estimate, spending an AI call; Conjure Health must be open on screen, since ConjureOS pauses AI for apps in the background.",
+        "description": "Estimate the calories and macros of a described meal or a recipe's ingredients WITHOUT logging anything - for a recipe or meal-planning app that wants a number. Pass text (\"a bowl of chili with cheese\") OR ingredients (lines like \"2 cups flour\"), plus servings for a per-serving figure. Returns each item, the total and value like \"About 620 cal per serving\". Always an AI estimate, spending an AI call; Conjure Health must be open on screen, since ConjureOS pauses AI for apps in the background. Needs the person's AI agreement in Conjure Health: without it, fails with NEEDS_CONSENT and sends nothing.",
         "params": {
           "type": "object",
           "properties": {
