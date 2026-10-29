@@ -175,7 +175,7 @@ describe("the disclosure covers every feature that sends to the AI", () => {
       "Building a plan",
       "Adding food from a description",
       "Adding food from a photo",
-      "Food estimates other apps ask for",
+      "Food estimates for ConjureOS's assistant and other apps",
       "Find patterns",
       "Ask Health",
     ]);

@@ -12,9 +12,11 @@
  * from appearance; with a panel involved the numbers are read, not guessed.
  *
  * Both send the photos to the AI, so reading them needs the AI agreement
- * (owner decision 2026-10-29, ConjureOS #1163). Taking a photo sends nothing;
- * the read button asks for the agreement in place when there is none, and
- * sends only once it is saved.
+ * (owner decision 2026-10-29, ConjureOS #1163). Without it the photos are off
+ * the way Add food's AI mode is: no camera, a line saying they use the AI, and
+ * one tap to the agreement. Taking a photo sends nothing; the read button
+ * checks the agreement again (another device can withdraw it), asks for it in
+ * place when it is gone, and sends only once it is saved.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -24,7 +26,7 @@ import { parseNutritionLabel } from "../features/foods/labelParse";
 import { estimateFromFront, type FrontEstimate } from "../features/foods/frontParse";
 import { CameraCapture } from "./CameraCapture";
 import { useAiAgreement } from "./useAiAgreement";
-import { AI_AGREEMENT_NOT_SAVED } from "../features/aiConsent";
+import { AI_AGREEMENT_NOT_SAVED, onAiConsentWithdrawn } from "../features/aiConsent";
 import { isAiNotAgreed } from "../features/aiGate";
 import { ChevronLeft, NutritionPanelIcon, PackageIcon } from "./icons";
 
@@ -59,6 +61,8 @@ export function PackageCapture({
   // Preview URLs are object URLs; leaking them holds the whole still in memory.
   const urls = useRef<string[]>([]);
   useEffect(() => () => urls.current.forEach((u) => URL.revokeObjectURL(u)), []);
+  // A withdrawal closes the camera with the rest (the hook turns them off).
+  useEffect(() => onAiConsentWithdrawn(() => setTaking(null)), []);
 
   const captured = (slot: Slot) => (image: ChatImage, url: string) => {
     urls.current.push(url);
@@ -125,6 +129,27 @@ export function PackageCapture({
     }
   };
 
+  // Off without the agreement, as Add food's AI mode is. Null while it is read.
+  if (ai.agreed !== true) {
+    return (
+      <div className="mode-body package-capture">
+        <button className="link-btn back-link" onClick={onCancel}>
+          <ChevronLeft size={16} /> Back
+        </button>
+        {ai.agreed === false && (
+          <div className="ai-off">
+            <p>Reading a package photo uses the AI, and needs your agreement first.</p>
+            <button className="btn primary block" onClick={() => ai.withAgreement()}>
+              Review and agree
+            </button>
+            {ai.notSaved && <p className="notice notice-error">{AI_AGREEMENT_NOT_SAVED}</p>}
+          </div>
+        )}
+        {ai.sheet}
+      </div>
+    );
+  }
+
   if (taking) {
     return (
       <div className="mode-body">
@@ -154,8 +179,8 @@ export function PackageCapture({
       <div className="snap-miss-copy">
         <div>Photograph the package</div>
         <div className="muted small">
-          Either one works on its own. Both together is best — the panel has the real numbers, the
-          front has the product name.
+          The AI reads what you photograph. Either one works on its own, and both together is
+          best: the panel has the real numbers, the front has the product name.
         </div>
       </div>
 

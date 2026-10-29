@@ -370,7 +370,9 @@ async function estimateFoods(text: string, label: string, retryHint = ""): Promi
   } catch (err) {
     // No AI agreement, or it was withdrawn while the estimate was out: nothing
     // was sent, or the answer was thrown away (features/aiGate.ts).
-    if (isAiNotAgreed(err)) throw new Error(NEEDS_AI_CONSENT);
+    // The hint stays: logFood can still log the food with the caller's own
+    // numbers, which needs no AI.
+    if (isAiNotAgreed(err)) throw new Error(`${NEEDS_AI_CONSENT}${retryHint}`);
     throw new Error(`Couldn't estimate ${label}. ${estimateFailure(err)}${retryHint}`);
   }
   if (items.length === 0) {
@@ -1646,10 +1648,13 @@ export const NEEDS_HEALTH_CONSENT =
  * when it was withdrawn while the estimate was out: `estimateNutrition`, and
  * `logFood` without calories (owner decision 2026-10-29, ConjureOS #1163).
  * Nothing was sent, or the answer was thrown away, and nothing was logged.
- * Same marker as above; the agreement is a different one.
+ * Same marker as above; the agreement is a different one. Chat's Open button
+ * only opens the app, which lands on the diary, so the line names Settings,
+ * where the agreement can be given (screens/SettingsSheet.tsx). `logFood`
+ * adds its way to log without the AI: the caller's own numbers.
  */
 export const NEEDS_AI_CONSENT =
-  "NEEDS_CONSENT:Open Conjure Health and agree to let it use the AI to estimate food.";
+  "NEEDS_CONSENT:Open Conjure Health, go to Settings, and agree to let it use the AI to estimate food.";
 
 /**
  * Every action refuses while there is no consent to collect health data on

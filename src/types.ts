@@ -250,8 +250,8 @@ export interface Profile {
   setup?: ProfileSetup;
   /** Where versions 1 and 2 of the AI agreement were kept. Never read: the
    *  agreement is a file of its own since version 3 (features/aiConsent.ts),
-   *  and withdrawing drops this one too, for an older version of the app on
-   *  another device that still reads it. */
+   *  and withdrawing drops this one too, for an older version of the app
+   *  that still reads it. No profile save writes it (data/mockRepository.ts). */
   aiJournalConsent?: AiJournalConsent;
 }
 

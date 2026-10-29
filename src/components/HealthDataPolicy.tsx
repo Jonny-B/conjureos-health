@@ -37,8 +37,13 @@ import { AI_FEATURES, DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features
  * which both were already behind and which withdrawing already stopped.
  *
  * 2026-10-29 is one (ConjureOS #1163, DISCLOSURE_VERSION 3): building a plan,
- * adding food from a description or a photo, and the estimates other apps
- * ask for are behind the AI agreement, and withdrawing it stops them too.
+ * adding food from a description or a photo, and the food estimates
+ * ConjureOS's assistant and other apps ask for are behind the AI agreement,
+ * and withdrawing it stops them too. The same revision scopes what the AI
+ * agreement promises to Conjure Health's own features: ConjureOS's assistant
+ * is an AI too, and what it reads through the actions and the summary below is
+ * allowed in ConjureOS, not by this agreement (an owner question on #1163
+ * asks whether it should need this agreement as well).
  */
 export const POLICY_UPDATED = "2026-10-29";
 
@@ -83,8 +88,10 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
 
           <h4>To an AI, only with your agreement</h4>
           <p>
-            These features send what they need to an AI. They run only when you use them, and
-            only after you have agreed to what they send. One agreement covers all of them.
+            These features of Conjure Health send what they need to an AI. They send only when
+            you use one of them, or when ConjureOS's assistant or another app asks Conjure Health
+            for a food estimate, and only after you have agreed to what they send. One agreement
+            covers all of them.
           </p>
           <ul className="consent-list consent-features">
             {AI_FEATURES.map((name) => (
@@ -121,6 +128,12 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
             app's request goes through, and you choose to allow it once, always, or not at
             all. ConjureOS's assistant acts when you ask it to. To answer, ConjureOS may start
             Conjure Health in the background.
+          </p>
+          <p>
+            ConjureOS's assistant is itself an AI: what it reads here goes to ConjureOS's AI
+            provider so it can answer you. It reads only what you allow in ConjureOS, which is a
+            separate choice from the AI agreement in Conjure Health. Withdrawing that agreement
+            does not change what you allowed ConjureOS's assistant to read.
           </p>
           <p>What they can read:</p>
           <ul className="consent-list">
@@ -176,8 +189,9 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
               stops at once.
             </li>
             <li>
-              Nothing goes to the AI until you agree to it. The first time you use a feature
-              that needs the AI, you are shown exactly what would be sent and can decline.
+              Conjure Health sends nothing to the AI until you agree to it. The first time you
+              use one of its features that needs the AI, you are shown exactly what would be sent
+              and can decline. What ConjureOS's assistant reads is a separate choice, above.
             </li>
             <li>
               Other apps get nothing until you allow them. You can turn app-to-app connections
@@ -187,9 +201,9 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
               The free-text note on a symptom is a separate choice, off unless you turn it on.
             </li>
             <li>
-              You can withdraw your agreement at any time in Settings → Privacy. Every feature
-              that uses the AI stops sending anything at once, and to use them again you agree
-              again. Withdrawing cannot recall something already sent.
+              You can withdraw your agreement at any time in Settings → Privacy. Every Conjure
+              Health feature that uses the AI stops sending anything at once, and to use them
+              again you agree again. Withdrawing cannot recall something already sent.
             </li>
             <li>
               You can delete your journal, all of it or one kind at a time, in Settings →

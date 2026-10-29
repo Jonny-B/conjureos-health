@@ -265,30 +265,54 @@ describe("package photos", () => {
     await click("Shutter");
   }
 
-  it("ask for the agreement in place before reading, and send nothing first", async () => {
+  // Off without the agreement, as Add food's AI mode is: the camera opens
+  // only once the person has agreed (screens/aiAgreementReview.test.tsx).
+  it("ask for the agreement in place before the camera, and send nothing first", async () => {
     complete.mockImplementation(async () => LABEL);
+    const { PackageCapture } = await import("../components/PackageCapture");
     const parsed = vi.fn();
-    await capture(parsed);
-    await click("Read the label");
+    await render(<PackageCapture onParsed={parsed} onCancel={() => {}} />);
+    expect(findButton("Add Nutrition label")).toBeUndefined();
+    await click("Review and agree");
     expect(sheet()).not.toBeNull();
     expect(complete).not.toHaveBeenCalled();
 
-    await click("Send and read");
+    await click("Agree");
+    await click("Add Nutrition label");
+    await click("Shutter");
+    await click("Read the label");
     expect(complete).toHaveBeenCalledTimes(1);
     expect(parsed).toHaveBeenCalledTimes(1);
   });
 
   it("send nothing after Not now, or after a withdrawal", async () => {
     complete.mockImplementation(async () => LABEL);
+    const { PackageCapture } = await import("../components/PackageCapture");
     const parsed = vi.fn();
     await agree();
     await consent.withdrawAiJournalConsent();
-    await capture(parsed);
-    await click("Read the label");
+    await render(<PackageCapture onParsed={parsed} onCancel={() => {}} />);
+    expect(findButton("Add Nutrition label")).toBeUndefined();
+    await click("Review and agree");
     expect(sheet()).not.toBeNull();
     await click("Not now");
     expect(complete).not.toHaveBeenCalled();
     expect(parsed).not.toHaveBeenCalled();
+  });
+
+  it("ask again in place when the agreement went on another device, and send only once agreed", async () => {
+    complete.mockImplementation(async () => LABEL);
+    const parsed = vi.fn();
+    await agree();
+    await capture(parsed);
+    // Another device withdrew: the file is cleared, and this session is not told.
+    files["ai-consent.json"] = "null";
+    await click("Read the label");
+    expect(sheet()).not.toBeNull();
+    expect(complete).not.toHaveBeenCalled();
+    await click("Send and read");
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(parsed).toHaveBeenCalledTimes(1);
   });
 
   it("hand back nothing from a read that lands after a withdrawal", async () => {
@@ -364,13 +388,15 @@ const COVERED = [
   "Building a plan",
   "Adding food from a description",
   "Adding food from a photo",
-  "Food estimates other apps ask for",
+  "Food estimates for ConjureOS's assistant and other apps",
   "Find patterns",
   "Ask Health",
 ];
 
 const listItems = (html: string) =>
-  [...html.matchAll(/<li[^>]*>(.*?)<\/li>/gs)].map((m) => m[1]!.replace(/<[^>]+>/g, "").trim());
+  [...html.matchAll(/<li[^>]*>(.*?)<\/li>/gs)].map((m) =>
+    m[1]!.replace(/<[^>]+>/g, "").replace(/&#x27;/g, "'").trim(),
+  );
 
 describe("the consent sheet and Settings name every covered feature", () => {
   it("on the consent sheet", async () => {

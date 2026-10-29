@@ -14,7 +14,8 @@
  * (owner decision 2026-10-29, ConjureOS #1163: "If you remove consent, we
  * should stop the plan builder and photo, and you would have to re-agree"):
  * building a plan, adding food from a description or a photo, the food
- * estimates other apps ask for, Find patterns, and Ask Health. `AI_FEATURES`
+ * estimates ConjureOS's assistant and other apps ask for, Find patterns, and
+ * Ask Health. `AI_FEATURES`
  * names them, and features/aiGate.ts is the one place a request is sent from.
  * One agreement, one wording, because a person who agrees to the AI reading
  * what they give it agrees to the same thing whichever button sent it.
@@ -63,7 +64,7 @@ export const AI_FEATURES: readonly string[] = [
   "Building a plan",
   "Adding food from a description",
   "Adding food from a photo",
-  "Food estimates other apps ask for",
+  "Food estimates for ConjureOS's assistant and other apps",
   "Find patterns",
   "Ask Health",
 ];
@@ -103,12 +104,18 @@ export const AI_FEATURES: readonly string[] = [
  * v3 (2026-10-29, ConjureOS #1163): the owner's decision "If you remove
  * consent, we should stop the plan builder and photo, and you would have to
  * re-agree." Building a plan, adding food from a description or a photo, and
- * the food estimates other apps ask for used to send without this agreement;
- * they are behind it, and the wording names each of them and what it sends.
- * The disclosure got wider, so everyone who agreed to v2 is asked once more,
- * and until they agree again none of these features sends anything. The v2
- * agreement was kept on the profile and is not read again (see the note at
- * the top on where it is kept).
+ * the food estimates ConjureOS's assistant and other apps ask for used to
+ * send without this agreement; they are behind it, and the wording names each
+ * of them and what it sends. The disclosure got wider, so everyone who agreed
+ * to v2 is asked once more, and until they agree again none of these features
+ * sends anything. The v2 agreement was kept on the profile and is not read
+ * again (see the note at the top on where it is kept).
+ *
+ * The v3 wording was corrected in review before it shipped, so it stays v3:
+ * nobody had agreed to it. The estimates are named for ConjureOS's assistant,
+ * their most common caller; the plan line names the kind of plan, which tells
+ * the AI when the safety check picked one that does not count calories, and
+ * the safety answers themselves are listed as not sent.
  */
 export const DISCLOSURE_VERSION = 3;
 
@@ -122,16 +129,18 @@ export const DISCLOSURE_VERSION = 3;
  * rather than averaged into something vaguer than either: Find patterns sends
  * a range you pick, Ask Health always sends today plus the 2 days before (see
  * features/ask/ask.ts). The plan line is `buildUserPrompt` in
- * features/plan/generate.ts; the food lines are the prompts in
+ * features/plan/generate.ts: its `Mode:` is the kind of plan, and
+ * `logging_only` is the safety gate's (features/safety/intakeGate.ts), so the
+ * line says what picks it; the food lines are the prompts in
  * features/naturalLanguage.ts, features/foods/labelParse.ts and
  * features/foods/frontParse.ts, and `estimateNutrition` / `logFood` in
  * bridge/actions.ts.
  */
 export const DISCLOSURE_SENDS: string[] = [
-  "Building a plan: your goal in your words, the plan's length, whether it counts calories, and, when it does, your height, weight, goal weight, age and sex",
+  "Building a plan: your goal in your words, the plan's length, and the kind of plan, which says whether it counts calories (one that does not is the kind picked for someone under 18, pregnant or recently postpartum, or with a heart condition); for a plan that counts calories, also your height, weight, goal weight, age and sex",
   "Adding food from a description: the words you type",
   "Adding food from a photo: the photo of your meal, or of a package's label or front, with the barcode if you scanned one",
-  "Food estimates other apps ask for: the food or the ingredients they name",
+  "Food estimates for ConjureOS's assistant and other apps: the food or the ingredients they name, when one of them asks Conjure Health for an estimate",
   "Find patterns: the dates in the range you asked about",
   "Ask Health: today in full, plus daily totals from the 2 days before",
   "For Find patterns and Ask Health, daily totals: calories, protein, water, sleep length, exercise calories",
@@ -143,8 +152,9 @@ export const DISCLOSURE_SENDS: string[] = [
 /**
  * What is held back regardless, so the sheet can be specific about limits.
  *
- * Building a plan, adding food and the estimates other apps ask for send only
- * what their own line above names: none of them reads the journal.
+ * Building a plan, adding food and the food estimates send only what their
+ * own line above names: none of them reads the journal. The plan request
+ * carries no safety answer (`buildUserPrompt` never reads `input.safety`).
  *
  * The two windows hold for the conversation history as well as the context:
  * `turnsToSend` in features/ask/ask.ts cuts the turns replayed with each
@@ -160,6 +170,7 @@ export const DISCLOSURE_WITHHOLDS: string[] = [
   "Your name, email, or account details",
   "The free-text note on a symptom, unless you turn that on below",
   "Building a plan, adding food, and food estimates: your food diary, symptoms, sleep, water and past weigh-ins",
+  "Building a plan: your safety check answers, beyond the kind of plan they pick",
   "Find patterns: anything outside the range you asked about",
   "Ask Health: anything from more than 2 days before today",
 ];
@@ -356,8 +367,9 @@ async function clearAgreement(): Promise<boolean> {
 
 /**
  * Remove the agreement versions 1 and 2 kept on the profile. This version
- * never reads it, but an older version of the app on another device does.
- * Returns whether that was saved.
+ * never reads it, but an older version of the app does. Returns whether that
+ * was saved. A profile save never writes it back (data/mockRepository.ts,
+ * `saveProfile`), whatever copy of the profile the caller holds.
  */
 async function dropProfileAgreement(): Promise<boolean> {
   try {

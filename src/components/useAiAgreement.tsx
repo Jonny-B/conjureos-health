@@ -1,6 +1,7 @@
 /**
  * The AI agreement, for a screen with a feature that sends to the AI: building
- * a plan, adding food from a description or a photo, reading package photos.
+ * a plan, adding food from a description or a photo, reading package photos;
+ * and for Settings, which gives it on its own.
  *
  * Owner decision, 2026-10-29 (ConjureOS #1163): every such feature needs the
  * agreement, and a withdrawal stops it until the person agrees again. This is
@@ -76,6 +77,7 @@ export function useAiAgreement(purpose: AiConsentPurpose): AiAgreement {
   const sheet = asking ? (
     <AiConsentSheet
       purpose={purpose}
+      sends={asking.send !== undefined}
       onCancel={() => setAsking(null)}
       onAccept={async (includeNotes) => {
         // Saved BEFORE anything is sent: an agreement that survives only in

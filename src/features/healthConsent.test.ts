@@ -201,7 +201,7 @@ describe("the gate's wording", () => {
   it("puts every feature that sends to the AI behind its own agreement, and names no coach", () => {
     const body = CONSENT_BODY.join(" ");
     expect(body).toContain(
-      "Some features send part of it to an AI to work: building a plan, adding food from a description or a photo, Find patterns and Ask Health. They ask for a separate agreement before they send anything.",
+      "Some features send part of it to an AI to work: building a plan, adding food from a description or a photo, food estimates for ConjureOS's assistant and other apps, Find patterns and Ask Health. They send nothing without a separate agreement.",
     );
     expect(body).not.toMatch(/coach|ask about food/i);
     expect(body).not.toMatch(/\b(now|no longer|yet)\b/i);

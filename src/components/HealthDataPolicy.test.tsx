@@ -46,8 +46,9 @@ describe("health data policy, Ask Health", () => {
   it("names every feature that sends to the AI, behind one agreement", async () => {
     const text = await section(/<h4>To an AI, only with your agreement<\/h4>(.*?)<h4>/s);
     expect(text).toContain(
-      "These features send what they need to an AI. They run only when you use them, and only " +
-        "after you have agreed to what they send. One agreement covers all of them.",
+      "These features of Conjure Health send what they need to an AI. They send only when you use " +
+        "one of them, or when ConjureOS's assistant or another app asks Conjure Health for a food " +
+        "estimate, and only after you have agreed to what they send. One agreement covers all of them.",
     );
     const { AI_FEATURES } = await import("../features/aiConsent");
     for (const name of AI_FEATURES) expect(text).toContain(name);
@@ -63,13 +64,13 @@ describe("health data policy, Ask Health", () => {
     const text = await section(/<h3>Your choices and rights<\/h3>(.*?)<h3>/s);
     expect(text).not.toMatch(/future analysis/i);
     expect(text).toContain(
-      "Nothing goes to the AI until you agree to it. The first time you use a feature that " +
-        "needs the AI, you are shown exactly what would be sent and can decline.",
+      "Conjure Health sends nothing to the AI until you agree to it. The first time you use one " +
+        "of its features that needs the AI, you are shown exactly what would be sent and can decline.",
     );
     expect(text).toContain(
-      "You can withdraw your agreement at any time in Settings → Privacy. Every feature that " +
-        "uses the AI stops sending anything at once, and to use them again you agree again. " +
-        "Withdrawing cannot recall something already sent.",
+      "You can withdraw your agreement at any time in Settings → Privacy. Every Conjure Health " +
+        "feature that uses the AI stops sending anything at once, and to use them again you agree " +
+        "again. Withdrawing cannot recall something already sent.",
     );
     expectCopyRules(text);
   });

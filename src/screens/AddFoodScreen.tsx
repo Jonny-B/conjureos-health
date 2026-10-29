@@ -531,6 +531,11 @@ function ScanMode({ onPick }: { onPick: (food: FoodItem) => void }) {
   const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
   const busy = useRef(false);
 
+  // A package reading on screen is what the AI sent back, not yet the
+  // person's food: a withdrawal lets go of it, so nothing of it is logged or
+  // sent in afterwards (owner decision 2026-10-29, ConjureOS #1163).
+  useEffect(() => onAiConsentWithdrawn(() => setPendingPreview(null)), []);
+
   const resolve = async (barcode: string) => {
     if (busy.current) return;
     busy.current = true;
@@ -577,7 +582,8 @@ function ScanMode({ onPick }: { onPick: (food: FoodItem) => void }) {
               <span className="muted small">{missedBarcode}</span>
             </div>
             <div className="muted small">
-              We checked our database and Open Food Facts. Photograph it and we'll do the rest.
+              We checked our database and Open Food Facts. Photograph the package and the AI
+              reads it for you.
             </div>
           </div>
         )}
@@ -1269,6 +1275,10 @@ function FixFlow({
   const [stage, setStage] = useState<"choose" | "manual" | "photo">("choose");
   const [parsed, setParsed] = useState<PendingPreview | null>(null);
 
+  // As in ScanMode: a withdrawal lets go of a package reading on screen, so it
+  // is not stored as a correction or sent in afterwards.
+  useEffect(() => onAiConsentWithdrawn(() => setParsed(null)), []);
+
   if (parsed) {
     return (
       <EditableNutritionPreview
@@ -1325,7 +1335,7 @@ function FixFlow({
         </span>
         <span className="snap-cta-text">
           <span className="snap-cta-title">Photograph the package</span>
-          <span className="snap-cta-sub">The nutrition panel, the front, or both.</span>
+          <span className="snap-cta-sub">The AI reads the nutrition panel, the front, or both.</span>
         </span>
         <ChevronRight size={20} />
       </button>

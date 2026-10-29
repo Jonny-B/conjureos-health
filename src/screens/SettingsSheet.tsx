@@ -5,7 +5,9 @@ import { CloseIcon } from "../components/icons";
 import { useScrollLock } from "../hooks/useScrollLock";
 import { clearAllHistories, clearHistory, visibleHistoryItems } from "../features/resetData";
 import { HealthDataPolicy } from "../components/HealthDataPolicy";
+import { useAiAgreement } from "../components/useAiAgreement";
 import {
+  AI_AGREEMENT_NOT_SAVED,
   AI_FEATURES,
   AI_WITHDRAW_NOT_SAVED,
   aiWithdrawalNotSaved,
@@ -46,6 +48,11 @@ export function SettingsSheet({
   // A withdrawal of the AI agreement in this session could not be saved.
   const [aiNotSaved, setAiNotSaved] = useState(aiWithdrawalNotSaved);
   const [withdrawing, setWithdrawing] = useState(false);
+  // Giving the agreement here, not only from a feature that asks for it: the
+  // food estimates ConjureOS's assistant and other apps ask for are refused
+  // with a line that sends the person here (bridge/actions.ts,
+  // NEEDS_AI_CONSENT), and nothing in the app asks for those.
+  const ai = useAiAgreement("settings");
   useScrollLock();
 
   /**
@@ -69,10 +76,10 @@ export function SettingsSheet({
 
   // The agreement on file for sending journal data to the AI. Re-read on open
   // rather than passed in, so it reflects an accept made on the Journal tab
-  // in this same session.
+  // in this same session, and again whenever it is given or withdrawn here.
   useEffect(() => {
     void readAiJournalConsent().then(setConsent);
-  }, []);
+  }, [ai.agreed]);
 
   // Units is a display preference — apply + persist it the instant it's tapped
   // (not only on Save, which is easy to miss), so the choice can never be lost
@@ -172,9 +179,13 @@ export function SettingsSheet({
                   </>
                 )}
                 <p className="muted small">
-                  Nothing is sent. You are asked, and shown exactly what would go, the first time
-                  you use one of them.
+                  Nothing is sent. You can agree here, or when you first use one of them, and
+                  you are shown exactly what would go before you do.
                 </p>
+                <button className="btn small" onClick={() => ai.withAgreement()}>
+                  Review and agree
+                </button>
+                {ai.notSaved && <p className="notice notice-error">{AI_AGREEMENT_NOT_SAVED}</p>}
               </>
             )}
             <button className="btn small ghost" onClick={() => setPolicyOpen(true)}>
@@ -238,6 +249,7 @@ export function SettingsSheet({
         </footer>
       </div>
       {policyOpen && <HealthDataPolicy onClose={() => setPolicyOpen(false)} />}
+      {ai.sheet}
     </div>
   );
 }

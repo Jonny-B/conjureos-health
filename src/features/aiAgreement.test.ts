@@ -362,7 +362,7 @@ describe("the gate is the one way to the AI", () => {
     "features/naturalLanguage.ts": [
       "Adding food from a description",
       "Adding food from a photo",
-      "Food estimates other apps ask for",
+      "Food estimates for ConjureOS's assistant and other apps",
     ],
     "features/foods/labelParse.ts": ["Adding food from a photo"],
     "features/foods/frontParse.ts": ["Adding food from a photo"],

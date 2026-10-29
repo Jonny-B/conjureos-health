@@ -8,8 +8,10 @@
  * The introduction, the feature names, the withdraw line and the button are
  * not part of the versioned DISCLOSURE_* wording; the lists are. Version 3
  * (2026-10-29, ConjureOS #1163) widened both: building a plan, adding food
- * from a description or a photo, and the estimates other apps ask for are
- * behind the agreement, where they used to send without it.
+ * from a description or a photo, and the food estimates ConjureOS's assistant
+ * and other apps ask for are behind the agreement, where they used to send
+ * without it. The estimates send when the assistant or another app asks, not
+ * only when the person uses a feature here, and the introduction says so.
  *
  * Sending health data to a third party, so the user gets told exactly what
  * travels before any of it does, including a real sample line, because a
@@ -31,9 +33,10 @@ import {
 
 /**
  * Which feature opened the sheet: it names the agree button. Those that send
- * the moment the person agrees say so; Add food's AI mode only turns on.
+ * the moment the person agrees say so; Add food's AI mode only turns on, and
+ * Settings only records the agreement.
  */
-export type AiConsentPurpose = "patterns" | "ask" | "plan" | "package" | "food";
+export type AiConsentPurpose = "patterns" | "ask" | "plan" | "package" | "food" | "settings";
 
 const AGREE_LABEL: Record<AiConsentPurpose, string> = {
   patterns: "Send and find patterns",
@@ -41,14 +44,24 @@ const AGREE_LABEL: Record<AiConsentPurpose, string> = {
   plan: "Send and build my plan",
   package: "Send and read",
   food: "Agree",
+  settings: "Agree",
 };
+
+/** The button when agreeing sends nothing at once. */
+const AGREE_ONLY = "Agree";
 
 export function AiConsentSheet({
   purpose,
+  sends = true,
   onAccept,
   onCancel,
 }: {
   purpose: AiConsentPurpose;
+  /**
+   * Whether agreeing sends at once. False when the feature only turns on, as
+   * package photos do before any photo is taken: the button then says Agree.
+   */
+  sends?: boolean;
   /** Called with the notes opt-in. Owner persists it, then sends. */
   onAccept: (includeNotes: boolean) => void;
   onCancel: () => void;
@@ -65,8 +78,10 @@ export function AiConsentSheet({
 
         <div className="sheet-body">
           <p className="muted small">
-            These features send what they need to an AI service outside this app. They only
-            send when you use them, never in the background. One agreement covers all of them.
+            These features send what they need to an AI service outside this app. They send only
+            when you use one of them, or when ConjureOS's assistant or another app asks Conjure
+            Health for a food estimate. Nothing is sent on a schedule. One agreement covers all
+            of them.
           </p>
           <ul className="consent-list consent-features">
             {AI_FEATURES.map((name) => (
@@ -122,7 +137,7 @@ export function AiConsentSheet({
               onAccept(includeNotes);
             }}
           >
-            {AGREE_LABEL[purpose]}
+            {sends ? AGREE_LABEL[purpose] : AGREE_ONLY}
           </button>
         </footer>
       </div>

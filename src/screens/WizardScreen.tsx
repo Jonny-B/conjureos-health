@@ -299,9 +299,14 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
       {step === "safety" && (
         <div className="mode-body wizard-step">
           <WizardHead n={2} title="About you" />
+          {/* What this step sends is what buildInput puts in the plan request:
+              the body answers only for a plan that counts calories, and the
+              safety answers never (only the kind of plan they pick). Someone
+              must not leave a safety box unticked to keep it from an AI. */}
           <p className="muted small">
-            Everything about your body in one place. Building your plan sends these to an AI,
-            and only with your agreement.
+            {tracksFood
+              ? "Everything about your body in one place. Building your plan sends your age, sex, height, weight and goal weight to an AI, and only with your agreement."
+              : "Everything about your body in one place. None of these answers go to the AI for this kind of plan."}
           </p>
 
           <div className="form-grid">
@@ -332,6 +337,10 @@ export function WizardScreen({ onComplete, onClose, units = "metric", profile, e
           )}
 
           <div className="section-label">Safety check</div>
+          <p className="muted small">
+            These answers stay in this app. They decide the kind of plan, and only the kind of
+            plan goes to the AI.
+          </p>
           <label className="check-row">
             <input type="checkbox" checked={pregnant} onChange={(e) => setPregnant(e.target.checked)} />
             <span>Pregnant or recently postpartum</span>
