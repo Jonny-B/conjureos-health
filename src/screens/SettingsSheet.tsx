@@ -5,7 +5,10 @@ import { CloseIcon } from "../components/icons";
 import { useScrollLock } from "../hooks/useScrollLock";
 import { clearAllHistories, clearHistory, visibleHistoryItems } from "../features/resetData";
 import { HealthDataPolicy } from "../components/HealthDataPolicy";
+import { useAiAgreement } from "../components/useAiAgreement";
 import {
+  AI_AGREEMENT_NOT_SAVED,
+  AI_FEATURES,
   AI_WITHDRAW_NOT_SAVED,
   aiWithdrawalNotSaved,
   consentIsCurrent,
@@ -45,10 +48,16 @@ export function SettingsSheet({
   // A withdrawal of the AI agreement in this session could not be saved.
   const [aiNotSaved, setAiNotSaved] = useState(aiWithdrawalNotSaved);
   const [withdrawing, setWithdrawing] = useState(false);
+  // Giving the agreement here, not only from a feature that asks for it: the
+  // food estimates ConjureOS's assistant and other apps ask for are refused
+  // with a line that sends the person here (bridge/actions.ts,
+  // NEEDS_AI_CONSENT), and nothing in the app asks for those.
+  const ai = useAiAgreement("settings");
   useScrollLock();
 
   /**
-   * Withdraw the Find patterns and Ask Health agreement. It holds at once,
+   * Withdraw the AI agreement, which every feature in `AI_FEATURES` needs
+   * (owner decision 2026-10-29, ConjureOS #1163). It holds at once,
    * before and whatever the save does (features/aiConsent.ts), so the sheet
    * shows it withdrawn straight away; a save that failed is said here, with a
    * retry, because the next session reads the profile. Calling it again is
@@ -67,10 +76,10 @@ export function SettingsSheet({
 
   // The agreement on file for sending journal data to the AI. Re-read on open
   // rather than passed in, so it reflects an accept made on the Journal tab
-  // in this same session.
+  // in this same session, and again whenever it is given or withdrawn here.
   useEffect(() => {
     void readAiJournalConsent().then(setConsent);
-  }, []);
+  }, [ai.agreed]);
 
   // Units is a display preference — apply + persist it the instant it's tapped
   // (not only on Save, which is easy to miss), so the choice can never be lost
@@ -119,11 +128,14 @@ export function SettingsSheet({
           <div className="section-label">Privacy</div>
           <div className="privacy-block">
             <p className="muted small">
-              Your journal stays on your device and in your ConjureOS account. Building a plan
-              and logging food from a description or photo send what they need to an AI.{" "}
-              <strong>Find patterns</strong> and <strong>Ask Health</strong> also send part of
-              your journal, and only with the agreement below.
+              Your journal stays on your device and in your ConjureOS account. These features
+              send what they need to an AI, and only with the agreement below:
             </p>
+            <ul className="consent-list consent-features">
+              {AI_FEATURES.map((name) => (
+                <li key={name}>{name}</li>
+              ))}
+            </ul>
             {consentIsCurrent(consent) ? (
               <>
                 <p className="muted small">
@@ -143,7 +155,8 @@ export function SettingsSheet({
                   <span>Send the notes I type on symptoms</span>
                 </label>
                 <p className="muted small">
-                  Withdrawing stops both at once and clears your Ask Health conversation.
+                  Withdrawing stops all of them at once and clears your Ask Health conversation.
+                  To use them again, you agree again.
                 </p>
                 <button className="btn small ghost" onClick={() => void withdrawAiAgreement()}>
                   Withdraw agreement
@@ -166,9 +179,13 @@ export function SettingsSheet({
                   </>
                 )}
                 <p className="muted small">
-                  Nothing is sent. You will be asked, and shown exactly what would go, the first
-                  time you use Find patterns or Ask Health.
+                  Nothing is sent. You can agree here, or when you first use one of them, and
+                  you are shown exactly what would go before you do.
                 </p>
+                <button className="btn small" onClick={() => ai.withAgreement()}>
+                  Review and agree
+                </button>
+                {ai.notSaved && <p className="notice notice-error">{AI_AGREEMENT_NOT_SAVED}</p>}
               </>
             )}
             <button className="btn small ghost" onClick={() => setPolicyOpen(true)}>
@@ -232,6 +249,7 @@ export function SettingsSheet({
         </footer>
       </div>
       {policyOpen && <HealthDataPolicy onClose={() => setPolicyOpen(false)} />}
+      {ai.sheet}
     </div>
   );
 }

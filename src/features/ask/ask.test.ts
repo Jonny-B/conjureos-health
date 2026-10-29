@@ -14,7 +14,9 @@ vi.mock("../../bridge/ai", async (orig) => ({
   isAiAvailable: () => aiAvailable,
 }));
 vi.mock("../../bridge/vfs", () => ({
-  readJson: async (p: string, d: unknown) => (files[p] ? JSON.parse(files[p]) : d),
+  // The AI agreement is a file of its own (features/aiConsent.ts): `consent`.
+  readJson: async (p: string, d: unknown) =>
+    p === "ai-consent.json" ? (consent ?? d) : files[p] ? JSON.parse(files[p]) : d,
   writeJson: async (p: string, v: unknown) => {
     files[p] = JSON.stringify(v);
   },
@@ -24,7 +26,7 @@ const food = (name: string, cal: number, p: number) => ({
   id: name, source: "usda", name, servingSize: "1 serving",
   perServing: { calories: cal, protein: p, carbs: 10, fat: 5 },
 });
-// Whether the standing profile has a current AI-journal agreement on file.
+// Whether a current AI agreement is on file.
 // Every test in "personal context requires consent" below drives this
 // directly; every other test leaves it granted, because THIS file's job is
 // "does askHealth answer correctly", not re-litigating consent on every case.
@@ -40,7 +42,6 @@ vi.mock("../../data/repository", () => ({
       units: "imperial",
       weightKg: 81,
       direction: "lose",
-      aiJournalConsent: consent,
     }),
     listDiary: async (d: string) =>
       d === today

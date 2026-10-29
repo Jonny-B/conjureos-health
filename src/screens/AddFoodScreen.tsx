@@ -36,6 +36,9 @@ import { MIN_QTY } from "./MealDetailScreen";
 import { CameraCapture } from "../components/CameraCapture";
 import { SymptomSheet } from "../components/SymptomSheet";
 import { PackageCapture, type PackageResult } from "../components/PackageCapture";
+import { useAiAgreement } from "../components/useAiAgreement";
+import { AI_AGREEMENT_NOT_SAVED, onAiConsentWithdrawn } from "../features/aiConsent";
+import { isAiNotAgreed } from "../features/aiGate";
 import { EditableNutritionPreview } from "../components/EditableNutritionPreview";
 import {
   CUSTOM_SERVING_UNITS,
@@ -528,6 +531,11 @@ function ScanMode({ onPick }: { onPick: (food: FoodItem) => void }) {
   const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
   const busy = useRef(false);
 
+  // A package reading on screen is what the AI sent back, not yet the
+  // person's food: a withdrawal lets go of it, so nothing of it is logged or
+  // sent in afterwards (owner decision 2026-10-29, ConjureOS #1163).
+  useEffect(() => onAiConsentWithdrawn(() => setPendingPreview(null)), []);
+
   const resolve = async (barcode: string) => {
     if (busy.current) return;
     busy.current = true;
@@ -574,7 +582,8 @@ function ScanMode({ onPick }: { onPick: (food: FoodItem) => void }) {
               <span className="muted small">{missedBarcode}</span>
             </div>
             <div className="muted small">
-              We checked our database and Open Food Facts. Photograph it and we'll do the rest.
+              We checked our database and Open Food Facts. Photograph the package and the AI
+              reads it for you.
             </div>
           </div>
         )}
@@ -667,6 +676,10 @@ function AiMode({
   // default, because that is right for the everyday case; the escape hatch is
   // for the twenty-item cheese board.
   const [toHistory, setToHistory] = useState(true);
+  // Both tabs send to the AI, so the mode is off without the AI agreement,
+  // with one tap to it (owner decision 2026-10-29, ConjureOS #1163). Off
+  // means no camera either: nothing to photograph for a feature that is off.
+  const ai = useAiAgreement("food");
 
   const removeItem = (i: number) =>
     setItems((prev) => (prev ? prev.filter((_, idx) => idx !== i) : prev));
@@ -702,6 +715,14 @@ function AiMode({
       setToHistory(res.items.length < GROUP_BY_DEFAULT_AT);
     } catch (err) {
       if (runIdRef.current !== myRunId) return;
+      // No agreement after all (withdrawn on another device), or withdrawn
+      // while the estimate was out: nothing of it is shown, and the mode
+      // turns off (features/aiGate.ts).
+      if (isAiNotAgreed(err)) {
+        retake();
+        ai.lost();
+        return;
+      }
       setError(aiErrorMessage(err, "The estimator didn’t answer. Try again."));
     } finally {
       if (runIdRef.current === myRunId) setBusy(false);
@@ -729,6 +750,10 @@ function AiMode({
     setUnreadable(false);
   };
 
+  // A withdrawal drops what the AI sent back and anything still on its way,
+  // and the mode turns off (the hook above).
+  useEffect(() => onAiConsentWithdrawn(() => retake()), []);
+
   const logAll = async () => {
     if (!items?.length) return;
     const repo = await getRepository();
@@ -743,6 +768,23 @@ function AiMode({
     }
     onLogged();
   };
+
+  if (ai.agreed !== true) {
+    return (
+      <div className="mode-body">
+        {ai.agreed === false && (
+          <div className="ai-off">
+            <p>Adding food from a description or a photo uses the AI, and needs your agreement first.</p>
+            <button className="btn primary block" onClick={() => ai.withAgreement()}>
+              Review and agree
+            </button>
+            {ai.notSaved && <p className="notice notice-error">{AI_AGREEMENT_NOT_SAVED}</p>}
+          </div>
+        )}
+        {ai.sheet}
+      </div>
+    );
+  }
 
   return (
     <div className="mode-body">
@@ -1233,6 +1275,10 @@ function FixFlow({
   const [stage, setStage] = useState<"choose" | "manual" | "photo">("choose");
   const [parsed, setParsed] = useState<PendingPreview | null>(null);
 
+  // As in ScanMode: a withdrawal lets go of a package reading on screen, so it
+  // is not stored as a correction or sent in afterwards.
+  useEffect(() => onAiConsentWithdrawn(() => setParsed(null)), []);
+
   if (parsed) {
     return (
       <EditableNutritionPreview
@@ -1289,7 +1335,7 @@ function FixFlow({
         </span>
         <span className="snap-cta-text">
           <span className="snap-cta-title">Photograph the package</span>
-          <span className="snap-cta-sub">The nutrition panel, the front, or both.</span>
+          <span className="snap-cta-sub">The AI reads the nutrition panel, the front, or both.</span>
         </span>
         <ChevronRight size={20} />
       </button>

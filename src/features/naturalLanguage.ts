@@ -13,7 +13,8 @@
  */
 
 import type { ChatImage } from "../bridge/ai";
-import { complete, extractJson } from "../bridge/ai";
+import { extractJson } from "../bridge/ai";
+import { completeUnderAgreement } from "./aiGate";
 import type { FoodItem } from "../types";
 import { newId } from "../data/id";
 import { coerceFinite } from "./num";
@@ -56,6 +57,10 @@ const MEAL_MAX_TOKENS = 4000;
  *
  * Every item is an unreviewed estimate: the caller tags it so the diary can
  * badge it and the user can correct the numbers.
+ *
+ * Sends the description or the photo to the AI, so it needs the AI agreement:
+ * throws `AiNotAgreedError` (features/aiGate.ts) when there is none, or when
+ * it was withdrawn while the estimate was out.
  */
 export async function parseMeal(input: {
   text?: string;
@@ -67,7 +72,7 @@ export async function parseMeal(input: {
   const content =
     text ||
     "Identify each food and drink visible in this photo and estimate its nutrition.";
-  const raw = await complete({
+  const raw = await completeUnderAgreement({
     system: SYSTEM,
     messages: [{ role: "user", content, images: input.image ? [input.image] : undefined }],
     maxTokens: MEAL_MAX_TOKENS,
@@ -96,7 +101,8 @@ export interface MealParseResult {
  * Parse a meal AND the model's suggested name for it as one dish.
  *
  * Separate entry point so the existing `parseMeal` contract is untouched;
- * callers that offer grouping use this one.
+ * callers that offer grouping use this one. Needs the AI agreement, as
+ * `parseMeal` does.
  */
 export async function parseMealWithGroup(input: {
   text?: string;
@@ -107,7 +113,7 @@ export async function parseMealWithGroup(input: {
 
   const content =
     text || "Identify each food and drink visible in this photo and estimate its nutrition.";
-  const raw = await complete({
+  const raw = await completeUnderAgreement({
     system: SYSTEM,
     messages: [{ role: "user", content, images: input.image ? [input.image] : undefined }],
     maxTokens: MEAL_MAX_TOKENS,

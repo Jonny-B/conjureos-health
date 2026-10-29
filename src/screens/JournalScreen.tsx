@@ -221,9 +221,9 @@ export function JournalScreen({ units, nonce }: { units: Units; nonce: number })
           purpose="patterns"
           onCancel={() => setConsenting(false)}
           onAccept={async (includeNotes) => {
-            // Persist BEFORE disclosing. If the profile can't be written we
-            // have no record of the agreement, so nothing is sent — an
-            // agreement that survives only in memory is not a record.
+            // Persist BEFORE disclosing. If the agreement can't be saved we
+            // have no record of it, so nothing is sent: an agreement that
+            // survives only in memory is not a record.
             const stored = await recordAiJournalConsent(includeNotes);
             setConsenting(false);
             if (stored) runPatterns(includeNotes);

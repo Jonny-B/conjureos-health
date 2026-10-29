@@ -11,6 +11,14 @@ vi.mock("../../bridge/ai", async (orig) => ({
   isAiAvailable: () => true,
 }));
 
+// The AI agreement is in force: these tests are about reading the answer.
+// features/aiAgreement.test.ts holds the agreement itself.
+vi.mock("../aiConsent", async (orig) => {
+  const real = await orig<typeof import("../aiConsent")>();
+  const agreement = { acceptedAt: "2026-10-29T09:00:00.000Z", version: real.DISCLOSURE_VERSION, includeNotes: false };
+  return { ...real, currentAiAgreement: async () => agreement, hasAiJournalConsent: async () => true };
+});
+
 import { createPlan } from "./generate";
 
 const input: PlanInput = {

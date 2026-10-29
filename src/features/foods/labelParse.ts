@@ -13,7 +13,8 @@
  */
 
 import type { ChatImage } from "../../bridge/ai";
-import { complete, extractJson } from "../../bridge/ai";
+import { extractJson } from "../../bridge/ai";
+import { completeUnderAgreement } from "../aiGate";
 import type { FoodItem } from "../../types";
 import { NUTRIENT_SCHEMA, buildParsedFood, clamp01 } from "./parsedFood";
 
@@ -64,7 +65,9 @@ const MIN_CONFIDENCE = 0.4;
  * other, which is strictly better than either photo alone.
  *
  * Returns null if the model says it is not a label, returns garbage JSON, or
- * comes back with confidence below the floor.
+ * comes back with confidence below the floor. Throws `AiNotAgreedError`
+ * (features/aiGate.ts) when there is no AI agreement, or when it was withdrawn
+ * while the photos were out.
  */
 export async function parseNutritionLabel(
   image: ChatImage,
@@ -76,7 +79,7 @@ export async function parseNutritionLabel(
     ? `Identify this packaged food and extract its nutrition (per serving). The FIRST photo is the nutrition panel — take every number from it. The SECOND photo is the front of the package — use it only to name the product and its brand.${bar}`
     : `Identify this packaged food and extract its nutrition (per serving).${bar}`;
 
-  const raw = await complete({
+  const raw = await completeUnderAgreement({
     system: SYSTEM,
     messages: [{ role: "user", content: userText, images: front ? [image, front] : [image] }],
     // The label JSON (about 1,000 tokens) plus room to think. conjureos-health#10.
