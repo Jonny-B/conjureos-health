@@ -58,6 +58,11 @@ describe("clearAllHistories", () => {
     expect(calls).toContain("rm:food-cache.json");
   });
 
+  it("removes the summary ConjureOS Chat reads (ConjureOS #1230)", async () => {
+    await clearAllHistories();
+    expect(calls).toContain("rm:nutrition-summary.json");
+  });
+
   it("covers every kind in the list, not a hand-maintained subset", async () => {
     await clearAllHistories();
     // One clear per row (some rows clear more than one thing, hence >=).

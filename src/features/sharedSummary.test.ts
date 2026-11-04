@@ -26,9 +26,25 @@ vi.mock("../data/repository", () => ({
   }),
 }));
 
-import { buildNutritionSummary, SUMMARY_DAYS, SUMMARY_PATH } from "./sharedSummary";
+// The files are an in-memory map (ConjureOS #1230 tests below). The AI agreement
+// is the real module reading it.
+const files: Record<string, string> = {};
+vi.mock("../bridge/vfs", () => ({
+  readJson: async (p: string, d: unknown) => (files[p] !== undefined ? JSON.parse(files[p]!) : d),
+  writeJson: async (p: string, v: unknown) => void (files[p] = JSON.stringify(v)),
+  writeJsonOrThrow: async (p: string, v: unknown) => void (files[p] = JSON.stringify(v)),
+  vfs: {
+    exists: async (p: string) => files[p] !== undefined,
+    read: async (p: string) => files[p]!,
+    rm: async (p: string) => void delete files[p],
+  },
+}));
+
+import { buildNutritionSummary, removeNutritionSummary, writeNutritionSummary, SUMMARY_DAYS, SUMMARY_PATH } from "./sharedSummary";
+import { AI_CONSENT_PATH, DISCLOSURE_VERSION } from "./aiConsent";
 
 beforeEach(() => {
+  for (const k of Object.keys(files)) delete files[k];
   state.plan = null;
   state.diary = [
     {
@@ -99,5 +115,44 @@ describe("the summary ConjureOS may read", () => {
     expect(s.today).not.toHaveProperty("remainingCalories");
     expect(s.about).toMatch(/without a calorie target/);
     expect(JSON.stringify(s)).not.toMatch(/under_18|logging_only/);
+  });
+});
+
+/**
+ * ConjureOS Chat reads this file to answer a question about health, and sends
+ * it to an AI, so it exists only while the AI agreement does (ConjureOS #1230).
+ */
+describe("the summary exists only under the AI agreement", () => {
+  const agree = () =>
+    void (files[AI_CONSENT_PATH] = JSON.stringify({
+      acceptedAt: "2026-11-01T09:00:00.000Z",
+      version: DISCLOSURE_VERSION,
+      includeNotes: false,
+    }));
+
+  it("writes nothing without a current agreement", async () => {
+    await writeNutritionSummary();
+    expect(files[SUMMARY_PATH]).toBeUndefined();
+    files[AI_CONSENT_PATH] = JSON.stringify({ acceptedAt: "2026-10-30T09:00:00.000Z", version: DISCLOSURE_VERSION - 1, includeNotes: false });
+    await writeNutritionSummary();
+    expect(files[SUMMARY_PATH]).toBeUndefined();
+  });
+
+  it("takes away a summary an earlier version left, when there is no agreement", async () => {
+    files[SUMMARY_PATH] = JSON.stringify({ stale: true });
+    await writeNutritionSummary();
+    expect(files[SUMMARY_PATH]).toBeUndefined();
+  });
+
+  it("writes it under a current agreement", async () => {
+    agree();
+    await writeNutritionSummary();
+    expect(JSON.parse(files[SUMMARY_PATH]!).today.date).toBe(today);
+  });
+
+  it("removes it", async () => {
+    files[SUMMARY_PATH] = "{}";
+    await removeNutritionSummary();
+    expect(files[SUMMARY_PATH]).toBeUndefined();
   });
 });

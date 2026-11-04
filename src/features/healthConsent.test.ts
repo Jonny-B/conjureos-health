@@ -20,6 +20,7 @@ vi.mock("../bridge/vfs", () => ({
     if (failWrites) throw new Error("vfs down");
     files.set(path, JSON.stringify(value));
   },
+  vfs: { rm: async (path: string): Promise<void> => void files.delete(path) },
 }));
 
 import {
@@ -115,6 +116,17 @@ describe("a withdrawal says whether it was saved", () => {
     expect(c.healthConsentGranted()).toBe(false);
     const next = await freshSession();
     expect(await next.loadHealthConsent()).toBe(false);
+  });
+});
+
+/** ConjureOS #1230: the summary Chat reads is health data kept under this agreement. */
+describe("a withdrawal takes away the summary ConjureOS may read", () => {
+  it("removes nutrition-summary.json", async () => {
+    const c = await freshSession();
+    await c.recordHealthConsent();
+    files.set("nutrition-summary.json", "{}");
+    await c.withdrawHealthConsent();
+    expect(files.has("nutrition-summary.json")).toBe(false);
   });
 });
 
