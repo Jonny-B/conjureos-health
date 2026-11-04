@@ -225,6 +225,8 @@ export function consentIsCurrent(consent: AiJournalConsent | undefined): boolean
  *     reads the file, so a failure kept quiet would let a reload send again.
  */
 let withdrawnHere = false;
+// A refusal in this session is the person's latest answer, as the host holds it.
+let refusedHere = false;
 let notSaved = false;
 let generation = 0;
 const withdrawalListeners = new Set<() => void>();
@@ -316,6 +318,7 @@ export async function readAiJournalConsent(): Promise<AiJournalConsent | undefin
 export type AiAgreementState = "agreed" | "not_answered" | "refused" | "withdrawn";
 
 export async function aiAgreementState(): Promise<AiAgreementState> {
+  if (refusedHere) return "refused";
   if (withdrawnHere) return "withdrawn";
   let raw: unknown;
   try {
@@ -324,6 +327,7 @@ export async function aiAgreementState(): Promise<AiAgreementState> {
   } catch {
     return "not_answered";
   }
+  if (refusedHere) return "refused";
   if (withdrawnHere) return "withdrawn";
   if (raw === null) return "withdrawn";
   if (raw && typeof raw === "object" && typeof (raw as Record<string, unknown>).refusedAt === "string") {
@@ -358,6 +362,7 @@ export async function recordAiJournalConsent(includeNotes: boolean): Promise<boo
     return false;
   }
   withdrawnHere = false;
+  refusedHere = false;
   notSaved = false;
   generation++;
   // After the save: only the file makes the app agreed, and the host reads it.
@@ -380,6 +385,7 @@ export async function recordAiJournalConsent(includeNotes: boolean): Promise<boo
  */
 export async function recordAiRefusal(): Promise<boolean> {
   reportAgreement("refused");
+  refusedHere = true;
   try {
     await writeJsonOrThrow(AI_CONSENT_PATH, { refusedAt: new Date().toISOString(), version: DISCLOSURE_VERSION });
     return true;
@@ -418,6 +424,7 @@ export async function setAiJournalNotes(includeNotes: boolean): Promise<void> {
  */
 export async function withdrawAiJournalConsent(): Promise<boolean> {
   withdrawnHere = true;
+  refusedHere = false;
   generation++;
   // Before any save, and whatever the saves do: Chat stops reading at once.
   reportAgreement("withdrawn");

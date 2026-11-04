@@ -9,12 +9,12 @@ afterEach(() => {
 describe("the host agreement bridge", () => {
   it("does nothing, and does not throw, when the host has no agreement API", async () => {
     expect(() => reportAgreement("withdrawn")).not.toThrow();
-    const off = onAgreementRequest(() => ({ shown: true }));
+    const off = onAgreementRequest(() => true);
     expect(typeof off).toBe("function");
     expect(() => off()).not.toThrow();
     (window as { __conjureos?: unknown }).__conjureos = { ai: {} };
     expect(() => reportAgreement("agreed")).not.toThrow();
-    expect(() => onAgreementRequest(() => ({ shown: true }))()).not.toThrow();
+    expect(() => onAgreementRequest(() => true)()).not.toThrow();
   });
 
   it("forwards a report to the host", () => {
@@ -35,7 +35,7 @@ describe("the host agreement bridge", () => {
     const unsub = vi.fn();
     const on = vi.fn(() => unsub);
     (window as { __conjureos?: unknown }).__conjureos = { ai: { onAgreementRequest: on } };
-    const fn = vi.fn(() => ({ shown: true }));
+    const fn = vi.fn(() => true);
     const off = onAgreementRequest(fn);
     expect(on).toHaveBeenCalledWith(fn);
     off();

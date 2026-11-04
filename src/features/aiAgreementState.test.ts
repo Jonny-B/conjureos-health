@@ -111,6 +111,14 @@ describe("recordAiRefusal", () => {
     expect(log).toContain("report:refused");
     expect(await c.aiAgreementState()).toBe("refused");
   });
+
+  it("reads a refusal after a withdrawal in this session as refused", async () => {
+    files[c.AI_CONSENT_PATH] = accepted(4);
+    await c.withdrawAiJournalConsent();
+    expect(await c.recordAiRefusal()).toBe(true);
+    expect(await c.aiAgreementState()).toBe("refused");
+    expect(await c.hasAiJournalConsent()).toBe(false);
+  });
 });
 
 describe("reports to the host", () => {

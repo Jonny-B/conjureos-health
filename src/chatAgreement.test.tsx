@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const files: Record<string, string> = {};
 let collectionConsent = true;
 const writeNutritionSummary = vi.fn(async () => {});
-const removeNutritionSummary = vi.fn(async () => {});
+const removeNutritionSummary = vi.fn(async () => void delete files["nutrition-summary.json"]);
 
 vi.mock("./bridge/vfs", () => ({
   readJson: async (p: string, d: unknown) => (files[p] !== undefined ? JSON.parse(files[p]!) : d),
@@ -81,8 +81,8 @@ beforeEach(async () => {
   (window as unknown as { __conjureos: unknown }).__conjureos = {
     ai: {
       reportAgreement: (s: string) => void reports.push(s),
-      onAgreementRequest: (fn: typeof ask) => {
-        ask = fn;
+      onAgreementRequest: (fn: (r: Req) => boolean | Promise<boolean>) => {
+        ask = async (r) => ({ shown: (await fn(r)) !== false });
         return () => {};
       },
     },
@@ -168,6 +168,27 @@ describe("a request from the host to show the agreement for Chat", () => {
 });
 
 describe("the summary Chat reads follows the agreement", () => {
+  const remount = async () => {
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await act(async () => root.render(<App />));
+    await settle();
+  };
+
+  it("removes a summary an earlier version left when the agreement is out of date", async () => {
+    files["nutrition-summary.json"] = JSON.stringify({ days: [] });
+    files[AI_CONSENT_PATH] = JSON.stringify({ acceptedAt: "2026-10-01T09:00:00.000Z", version: DISCLOSURE_VERSION - 1 });
+    await remount();
+    expect(files["nutrition-summary.json"]).toBeUndefined();
+  });
+
+  it("keeps the summary at startup when the agreement is current", async () => {
+    files["nutrition-summary.json"] = JSON.stringify({ days: [] });
+    agree();
+    await remount();
+    expect(files["nutrition-summary.json"]).toBeDefined();
+  });
+
   it("is not written without the agreement, and is once the person agrees", async () => {
     await settle(1700);
     expect(writeNutritionSummary).not.toHaveBeenCalled();

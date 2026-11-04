@@ -11,7 +11,7 @@
  *     file says. "agreed" only makes the host read the file again: the file is
  *     the only thing that can make this app agreed.
  *   - `onAgreementRequest`: the host asks the app to show its agreement when
- *     Chat needs it. The handler answers whether it showed anything.
+ *     Chat needs it. The handler answers true when it put something on screen, false when it did not.
  *
  * Both are no-ops on a host that predates them (and under `npm run dev`), so
  * the app works the same there; the host then falls back to its own list and
@@ -26,15 +26,10 @@ export interface AgreementRequest {
   purpose?: "chat";
 }
 
-/** The answer: whether the app put its agreement on screen. */
-export interface AgreementAnswer {
-  shown: boolean;
-}
-
 interface AgreementHost {
   reportAgreement?: (state: AgreementReport) => void;
   onAgreementRequest?: (
-    fn: (req: AgreementRequest) => AgreementAnswer | Promise<AgreementAnswer>,
+    fn: (req: AgreementRequest) => boolean | Promise<boolean>,
   ) => (() => void) | void;
 }
 
@@ -54,7 +49,7 @@ export function reportAgreement(state: AgreementReport): void {
 
 /** Answer the host's request to show the agreement. Returns the unsubscribe. */
 export function onAgreementRequest(
-  fn: (req: AgreementRequest) => AgreementAnswer | Promise<AgreementAnswer>,
+  fn: (req: AgreementRequest) => boolean | Promise<boolean>,
 ): () => void {
   try {
     const on = ai()?.onAgreementRequest;

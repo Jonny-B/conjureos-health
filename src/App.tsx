@@ -146,7 +146,10 @@ export function App() {
     let alive = true;
     const at = aiConsentGeneration();
     void hasAiJournalConsent().then((ok) => {
-      if (alive && at === aiConsentGeneration()) setAiAgreed(ok);
+      if (!alive || at !== aiConsentGeneration()) return;
+      setAiAgreed(ok);
+      // A summary an earlier version wrote without this agreement must not stay readable.
+      if (!ok) void removeNutritionSummary();
     });
     const offWithdrawn = onAiConsentWithdrawn(() => {
       setAiAgreed(false);
@@ -171,10 +174,10 @@ export function App() {
     () =>
       onAgreementRequest(async () => {
         const collecting = consentRef.current === "unknown" ? await loadHealthConsent() : consentRef.current === "yes";
-        if (!collecting) return { shown: true };
-        if (await hasAiJournalConsent()) return { shown: false };
+        if (!collecting) return true;
+        if (await hasAiJournalConsent()) return false;
         setChatAsk((cur) => cur ?? { try: 0, notSaved: false });
-        return { shown: true };
+        return true;
       }),
     [],
   );
