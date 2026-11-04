@@ -94,13 +94,14 @@ describe("the policy claims nothing for the AI agreement that it does not do", (
     expectCopyRules(text);
   });
 
-  it("says ConjureOS's assistant is an AI, and that the agreement does not govern what it reads", async () => {
+  // Superseded by ConjureOS #1230: Chat reads under the agreement now (v4).
+  it("says ConjureOS's assistant is an AI, and that Chat reads under the agreement", async () => {
     const { html } = await policy();
     const others = plain(/<h4>To other apps on ConjureOS, when you allow them<\/h4>(.*?)<h3>/s.exec(html)![1]!);
     expect(others).toContain("ConjureOS's assistant is itself an AI");
-    expect(others).toContain(
-      "Withdrawing that agreement does not change what you allowed ConjureOS's assistant to read.",
-    );
+    expect(others).toContain("ConjureOS Chat sends your Conjure Health data to an AI only under this agreement.");
+    expect(others).toContain("Withdrawing it stops Chat from using that data too.");
+    expect(others).not.toContain("does not change what you allowed");
     expectCopyRules(others);
   });
 });

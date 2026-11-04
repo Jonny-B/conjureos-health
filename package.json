@@ -2125,6 +2125,10 @@
     "dataReadable": [
       "nutrition-summary.json"
     ],
+    "aiAgreement": {
+      "file": "ai-consent.json",
+      "version": 4
+    },
     "intents": {
       "addFood": {
         "title": "Find a food to add to your diary",

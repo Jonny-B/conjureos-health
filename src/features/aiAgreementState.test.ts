@@ -133,3 +133,13 @@ describe("reports to the host", () => {
     expect(log).not.toContain("report:agreed");
   });
 });
+
+describe("the manifest", () => {
+  it("declares the agreement the host reads, on the version this app asks for", async () => {
+    const pkg = (await import("../../package.json")) as unknown as {
+      default: { conjureos: { aiAgreement?: { file: string; version: number }; dataReadable: string[] } };
+    };
+    expect(pkg.default.conjureos.aiAgreement).toEqual({ file: c.AI_CONSENT_PATH, version: c.DISCLOSURE_VERSION });
+    expect(pkg.default.conjureos.dataReadable).toEqual(["nutrition-summary.json"]);
+  });
+});

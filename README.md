@@ -125,6 +125,12 @@ three ways: actions, a summary file, and deep links. ConjureOS asks the user
 before another app's request runs, reads included, unless they chose "Always
 allow" for that app; its assistant acts when the user asks it to.
 
+ConjureOS Chat sends your Conjure Health data to an AI only under the AI
+agreement (`ai-consent.json`, declared as `conjureos.aiAgreement`). Withdrawing
+it stops Chat from using that data too: a read made for Chat refuses with
+`NEEDS_CONSENT:` and a line saying so, and the summary file is removed. A read
+an app makes for itself needs only the agreement to keep health data.
+
 ### Actions
 
 `package.json` → `conjureos.actions` is the contract: ConjureOS validates
@@ -210,7 +216,9 @@ silently break the match: check it with `schemaSatisfies` from
 exercise for the last 14 days, rewritten after every change. ConjureOS reads
 it, with the user's permission, to answer a question no action fits ("how has
 my protein been this week?"). It holds no symptoms, sleep, weight, profile or
-plan. Desktop only for now.
+plan. Desktop only for now. It is written only while the AI agreement is in
+force, and removed when that agreement or the agreement to keep health data is
+withdrawn, and by Reset health data.
 
 ### Deep links
 
