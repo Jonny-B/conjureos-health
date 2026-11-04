@@ -79,6 +79,20 @@ describe("health data policy, Ask Health", () => {
   // material revision: see the note on POLICY_UPDATED.
   it("dates the last material revision", async () => {
     const { POLICY_UPDATED } = await import("./HealthDataPolicy");
-    expect(POLICY_UPDATED).toBe("2026-10-29");
+    expect(POLICY_UPDATED).toBe("2026-11-04");
+  });
+
+  // ConjureOS #1230: Chat is behind the agreement too, so the policy does not
+  // call what Chat reads a separate choice.
+  it("says ConjureOS Chat uses Conjure Health data only under the AI agreement", async () => {
+    const { text } = await policyText();
+    expect(text).toContain(
+      "ConjureOS Chat sends your Conjure Health data to an AI only under this agreement. " +
+        "Withdrawing it stops Chat from using that data too.",
+    );
+    expect(text).not.toContain("separate choice from the AI agreement");
+    expect(text).not.toContain("What ConjureOS's assistant reads is a separate choice");
+    expect(text).not.toContain("Withdrawing that agreement does not change what you allowed");
+    expectCopyRules(text);
   });
 });

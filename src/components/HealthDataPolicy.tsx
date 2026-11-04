@@ -41,11 +41,15 @@ import { AI_FEATURES, DISCLOSURE_SENDS, DISCLOSURE_WITHHOLDS } from "../features
  * ConjureOS's assistant and other apps ask for are behind the AI agreement,
  * and withdrawing it stops them too. The same revision scopes what the AI
  * agreement promises to Conjure Health's own features: ConjureOS's assistant
- * is an AI too, and what it reads through the actions and the summary below is
- * allowed in ConjureOS, not by this agreement (an owner question on #1163
- * asks whether it should need this agreement as well).
+ * is an AI too, and what it reads through the actions and the summary below was
+ * allowed in ConjureOS, not by this agreement.
+ *
+ * 2026-11-04 is one (ConjureOS #1230, DISCLOSURE_VERSION 4): the owner decided
+ * that ConjureOS Chat and its orchestrator use Conjure Health data only under
+ * this agreement, and withdrawing it stops them. The paragraph that called
+ * that a separate choice is replaced.
  */
-export const POLICY_UPDATED = "2026-10-29";
+export const POLICY_UPDATED = "2026-11-04";
 
 export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
   return (
@@ -131,9 +135,9 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
           </p>
           <p>
             ConjureOS's assistant is itself an AI: what it reads here goes to ConjureOS's AI
-            provider so it can answer you. It reads only what you allow in ConjureOS, which is a
-            separate choice from the AI agreement in Conjure Health. Withdrawing that agreement
-            does not change what you allowed ConjureOS's assistant to read.
+            provider so it can answer you. ConjureOS Chat sends your Conjure Health data to an AI
+            only under this agreement. Withdrawing it stops Chat from using that data too. It
+            also reads only what you allow in ConjureOS.
           </p>
           <p>What they can read:</p>
           <ul className="consent-list">
@@ -191,7 +195,7 @@ export function HealthDataPolicy({ onClose }: { onClose: () => void }) {
             <li>
               Conjure Health sends nothing to the AI until you agree to it. The first time you
               use one of its features that needs the AI, you are shown exactly what would be sent
-              and can decline. What ConjureOS's assistant reads is a separate choice, above.
+              and can decline. ConjureOS Chat reads your data only under that same agreement.
             </li>
             <li>
               Other apps get nothing until you allow them. You can turn app-to-app connections

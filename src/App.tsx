@@ -1,8 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Goals, MealType, Plan, Profile } from "./types";
 import { DEFAULT_GOALS } from "./types";
 import { getRepository } from "./data/repository";
 import { registerActions } from "./bridge/actions";
+import { onAgreementRequest } from "./bridge/agreement";
+import { AiConsentSheet } from "./components/AiConsentSheet";
+import {
+  AI_AGREEMENT_NOT_SAVED,
+  aiConsentGeneration,
+  hasAiJournalConsent,
+  onAiConsentAgreed,
+  onAiConsentWithdrawn,
+  recordAiJournalConsent,
+  recordAiRefusal,
+} from "./features/aiConsent";
 import { HealthConsentGate } from "./components/HealthConsentGate";
 import {
   healthConsentGranted,
@@ -13,7 +24,7 @@ import {
 import { readLaunchIntent } from "./bridge/intents";
 import { todayISO } from "./features/diary";
 import { onDataChanged } from "./features/dataEvents";
-import { writeNutritionSummary } from "./features/sharedSummary";
+import { removeNutritionSummary, writeNutritionSummary } from "./features/sharedSummary";
 import {
   archivePlan,
   commitNewPlan,
@@ -74,6 +85,12 @@ export function App() {
   // consent screen says so and offers a retry.
   const [withdrawalNotSaved, setWithdrawalNotSaved] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The AI agreement is in force (features/aiConsent.ts). The summary ConjureOS
+  // Chat reads is kept only while it is (features/sharedSummary.ts).
+  const [aiAgreed, setAiAgreed] = useState(false);
+  // ConjureOS Chat asked for the AI agreement (bridge/agreement.ts): the sheet
+  // is up. `chatTry` remounts it after an agreement that could not be saved.
+  const [chatAsk, setChatAsk] = useState<{ try: number; notSaved: boolean } | null>(null);
   // Plan wizard as a dismissible dialog, plus a per-session dismiss for its
   // banner (resets on reload = shows again while there's still no plan).
   const [planWizardOpen, setPlanWizardOpen] = useState(false);
@@ -122,6 +139,49 @@ export function App() {
     };
   }, []);
 
+  // Where the AI agreement stands, for the summary: read once, then followed.
+  // A withdrawal takes the summary away at once (it is also removed here rather
+  // than in aiConsent.ts, which the summary imports).
+  useEffect(() => {
+    let alive = true;
+    const at = aiConsentGeneration();
+    void hasAiJournalConsent().then((ok) => {
+      if (!alive || at !== aiConsentGeneration()) return;
+      setAiAgreed(ok);
+      // A summary an earlier version wrote without this agreement must not stay readable.
+      if (!ok) void removeNutritionSummary();
+    });
+    const offWithdrawn = onAiConsentWithdrawn(() => {
+      setAiAgreed(false);
+      void removeNutritionSummary();
+    });
+    const offAgreed = onAiConsentAgreed(() => setAiAgreed(true));
+    return () => {
+      alive = false;
+      offWithdrawn();
+      offAgreed();
+    };
+  }, []);
+
+  // ConjureOS Chat needs this app's AI agreement and asks the app to show it
+  // (ConjureOS #1230). The collection gate comes first when that is what is
+  // missing; it is already on screen then. With the agreement already in
+  // force there is nothing to show. The sheet is the person's answer, and the
+  // app never agrees for them.
+  const consentRef = useRef(consent);
+  consentRef.current = consent;
+  useEffect(
+    () =>
+      onAgreementRequest(async () => {
+        const collecting = consentRef.current === "unknown" ? await loadHealthConsent() : consentRef.current === "yes";
+        if (!collecting) return true;
+        if (await hasAiJournalConsent()) return false;
+        setChatAsk((cur) => cur ?? { try: 0, notSaved: false });
+        return true;
+      }),
+    [],
+  );
+
   // Registered at startup, consent or not (ConjureOS #1156). Each action checks
   // the agreement itself and refuses without one, so nothing is read or kept
   // before the person agrees. An app that registered nothing until then left
@@ -154,14 +214,14 @@ export function App() {
   // assistant fixed a quantity): refresh whatever is on screen.
   useEffect(() => onDataChanged(() => setNonce((n) => n + 1)), []);
 
-  // Keep the summary ConjureOS may read (see features/sharedSummary) current:
-  // once after startup, then after each change, settling for a moment so a
+  // Keep the summary ConjureOS may read (see features/sharedSummary) current,
+  // while the AI agreement is in force: once after startup, then after each change, settling for a moment so a
   // burst of writes rewrites it once.
   useEffect(() => {
-    if (!ready || consent !== "yes") return;
+    if (!ready || consent !== "yes" || !aiAgreed) return;
     const t = setTimeout(() => void writeNutritionSummary(), 1500);
     return () => clearTimeout(t);
-  }, [ready, nonce, consent]);
+  }, [ready, nonce, consent, aiAgreed]);
 
   // The diary's rings read from the plan's targets when it tracks food, falling
   // back to the separately-stored goals otherwise.
@@ -463,6 +523,26 @@ export function App() {
           onSave={onSaveGoals}
           onDataCleared={onDataCleared}
           onWithdrawHealthConsent={withdrawCollection}
+        />
+      )}
+
+      {chatAsk && (
+        <AiConsentSheet
+          key={chatAsk.try}
+          purpose="chat"
+          sends={false}
+          notice={chatAsk.notSaved ? AI_AGREEMENT_NOT_SAVED : undefined}
+          onDismiss={() => setChatAsk(null)}
+          onCancel={() => {
+            void recordAiRefusal();
+            setChatAsk(null);
+          }}
+          onAccept={async (includeNotes) => {
+            // Saved before anything else: an agreement that survives only in
+            // memory is not a record.
+            const stored = await recordAiJournalConsent(includeNotes);
+            setChatAsk(stored ? null : { try: chatAsk.try + 1, notSaved: true });
+          }}
         />
       )}
     </div>

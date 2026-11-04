@@ -19,6 +19,7 @@
 
 import { getRepository } from "../data/repository";
 import { vfs } from "../bridge/vfs";
+import { removeNutritionSummary } from "./sharedSummary";
 
 /** One independently clearable slice of the user's history. */
 export type HistoryKind =
@@ -114,6 +115,8 @@ export async function clearAllHistories(): Promise<void> {
     await clearHistory(item.kind);
   }
   await rm("food-cache.json");
+  // Derived from the diary and read by ConjureOS Chat, so it goes with it (#1230).
+  await removeNutritionSummary();
 }
 
 /**
