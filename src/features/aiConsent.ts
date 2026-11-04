@@ -46,7 +46,8 @@
 
 import type { AiJournalConsent, Profile } from "../types";
 import { getRepository } from "../data/repository";
-import { readJson, writeJsonOrThrow } from "../bridge/vfs";
+import { readJson, vfs, writeJsonOrThrow } from "../bridge/vfs";
+import { reportAgreement } from "../bridge/agreement";
 import { clearAskConversation } from "./ask/conversationFile";
 
 /** Where the agreement is kept: a file of its own (see the note above). */
@@ -67,6 +68,7 @@ export const AI_FEATURES: readonly string[] = [
   "Food estimates for ConjureOS's assistant and other apps",
   "Find patterns",
   "Ask Health",
+  "Answers from ConjureOS Chat about your health",
 ];
 
 /**
@@ -116,8 +118,16 @@ export const AI_FEATURES: readonly string[] = [
  * their most common caller; the plan line names the kind of plan, which tells
  * the AI when the safety check picked one that does not count calories, and
  * the safety answers themselves are listed as not sent.
+ *
+ * v4 (2026-10-29, ConjureOS #1230): the owner's decision "Conjure Chat and
+ * orchestrator must trigger permissions or be blocked if permissions had been
+ * or are denied." ConjureOS Chat reads the diary, water, sleep, symptoms,
+ * weigh-ins and workouts, and the 14-day food summary, to answer a question
+ * about health, and sends them to an AI. The wording names that, so Chat is
+ * behind this agreement too, and everyone who agreed to v3 is asked once
+ * more. Until they agree again Chat reads nothing from this app.
  */
-export const DISCLOSURE_VERSION = 3;
+export const DISCLOSURE_VERSION = 4;
 
 /**
  * Exactly what leaves the device, in the order the sheet shows it. Kept as
@@ -141,6 +151,7 @@ export const DISCLOSURE_SENDS: string[] = [
   "Adding food from a description: the words you type",
   "Adding food from a photo: the photo of your meal, or of a package's label or front, with the barcode if you scanned one",
   "Food estimates for ConjureOS's assistant and other apps: the food or the ingredients they name, when one of them asks Conjure Health for an estimate",
+  "ConjureOS Chat, when you ask it about your health: the diary, water, sleep, symptoms (name, severity and time), weigh-ins and workouts it reads to answer, and your 14-day food summary. Symptom and sleep notes stay on this device.",
   "Find patterns: the dates in the range you asked about",
   "Ask Health: today in full, plus daily totals from the 2 days before",
   "For Find patterns and Ask Health, daily totals: calories, protein, water, sleep length, exercise calories",
@@ -279,6 +290,36 @@ export async function readAiJournalConsent(): Promise<AiJournalConsent | undefin
   return asAgreement(stored);
 }
 
+/**
+ * Where this app stands on the agreement, for the host to gate ConjureOS Chat
+ * on (ConjureOS #1230). The file says which: `readJson` folds a missing file
+ * and a JSON null together, so `vfs.exists` tells them apart.
+ *
+ *   - `agreed`: an accept that covers the current wording.
+ *   - `not_answered`: no file, an older wording, or anything unreadable. An
+ *     unknown state is never an agreement.
+ *   - `refused`: the person said no when asked (`recordAiRefusal`).
+ *   - `withdrawn`: a JSON null, or a withdrawal in this session.
+ */
+export type AiAgreementState = "agreed" | "not_answered" | "refused" | "withdrawn";
+
+export async function aiAgreementState(): Promise<AiAgreementState> {
+  if (withdrawnHere) return "withdrawn";
+  let raw: unknown;
+  try {
+    if (!(await vfs.exists(AI_CONSENT_PATH))) return "not_answered";
+    raw = JSON.parse(await vfs.read(AI_CONSENT_PATH));
+  } catch {
+    return "not_answered";
+  }
+  if (withdrawnHere) return "withdrawn";
+  if (raw === null) return "withdrawn";
+  if (raw && typeof raw === "object" && typeof (raw as Record<string, unknown>).refusedAt === "string") {
+    return "refused";
+  }
+  return consentIsCurrent(asAgreement(raw)) ? "agreed" : "not_answered";
+}
+
 /** A stored agreement, or undefined when the file holds anything else. */
 function asAgreement(v: unknown): AiJournalConsent | undefined {
   if (!v || typeof v !== "object") return undefined;
@@ -307,7 +348,25 @@ export async function recordAiJournalConsent(includeNotes: boolean): Promise<boo
   withdrawnHere = false;
   notSaved = false;
   generation++;
+  // After the save: only the file makes the app agreed, and the host reads it.
+  reportAgreement("agreed");
   return true;
+}
+
+/**
+ * Record that the person was asked and said no (ConjureOS Chat's request to
+ * use their health data). The host is told first, so Chat is blocked whether
+ * or not the file takes it. Returns whether it was saved. It is not an
+ * agreement: `asAgreement` reads it as none, and every feature still asks.
+ */
+export async function recordAiRefusal(): Promise<boolean> {
+  reportAgreement("refused");
+  try {
+    await writeJsonOrThrow(AI_CONSENT_PATH, { refusedAt: new Date().toISOString(), version: DISCLOSURE_VERSION });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -341,6 +400,8 @@ export async function setAiJournalNotes(includeNotes: boolean): Promise<void> {
 export async function withdrawAiJournalConsent(): Promise<boolean> {
   withdrawnHere = true;
   generation++;
+  // Before any save, and whatever the saves do: Chat stops reading at once.
+  reportAgreement("withdrawn");
   for (const fn of [...withdrawalListeners]) {
     try {
       fn();
