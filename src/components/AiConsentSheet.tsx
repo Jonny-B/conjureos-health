@@ -34,9 +34,10 @@ import {
 /**
  * Which feature opened the sheet: it names the agree button. Those that send
  * the moment the person agrees say so; Add food's AI mode only turns on, and
- * Settings only records the agreement.
+ * Settings only records the agreement. `chat` is ConjureOS Chat asking for
+ * it (ConjureOS #1230): the person answers yes or no, and a no is recorded.
  */
-export type AiConsentPurpose = "patterns" | "ask" | "plan" | "package" | "food" | "settings";
+export type AiConsentPurpose = "patterns" | "ask" | "plan" | "package" | "food" | "settings" | "chat";
 
 const AGREE_LABEL: Record<AiConsentPurpose, string> = {
   patterns: "Send and find patterns",
@@ -45,6 +46,7 @@ const AGREE_LABEL: Record<AiConsentPurpose, string> = {
   package: "Send and read",
   food: "Agree",
   settings: "Agree",
+  chat: "Agree",
 };
 
 /** The button when agreeing sends nothing at once. */
@@ -55,6 +57,8 @@ export function AiConsentSheet({
   sends = true,
   onAccept,
   onCancel,
+  onDismiss,
+  notice,
 }: {
   purpose: AiConsentPurpose;
   /**
@@ -64,19 +68,25 @@ export function AiConsentSheet({
   sends?: boolean;
   /** Called with the notes opt-in. Owner persists it, then sends. */
   onAccept: (includeNotes: boolean) => void;
+  /** The "Not now" button (for Chat, "Don't allow": the person's answer). */
   onCancel: () => void;
+  /** Tapping outside the sheet. Defaults to `onCancel`; Chat's does not answer. */
+  onDismiss?: () => void;
+  /** A line under the body, said as an alert (the agreement could not be saved). */
+  notice?: string;
 }) {
   const [includeNotes, setIncludeNotes] = useState(false);
   const [busy, setBusy] = useState(false);
 
   return (
-    <div className="sheet-backdrop" onClick={onCancel}>
+    <div className="sheet-backdrop" onClick={onDismiss ?? onCancel}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <header className="sheet-head">
           <h2>Before anything goes to the AI</h2>
         </header>
 
         <div className="sheet-body">
+          {purpose === "chat" && <p>ConjureOS Chat asked to use your health data to answer you.</p>}
           <p className="muted small">
             These features send what they need to an AI service outside this app. They send only
             when you use one of them, or when ConjureOS's assistant or another app asks Conjure
@@ -125,9 +135,14 @@ export function AiConsentSheet({
           </p>
         </div>
 
+        {notice && (
+          <p className="notice notice-error" role="alert">
+            {notice}
+          </p>
+        )}
         <footer className="sheet-foot consent-foot">
           <button className="btn ghost" onClick={onCancel} disabled={busy}>
-            Not now
+            {purpose === "chat" ? "Don't allow" : "Not now"}
           </button>
           <button
             className="btn primary"

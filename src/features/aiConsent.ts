@@ -228,6 +228,7 @@ let withdrawnHere = false;
 let notSaved = false;
 let generation = 0;
 const withdrawalListeners = new Set<() => void>();
+const agreementListeners = new Set<() => void>();
 
 /** Which agreement-or-withdrawal this session is on. See the note above. */
 export function aiConsentGeneration(): number {
@@ -239,6 +240,17 @@ export function onAiConsentWithdrawn(fn: () => void): () => void {
   withdrawalListeners.add(fn);
   return () => {
     withdrawalListeners.delete(fn);
+  };
+}
+
+/**
+ * Run `fn` when an agreement is saved in this session. Returns the unsubscribe.
+ * The shared summary starts being kept then (App).
+ */
+export function onAiConsentAgreed(fn: () => void): () => void {
+  agreementListeners.add(fn);
+  return () => {
+    agreementListeners.delete(fn);
   };
 }
 
@@ -350,6 +362,13 @@ export async function recordAiJournalConsent(includeNotes: boolean): Promise<boo
   generation++;
   // After the save: only the file makes the app agreed, and the host reads it.
   reportAgreement("agreed");
+  for (const fn of [...agreementListeners]) {
+    try {
+      fn();
+    } catch {
+      /* one listener failing must not stop the others */
+    }
+  }
   return true;
 }
 
