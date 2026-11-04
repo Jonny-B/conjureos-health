@@ -155,4 +155,20 @@ describe("the summary exists only under the AI agreement", () => {
     await removeNutritionSummary();
     expect(files[SUMMARY_PATH]).toBeUndefined();
   });
+
+  it("a removal that lands while the summary is built leaves no file behind", async () => {
+    agree();
+    const w = writeNutritionSummary();
+    const r = removeNutritionSummary();
+    await Promise.all([w, r]);
+    expect(files[SUMMARY_PATH]).toBeUndefined();
+  });
+
+  it("a removal that follows a write already posted still removes it", async () => {
+    agree();
+    await writeNutritionSummary();
+    expect(files[SUMMARY_PATH]).toBeDefined();
+    await removeNutritionSummary();
+    expect(files[SUMMARY_PATH]).toBeUndefined();
+  });
 });
