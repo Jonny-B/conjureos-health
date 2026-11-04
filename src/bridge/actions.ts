@@ -44,6 +44,12 @@
  * data: without it they answer `NEEDS_AI_CONSENT`, send nothing and log
  * nothing (owner decision 2026-10-29, ConjureOS #1163).
  *
+ * A read made for ConjureOS Chat or its orchestrator needs the AI agreement
+ * too, because Chat sends what it returns to an AI: `NEEDS_AI_CHAT_CONSENT`,
+ * with nothing returned (owner decision 2026-10-29, ConjureOS #1230). The host
+ * says who the read is for in `params.__caller.forModel`; see
+ * `requireHealthConsent`.
+ *
  * Deliberately NOT exposed, and not an oversight:
  *
  *   - Granting AI-journal consent. An agent cannot agree to a health-data
@@ -76,7 +82,7 @@
  */
 
 import { healthConsentGeneration, healthConsentOnFile } from "../features/healthConsent";
-import { isAiNotAgreed } from "../features/aiGate";
+import { isAiNotAgreed, takeAiTicket, ticketHolds } from "../features/aiGate";
 import type { FoodItem, Macros, MealType, Profile, WorkoutSession } from "../types";
 import { MEAL_LABELS, MEAL_TYPES } from "../types";
 import { getRepository, type Repository } from "../data/repository";
@@ -1657,19 +1663,94 @@ export const NEEDS_AI_CONSENT =
   "NEEDS_CONSENT:Open Conjure Health, go to Settings, and agree to let it use the AI to estimate food.";
 
 /**
+ * What a read throws when ConjureOS Chat (or its orchestrator) asked for it
+ * and the AI agreement is not in place, or was withdrawn while the read ran
+ * (owner decision 2026-10-29, ConjureOS #1230: "Conjure Chat and orchestrator
+ * must trigger permissions or be blocked if permissions had been or are
+ * denied"). Chat sends what a read returns to an AI, so the read needs the
+ * same agreement as this app's own AI features. Nothing is returned. The
+ * marker is ConjureOS's: Chat says the app needs the person's agreement and
+ * offers to open it.
+ */
+export const NEEDS_AI_CHAT_CONSENT =
+  "NEEDS_CONSENT:Open Conjure Health and agree to its AI agreement to use your health data in Chat.";
+
+/**
+ * The actions that return the person's data to the caller: every one the
+ * manifest declares `actions.read` (a test holds the two together). Chat
+ * puts what they return in front of an AI.
+ */
+export const AI_READ_ACTIONS: ReadonlySet<string> = new Set([
+  "todayTotals",
+  "dayNutrition",
+  "recentNutrition",
+  "nutritionTargets",
+  "dayEntries",
+  "estimateNutrition",
+  "findFood",
+  "dayExercise",
+  "dayWellbeing",
+  "recentWellbeing",
+  "weightTrend",
+]);
+
+/**
+ * Split the host's stamp (`params.__caller`, added by ConjureOS after it
+ * validated the params and overwriting anything the caller sent) from the
+ * params the handler sees. The handler never receives the stamp, so a field it
+ * reads can never be the host's.
+ */
+function splitCaller(args: readonly unknown[]): { args: unknown[]; stamp: unknown; stamped: boolean } {
+  const first = args[0];
+  if (!first || typeof first !== "object" || Array.isArray(first) || !("__caller" in first)) {
+    return { args: [...args], stamp: undefined, stamped: false };
+  }
+  const { __caller, ...rest } = first as Record<string, unknown>;
+  return { args: [rest, ...args.slice(1)], stamp: __caller, stamped: true };
+}
+
+/**
+ * Whether a read has to hold the AI agreement. Fails closed. A call the host
+ * says is for an app (`forModel: false`) keeps the collection rule alone. A
+ * stamp that does not say so, and an unstamped call on the desktop (an older
+ * host stamps nothing), is taken to be for a model. Inside the phone's WebView
+ * an unstamped call is the phone's own, which stamps app callers itself.
+ */
+function readIsForModel(stamp: unknown, stamped: boolean): boolean {
+  if (stamped) {
+    return !(stamp && typeof stamp === "object" && (stamp as { forModel?: unknown }).forModel === false);
+  }
+  return typeof window === "undefined" || !(window as { ReactNativeWebView?: unknown }).ReactNativeWebView;
+}
+
+/**
  * Every action refuses while there is no consent to collect health data on
  * file (features/healthConsent.ts), and checks on every call: the actions are
  * registered at startup, before the person has agreed, so that a call then
  * gets this answer instead of the silence of an app that registered nothing
  * (ConjureOS #1156), and a withdrawal mid-session stops them at once. Nothing
  * is read or written before the check passes.
+ *
+ * A read made for a model also needs the AI agreement (ConjureOS #1230). The
+ * agreement is taken before the handler reads anything and checked again
+ * after, the way features/aiGate.ts holds a send, so a withdrawal that lands
+ * while the read is out returns nothing. Writes keep the collection rule: they
+ * return no health data of the person's.
  */
 function requireHealthConsent<H extends Record<string, (...args: never[]) => unknown>>(handlers: H): H {
   const out: Record<string, (...args: never[]) => unknown> = {};
   for (const [name, fn] of Object.entries(handlers)) {
-    out[name] = async (...args: never[]) => {
+    out[name] = async (...rawArgs: never[]) => {
       if (!(await healthConsentOnFile())) throw new Error(NEEDS_HEALTH_CONSENT);
-      return fn(...args);
+      const { args, stamp, stamped } = splitCaller(rawArgs);
+      if (!AI_READ_ACTIONS.has(name) || !readIsForModel(stamp, stamped)) {
+        return (fn as (...a: unknown[]) => unknown)(...args);
+      }
+      const ticket = await takeAiTicket();
+      if (!ticket) throw new Error(NEEDS_AI_CHAT_CONSENT);
+      const result = await (fn as (...a: unknown[]) => unknown)(...args);
+      if (!(await ticketHolds(ticket))) throw new Error(NEEDS_AI_CHAT_CONSENT);
+      return result;
     };
   }
   return out as H;

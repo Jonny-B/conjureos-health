@@ -80,7 +80,10 @@ function expectCopyRules(s: string) {
 
 describe("the refusal says where to agree", () => {
   it("estimateNutrition names Settings in Conjure Health, within the 200 characters Chat shows", async () => {
-    const msg = line(await refusal(actions.estimateNutrition!({ text: "a bowl of chili" })));
+    // An app caller: the host says the call is not for a model (ConjureOS #1230),
+    // so this app's own estimate refusal is what answers.
+    const fromApp = { slug: "recipes", name: "Recipes", forModel: false };
+    const msg = line(await refusal(actions.estimateNutrition!({ text: "a bowl of chili", __caller: fromApp })));
     expect(msg).toContain("Conjure Health");
     expect(msg).toContain("Settings");
     expect(msg.length).toBeLessThanOrEqual(200);
