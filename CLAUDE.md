@@ -54,7 +54,7 @@ leaves for the AI, and `AI_FEATURES` in `src/features/aiConsent.ts` names every
 feature that sends anything. Nothing is sent without the AI agreement, a
 withdrawal stops all of them, and an answer that lands after a withdrawal is
 thrown away. A new AI feature joins `AI_FEATURES` and `DISCLOSURE_SENDS`, and
-`DISCLOSURE_VERSION` (3 today) is bumped when the wording changes materially, so
+`DISCLOSURE_VERSION` (4 today) is bumped when the wording changes materially, so
 everyone is asked again. `src/features/aiAgreement.test.ts` fails if a module
 reaches the AI any other way. Keep the policy in
 `src/components/HealthDataPolicy.tsx` true when a data flow changes.

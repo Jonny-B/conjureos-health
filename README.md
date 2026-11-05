@@ -83,7 +83,7 @@ between devices:
   and every cross-app action refuses. Withdrawing it in Settings stops
   collection at once and returns to that screen; if the withdrawal could not be
   saved, the screen says so and offers a retry.
-- **AI agreement** (`ai-consent.json`, disclosure version 3), asked in place the
+- **AI agreement** (`ai-consent.json`, disclosure version 4, which also names ConjureOS Chat), asked in place the
   first time a feature needs it, or in Settings. One agreement covers every
   feature that sends anything to the AI (`AI_FEATURES` in
   `src/features/aiConsent.ts`): building a plan, adding food from a description
