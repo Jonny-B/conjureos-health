@@ -51,7 +51,10 @@ vi.mock("./features/aiConsent", async (orig) => ({
   readAiJournalConsent: async () => undefined,
 }));
 vi.mock("./bridge/intents", () => ({ readLaunchIntent: async () => null }));
-vi.mock("./features/sharedSummary", () => ({ writeNutritionSummary: () => writeNutritionSummary() }));
+vi.mock("./features/sharedSummary", () => ({
+  writeNutritionSummary: () => writeNutritionSummary(),
+  removeNutritionSummary: async () => {},
+}));
 vi.mock("./features/plan/planService", async (orig) => ({
   ...(await orig<typeof import("./features/plan/planService")>()),
   loadPlan: async () => null,

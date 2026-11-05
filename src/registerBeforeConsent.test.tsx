@@ -27,7 +27,10 @@ vi.mock("./features/healthConsent", () => ({
   withdrawHealthConsent: async () => true,
 }));
 vi.mock("./bridge/intents", () => ({ readLaunchIntent: async () => null }));
-vi.mock("./features/sharedSummary", () => ({ writeNutritionSummary: async () => {} }));
+vi.mock("./features/sharedSummary", () => ({
+  writeNutritionSummary: async () => {},
+  removeNutritionSummary: async () => {},
+}));
 vi.mock("./features/plan/planService", async (orig) => ({
   ...(await orig<typeof import("./features/plan/planService")>()),
   loadPlan: async () => null,
