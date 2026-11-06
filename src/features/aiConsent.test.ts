@@ -178,9 +178,13 @@ describe("the disclosure covers every feature that sends to the AI", () => {
       "Food estimates for ConjureOS's assistant and other apps",
       "Find patterns",
       "Ask Health",
+      "Answers from ConjureOS Chat about your health",
     ]);
     for (const name of AI_FEATURES) {
-      expect(DISCLOSURE_SENDS.some((line) => line.startsWith(`${name}: `))).toBe(true);
+      // Chat's line reads as a sentence about when it asks, so it names itself
+      // rather than carrying the feature's label.
+      const lead = name.startsWith("Answers from ConjureOS Chat") ? "ConjureOS Chat, when you ask it about your health: " : `${name}: `;
+      expect(DISCLOSURE_SENDS.some((line) => line.startsWith(lead))).toBe(true);
     }
   });
 
@@ -198,6 +202,6 @@ describe("the disclosure covers every feature that sends to the AI", () => {
   });
 
   it("is on the version that re-asks everyone who agreed to the narrower wording", () => {
-    expect(DISCLOSURE_VERSION).toBe(3);
+    expect(DISCLOSURE_VERSION).toBe(4);
   });
 });

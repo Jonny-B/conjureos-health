@@ -21,6 +21,7 @@
  */
 
 import { readJson, writeJsonOrThrow } from "../bridge/vfs";
+import { removeNutritionSummary } from "./sharedSummary";
 
 /**
  * Which wording of the gate (features/healthConsentCopy.ts) an agreement
@@ -151,10 +152,15 @@ export async function recordHealthConsent(): Promise<boolean> {
 export async function withdrawHealthConsent(): Promise<boolean> {
   session = "withdrawn";
   decisions++;
+  // The summary ConjureOS Chat reads is health data kept under this agreement
+  // (ConjureOS #1230). Never throws, so it cannot change what is reported.
+  const summary = removeNutritionSummary();
   try {
     await writeJsonOrThrow(PATH, null);
     return true;
   } catch {
     return false;
+  } finally {
+    await summary;
   }
 }

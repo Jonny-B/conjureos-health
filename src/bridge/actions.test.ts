@@ -146,7 +146,11 @@ beforeEach(async () => {
   parseMeal.mockReset();
   lookupBarcode.mockReset();
   searchFoods.mockReset();
+  // Most tests below stand in for the phone's WebView, where the host stamps
+  // app callers itself and an unstamped call is not Chat (ConjureOS #1230).
+  // The describe at the end takes it away to check the desktop rule.
   (globalThis as { window?: unknown }).window = {
+    ReactNativeWebView: {},
     __conjureos: {
       actions: {
         register: async (map: Record<string, Handler>) => void (actions = map),
@@ -1118,5 +1122,117 @@ describe("without consent to collect health data", () => {
     }
     expect(db.diary).toHaveLength(0);
     expect(db.water).toHaveLength(0);
+  });
+});
+
+/**
+ * ConjureOS #1230: Chat and the orchestrator read this app only under the AI
+ * agreement. The host stamps `params.__caller.forModel` on a call made for a
+ * model; a read made for a model, or by an unstamped caller on the desktop
+ * (an older host does not stamp), needs the current agreement, and an app
+ * caller that asks for itself keeps today's rule.
+ */
+describe("a read made for a model needs the AI agreement", () => {
+  const stamp = (forModel: boolean | undefined) => ({
+    __caller: { slug: forModel === false ? "recipes" : "conjureos", name: "X", ...(forModel === undefined ? {} : { forModel }) },
+  });
+  let aiConsent: typeof import("../features/aiConsent");
+  let vfsMod: typeof import("./vfs");
+  const agree = async () => {
+    await vfsMod.vfs.write(
+      aiConsent.AI_CONSENT_PATH,
+      JSON.stringify({ acceptedAt: "2026-11-01T09:00:00.000Z", version: aiConsent.DISCLOSURE_VERSION, includeNotes: false }),
+    );
+  };
+
+  beforeEach(async () => {
+    aiConsent = await import("../features/aiConsent");
+    vfsMod = await import("./vfs");
+    await vfsMod.vfs.rm(aiConsent.AI_CONSENT_PATH);
+    seedFood("a1", "Apple", 95);
+  });
+
+  it("refuses a forModel read with no agreement, and returns no data", async () => {
+    const err = await call("todayTotals", stamp(true)).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe(
+      "NEEDS_CONSENT:Open Conjure Health and agree to its AI agreement to use your health data in Chat.",
+    );
+  });
+
+  it("refuses when the person refused", async () => {
+    await vfsMod.vfs.write(aiConsent.AI_CONSENT_PATH, JSON.stringify({ refusedAt: "2026-11-01T09:00:00.000Z", version: 4 }));
+    await expect(call("dayEntries", stamp(true))).rejects.toThrow(/NEEDS_CONSENT:/);
+  });
+
+  it("answers a forModel read once the agreement is on file", async () => {
+    await agree();
+    const res = (await call("todayTotals", stamp(true))) as { value: string };
+    expect(res.value).toMatch(/95/);
+  });
+
+  it("holds a stamped call without forModel to the agreement too", async () => {
+    await expect(call("todayTotals", stamp(undefined))).rejects.toThrow(/NEEDS_CONSENT:/);
+  });
+
+  it("lets an app caller read under the collection consent alone", async () => {
+    const res = (await call("todayTotals", stamp(false))) as { value: string };
+    expect(res.value).toMatch(/95/);
+  });
+
+  it("needs the agreement from an unstamped call outside the WebView, and not inside it", async () => {
+    const w = (globalThis as { window: { ReactNativeWebView?: unknown } }).window;
+    await expect(call("todayTotals")).resolves.toBeDefined(); // inside: the phone stamps its own
+    delete w.ReactNativeWebView;
+    await expect(call("todayTotals")).rejects.toThrow(/NEEDS_CONSENT:/);
+    await agree();
+    await expect(call("todayTotals")).resolves.toBeDefined();
+  });
+
+  it("throws when the agreement is withdrawn between the read and the return", async () => {
+    await agree();
+    const real = repo.listDiary;
+    repo.listDiary = async (date: string) => {
+      const rows = await real(date);
+      await vfsMod.vfs.write(aiConsent.AI_CONSENT_PATH, "null");
+      return rows;
+    };
+    try {
+      await expect(call("todayTotals", stamp(true))).rejects.toThrow(/NEEDS_CONSENT:/);
+    } finally {
+      repo.listDiary = real;
+    }
+  });
+
+  it("keeps writes on the collection consent, even from a model", async () => {
+    const res = (await call("logWater", { ml: 250, ...stamp(true) })) as { value: string };
+    expect(typeof res.value).toBe("string");
+  });
+
+  it("still refuses everything without the collection consent first", async () => {
+    consentGranted = false;
+    await expect(call("todayTotals", stamp(true))).rejects.toThrow(/Conjure Health and agree to let it keep/);
+  });
+
+  it("never hands __caller to a handler", async () => {
+    await agree();
+    // dayEntries validates its params strictly enough that a stray key would show.
+    const res = (await call("dayEntries", { date: today(), ...stamp(true) })) as { entries: unknown[] };
+    expect(res.entries).toHaveLength(1);
+    // logFood's sourceApp-style fields would pick up an unexpected key; the log carries only its own.
+    await call("logWater", { ml: 100, ...stamp(false) });
+    expect(JSON.stringify(db.water)).not.toContain("__caller");
+  });
+
+  it("covers exactly the reads package.json declares", async () => {
+    const pkg = (await import("../../package.json")) as unknown as {
+      default: { conjureos: { actions: Record<string, { permission: string }> } };
+    };
+    const reads = Object.entries(pkg.default.conjureos.actions)
+      .filter(([, a]) => a.permission === "actions.read")
+      .map(([n]) => n)
+      .sort();
+    const { AI_READ_ACTIONS } = await import("./actions");
+    expect([...AI_READ_ACTIONS].sort()).toEqual(reads);
   });
 });

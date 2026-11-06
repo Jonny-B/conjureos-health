@@ -320,7 +320,7 @@ describe("the agreement itself", () => {
       ...PERSON,
       aiJournalConsent: { version: 2, acceptedAt: "2026-10-01T09:00:00.000Z", includeNotes: false },
     };
-    expect(consent.DISCLOSURE_VERSION).toBe(3);
+    expect(consent.DISCLOSURE_VERSION).toBe(4);
     expect(await consent.hasAiJournalConsent()).toBe(false);
   });
 
@@ -379,7 +379,8 @@ describe("the gate is the one way to the AI", () => {
     const reach = Object.entries(SHIPPED)
       .filter(([, text]) => /__conjureos\??\.ai\b/.test(text))
       .map(([path]) => path);
-    expect(reach).toEqual(["bridge/ai.ts"]);
+    // bridge/agreement.ts only reports and listens (ConjureOS #1230); it never sends.
+    expect(reach).toEqual(["bridge/agreement.ts", "bridge/ai.ts"]);
   });
 
   it("every module that sends through the gate serves a feature the agreement names", () => {

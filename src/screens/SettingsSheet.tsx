@@ -10,6 +10,7 @@ import {
   AI_AGREEMENT_NOT_SAVED,
   AI_FEATURES,
   AI_WITHDRAW_NOT_SAVED,
+  aiAgreementState,
   aiWithdrawalNotSaved,
   consentIsCurrent,
   readAiJournalConsent,
@@ -44,6 +45,8 @@ export function SettingsSheet({
 }) {
   const [units, setUnitsState] = useState<Profile["units"]>(profile?.units ?? "metric");
   const [consent, setConsent] = useState<AiJournalConsent | undefined>(undefined);
+  // The person said no when ConjureOS Chat asked (ConjureOS #1230).
+  const [refused, setRefused] = useState(false);
   const [policyOpen, setPolicyOpen] = useState(false);
   // A withdrawal of the AI agreement in this session could not be saved.
   const [aiNotSaved, setAiNotSaved] = useState(aiWithdrawalNotSaved);
@@ -79,6 +82,7 @@ export function SettingsSheet({
   // in this same session, and again whenever it is given or withdrawn here.
   useEffect(() => {
     void readAiJournalConsent().then(setConsent);
+    void aiAgreementState().then((st) => setRefused(st === "refused"));
   }, [ai.agreed]);
 
   // Units is a display preference — apply + persist it the instant it's tapped
@@ -178,6 +182,7 @@ export function SettingsSheet({
                     </button>
                   </>
                 )}
+                {refused && <p className="muted small">You chose not to share with AI.</p>}
                 <p className="muted small">
                   Nothing is sent. You can agree here, or when you first use one of them, and
                   you are shown exactly what would go before you do.
