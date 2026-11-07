@@ -665,6 +665,10 @@ function AiMode({
   // The last input, so "Try again" doesn't mean "retype it".
   const [lastInput, setLastInput] = useState<{ text?: string; image?: ChatImage } | null>(null);
   const [busy, setBusy] = useState(false);
+  // A save in flight: the second tap of a double tap must not log again. The
+  // ref closes the gap before React re-renders the disabled button.
+  const [logging, setLogging] = useState(false);
+  const loggingRef = useRef(false);
   const [shotUrl, setShotUrl] = useState<string | null>(null);
   // Index of the parsed item being edited inline, or null for the list view.
   const [editing, setEditing] = useState<number | null>(null);
@@ -755,18 +759,25 @@ function AiMode({
   useEffect(() => onAiConsentWithdrawn(() => retake()), []);
 
   const logAll = async () => {
-    if (!items?.length) return;
-    const repo = await getRepository();
-    const exclude = toHistory ? {} : { excludeFromQuickAdd: true };
-    if (grouped) {
-      const one = groupItems(items, groupName);
-      if (one) await repo.addDiaryEntry({ date, meal, quantity: 1, food: one, ...exclude });
-    } else {
-      for (const food of items) {
-        await repo.addDiaryEntry({ date, meal, quantity: 1, food, ...exclude });
+    if (!items?.length || loggingRef.current) return;
+    loggingRef.current = true;
+    setLogging(true);
+    try {
+      const repo = await getRepository();
+      const exclude = toHistory ? {} : { excludeFromQuickAdd: true };
+      if (grouped) {
+        const one = groupItems(items, groupName);
+        if (one) await repo.addDiaryEntry({ date, meal, quantity: 1, food: one, ...exclude });
+      } else {
+        for (const food of items) {
+          await repo.addDiaryEntry({ date, meal, quantity: 1, food, ...exclude });
+        }
       }
+      onLogged();
+    } finally {
+      loggingRef.current = false;
+      setLogging(false);
     }
-    onLogged();
   };
 
   if (ai.agreed !== true) {
@@ -924,7 +935,7 @@ function AiMode({
               </li>
             ))}
           </ul>
-          <button className="btn primary block" onClick={logAll}>
+          <button className="btn primary block" disabled={logging} onClick={logAll}>
             {grouped
               ? `Log “${(groupName.trim() || suggestGroupName(items)).slice(0, 30)}” to ${MEAL_LABELS[meal]}`
               : `Log ${items.length} item${items.length === 1 ? "" : "s"} to ${MEAL_LABELS[meal]}`}
